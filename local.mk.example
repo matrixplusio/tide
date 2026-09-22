@@ -1,0 +1,22 @@
+# Copy to local.mk (not in the repository) and set what your own cluster uses.
+#
+#   cp local.mk.example local.mk
+#
+# Everything here is local to one machine: a wildcard domain that only
+# /etc/hosts resolves, a cert-manager CA for it, and passwords for a
+# database nothing outside the laptop can reach.
+
+# The wildcard domain the local ingress serves. Tide comes up at
+# https://tide.$(DEV_DOMAIN); you need /etc/hosts entries for it.
+DEV_DOMAIN := example.test
+
+# cert-manager ClusterIssuer secret holding the CA for that domain.
+CA_SECRET := local-ca
+
+# Created by deploy/dev's db-provision job. Local only.
+DEV_DB_OWNER_PASSWORD := tide-dev-owner
+DEV_DB_APP_PASSWORD   := tide-dev-app
+
+# Redis for the integration tests (`make test-db`). Leave it empty and the
+# Redis tests skip; everything else still runs.
+TEST_REDIS_URL := redis://redis.infra.svc:6379/9

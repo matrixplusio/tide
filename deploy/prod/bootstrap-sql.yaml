@@ -1,0 +1,45 @@
+# Prints the SQL that creates the database and the two roles, filled in with
+# the passwords from the Secrets, so nobody has to copy one by hand.
+#
+# It reads the passwords out of the two Secrets, so tide.yaml has to be
+# applied first. The server will crash-loop until the database exists, which
+# is what this job is for.
+#
+#   kubectl apply -f tide.yaml            # namespace + both Secrets
+#   kubectl apply -f bootstrap-sql.yaml
+#   kubectl -n tide logs job/tide-bootstrap-sql
+#   # paste the output into psql as a superuser, once
+#   kubectl delete -f bootstrap-sql.yaml
+#
+# It connects to nothing: the database it describes does not exist yet. Tide
+# cannot run these statements itself — that needs a superuser, and holding
+# one would put the whole PostgreSQL instance behind a single compromised
+# pod.
+#
+# The output contains the passwords. Read it with kubectl logs and delete the
+# job; do not leave it for a log collector to pick up.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tide-bootstrap-sql
+  namespace: tide
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: tide
+          image: ghcr.io/matrixplusio/tide:v0.0.1-beta.1
+          args: [sql]
+          envFrom:
+            - { secretRef: { name: tide } }
+            - { secretRef: { name: tide-migrate } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }

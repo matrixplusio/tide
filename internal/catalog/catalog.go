@@ -1,0 +1,758 @@
+// Package catalog builds the service × environment view from upstreams on
+// demand. Tide does not store a service list: it would go stale. Reads are
+// cached briefly so opening a page does not fan out to every upstream.
+package catalog
+
+import (
+	"cmp"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"go.uber.org/zap"
+
+	"tide/internal/cache"
+	"tide/internal/i18n"
+	"tide/internal/metrics"
+	"tide/internal/settings"
+	"tide/internal/store/pg"
+	"tide/internal/upstream/argocd"
+	"tide/internal/upstream/kargo"
+	"tide/internal/upstream/registry"
+)
+
+const cacheTTL = 30 * time.Second
+
+// sharedTTL only bounds how long a superseded snapshot lingers; a live one
+// is replaced by a new key, not by expiry.
+const sharedTTL = 10 * time.Minute
+
+// Annotation Kargo requires on Applications it may update; it tells us the
+// project and stage behind each Application.
+const authorizedStageAnnotation = "kargo.akuity.io/authorized-stage"
+
+type Clients struct {
+	Name     string
+	Envs     []string
+	Kargo    *kargo.Client
+	ArgoCD   *argocd.Client
+	Registry *registry.Client
+	Grafana  string
+}
+
+type Deployment struct {
+	Service       string     `json:"service"`
+	Env           string     `json:"env"`
+	Domain        string     `json:"domain"`
+	Project       string     `json:"project,omitempty"`
+	Upstream      string     `json:"upstream"`
+	App           string     `json:"app"`
+	Namespace     string     `json:"namespace"`
+	Sync          string     `json:"sync"`
+	Health        string     `json:"health"`
+	HealthMessage string     `json:"healthMessage,omitempty"`
+	Operation     string     `json:"operation,omitempty"`
+	Images        []string   `json:"images"`
+	Image         string     `json:"image,omitempty"` // repository, no tag
+	Tag           string     `json:"tag,omitempty"`
+	Digest        string     `json:"digest,omitempty"`
+	Version       string     `json:"version,omitempty"`
+	BuiltAt       *time.Time `json:"builtAt,omitempty"`
+	KargoProject  string     `json:"kargoProject,omitempty"`
+	KargoStage    string     `json:"kargoStage,omitempty"`
+	Freight       string     `json:"freight,omitempty"`
+	Since         *time.Time `json:"since,omitempty"`
+	Promoting     string     `json:"promoting,omitempty"` // current Kargo promotion name
+	AutoPromotion bool       `json:"autoPromotion"`
+	AutoHeld      bool       `json:"autoHeld"`
+	Grafana       string     `json:"grafana,omitempty"`
+}
+
+type Service struct {
+	Name string `json:"name"`
+	// Project groups domains; empty when neither a project label nor a Kargo
+	// project applies.
+	Project string `json:"project"`
+	Domain  string `json:"domain"`
+	// Dimensions holds the value of each configured catalog dimension, by key.
+	Dimensions map[string]string      `json:"dimensions"`
+	Envs       map[string]*Deployment `json:"envs"`
+	// Conflicts explains why the name is ambiguous: the same service name in
+	// more than one project, or more than one Application for one environment.
+	// Tide shows such a service but refuses changes to it.
+	Conflicts []string `json:"conflicts,omitempty"`
+}
+
+type UpstreamStatus struct {
+	Name          string    `json:"name"`
+	Envs          []string  `json:"envs"`
+	KargoOK       bool      `json:"kargoOk"`
+	KargoError    string    `json:"kargoError,omitempty"`
+	KargoVersion  string    `json:"kargoVersion,omitempty"`
+	ArgoCDOK      bool      `json:"argocdOk"`
+	ArgoCDError   string    `json:"argocdError,omitempty"`
+	ArgoCDVersion string    `json:"argocdVersion,omitempty"`
+	CheckedAt     time.Time `json:"checkedAt"`
+}
+
+type Snapshot struct {
+	// Labels counts label values across the Applications Tide maps, to help
+	// administrators choose catalog labels. Not part of the services API.
+	Labels    map[string]map[string]int `json:"-"`
+	Services  []Service                 `json:"services"`
+	Upstreams []UpstreamStatus          `json:"upstreams"`
+	EnvOrder  []string                  `json:"envOrder"`
+	At        time.Time                 `json:"at"`
+}
+
+type Hub struct {
+	Settings *settings.Store
+	PG       *pg.Store
+	// Shared is the tier replicas have in common. Nil behaves like a cache
+	// that always misses, which is the behaviour before there was one.
+	Shared cache.Cache
+
+	mu       sync.Mutex
+	clients  map[string]*Clients
+	envOrder []string
+	catalog  settings.Catalog
+	snap     *Snapshot
+	// clientGen is the generation the clients were built at; gen the one the
+	// snapshot was built at. They move together but are cached separately.
+	clientGen int64
+	// gen is the cache_generation this snapshot was built at. A release
+	// finishing on another replica bumps it, so this one stops serving a view
+	// that says the old version is still deployed.
+	gen      int64
+	building chan struct{}
+
+	imgMu  sync.Mutex
+	images map[string]*registry.Image // digest → metadata; digests are immutable
+}
+
+var ErrNoUpstreams = errors.New("no upstreams configured")
+
+// Reset drops this replica's clients and snapshot. Callers that changed
+// something other replicas must see bump ScopeCatalog in their transaction;
+// this only handles the replica doing the work.
+func (h *Hub) Reset() {
+	h.mu.Lock()
+	h.clients, h.snap, h.gen, h.clientGen = nil, nil, 0, 0
+	h.mu.Unlock()
+}
+
+// load returns the upstream clients, rebuilding them when the catalog
+// generation has moved. The clients carry addresses and tokens read from
+// settings: without the generation check, an address or token changed on
+// another replica would never reach this one, which is the same failure the
+// settings cache had.
+func (h *Hub) load(ctx context.Context, gen int64) (map[string]*Clients, []string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.clients != nil && h.clientGen == gen {
+		return h.clients, h.envOrder, nil
+	}
+	var ups settings.Upstreams
+	if err := h.Settings.Load(ctx, settings.SectionUpstreams, &ups); err != nil {
+		if errors.Is(err, settings.ErrNotConfigured) {
+			return nil, nil, ErrNoUpstreams
+		}
+		return nil, nil, err
+	}
+	envs, err := h.Settings.Environments(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if h.catalog, err = h.Settings.Catalog(ctx); err != nil {
+		return nil, nil, err
+	}
+	h.clients = map[string]*Clients{}
+	for _, u := range ups.Items {
+		var served []string
+		for _, e := range envs.Items {
+			if e.Upstream == u.Name {
+				served = append(served, e.Name)
+			}
+		}
+		h.clients[u.Name] = Build(u, served)
+	}
+	h.envOrder, h.clientGen = envs.Order(), gen
+	return h.clients, h.envOrder, nil
+}
+
+// Build creates clients for one upstream serving envs.
+func Build(u settings.Upstream, envs []string) *Clients {
+	return &Clients{
+		Name: u.Name, Envs: envs, Grafana: u.GrafanaURL,
+		Kargo:    kargo.New(u.KargoURL, u.KargoToken, u.InsecureTLS),
+		ArgoCD:   argocd.New(u.ArgoCDURL, u.ArgoCDToken, u.InsecureTLS),
+		Registry: registry.New(u.RegistryURL, u.RegistryUser, u.RegistryToken, u.InsecureTLS),
+	}
+}
+
+// ClientsFor returns the upstream serving env.
+func (h *Hub) ClientsFor(ctx context.Context, env string) (*Clients, error) {
+	gen, err := h.generation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cs, _, err := h.load(ctx, gen)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range cs {
+		if slices.Contains(c.Envs, env) {
+			return c, nil
+		}
+	}
+	return nil, fmt.Errorf("no upstream serves env %q", env)
+}
+
+func (h *Hub) Named(ctx context.Context, name string) (*Clients, error) {
+	gen, err := h.generation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cs, _, err := h.load(ctx, gen)
+	if err != nil {
+		return nil, err
+	}
+	c, ok := cs[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown upstream %q", name)
+	}
+	return c, nil
+}
+
+// Snapshot returns the cached view, rebuilding it when older than cacheTTL.
+// Concurrent callers share one rebuild.
+func (h *Hub) Snapshot(ctx context.Context, fresh bool) (*Snapshot, error) {
+	gen, err := h.generation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		h.mu.Lock()
+		if h.snap != nil && !fresh && h.gen == gen && time.Since(h.snap.At) < cacheTTL {
+			s := h.snap
+			h.mu.Unlock()
+			return s, nil
+		}
+		if h.building != nil {
+			ch := h.building
+			h.mu.Unlock()
+			select {
+			case <-ch:
+				fresh = false
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		ch := make(chan struct{})
+		h.building = ch
+		h.mu.Unlock()
+
+		// Another replica may have built this generation already. Reading its
+		// bytes costs a round trip instead of a walk over every Application,
+		// and both replicas then answer from the same snapshot.
+		var err error
+		s := h.fromShared(ctx, gen)
+		if s == nil {
+			// Detached from the request on purpose: other waiters are blocked
+			// on this build, so the first caller navigating away must not
+			// cancel it.
+			bctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			buildStart := time.Now()
+			s, err = h.build(bctx, gen) //nolint:contextcheck // see above: shared build outlives one request
+			metrics.CatalogRefresh(time.Since(buildStart), err)
+			if err == nil {
+				// Before cancel: publishing with a cancelled context writes
+				// nothing, and the failure would be swallowed as a degraded
+				// cache, leaving every replica to rebuild for itself.
+				h.toShared(bctx, gen, s) //nolint:contextcheck // same detached context
+			}
+			cancel()
+		}
+		h.mu.Lock()
+		if err == nil {
+			h.snap, h.gen = s, gen
+		}
+		h.building = nil
+		close(ch)
+		h.mu.Unlock()
+		return s, err
+	}
+}
+
+// snapshotKey stamps the generation into the key, so a change committed in
+// PostgreSQL moves every replica to a different key. Nothing has to be
+// deleted, and no invalidation message can go missing.
+func snapshotKey(gen int64) string { return fmt.Sprintf("tide:catalog:snapshot:%d", gen) }
+
+// wire is what goes into the shared cache. Snapshot.Labels is excluded from
+// the API response (json:"-") but the label discovery page needs it, so it
+// travels alongside rather than being silently dropped.
+type wire struct {
+	Snapshot *Snapshot                 `json:"snapshot"`
+	Labels   map[string]map[string]int `json:"labels"`
+}
+
+// fromShared returns another replica's snapshot for this generation, or nil
+// to mean "build it yourself". There is no error to return: every failure,
+// including an unreadable value, is simply a miss.
+func (h *Hub) fromShared(ctx context.Context, gen int64) *Snapshot {
+	if h.Shared == nil {
+		return nil
+	}
+	b, ok := h.Shared.Get(ctx, snapshotKey(gen))
+	if !ok {
+		return nil
+	}
+	var w wire
+	if err := json.Unmarshal(b, &w); err != nil || w.Snapshot == nil {
+		zap.L().Warn("discarding unreadable cached catalog", zap.Error(err))
+		return nil
+	}
+	w.Snapshot.Labels = w.Labels
+	return w.Snapshot
+}
+
+// toShared publishes a snapshot for the other replicas. The TTL is a floor
+// under garbage collection, not the invalidation mechanism: superseded
+// generations are already unreachable by key.
+func (h *Hub) toShared(ctx context.Context, gen int64, s *Snapshot) {
+	if h.Shared == nil || s == nil {
+		return
+	}
+	b, err := json.Marshal(wire{Snapshot: s, Labels: s.Labels})
+	if err != nil {
+		zap.L().Warn("cannot cache catalog snapshot", zap.Error(err))
+		return
+	}
+	h.Shared.Set(ctx, snapshotKey(gen), b, sharedTTL)
+}
+
+// generation reads the catalog counter, or 0 when the hub has no database
+// (tests build a Hub directly). A constant 0 keeps the old TTL behaviour.
+func (h *Hub) generation(ctx context.Context) (int64, error) {
+	if h.PG == nil {
+		return 0, nil
+	}
+	return h.PG.Cache.Generation(ctx, pg.ScopeCatalog)
+}
+
+func (h *Hub) build(ctx context.Context, gen int64) (*Snapshot, error) {
+	cs, order, err := h.load(ctx, gen)
+	if err != nil {
+		return nil, err
+	}
+	h.mu.Lock()
+	cat := h.catalog
+	h.mu.Unlock()
+	snap := &Snapshot{EnvOrder: order, At: time.Now(), Labels: map[string]map[string]int{}}
+	var mu sync.Mutex
+	var deps []rawDeployment
+	var tasks []func()
+	for _, c := range cs {
+		tasks = append(tasks, func() {
+			st, ds := h.buildUpstream(ctx, c, cat)
+			mu.Lock()
+			defer mu.Unlock()
+			snap.Upstreams = append(snap.Upstreams, st)
+			deps = append(deps, ds...)
+		})
+	}
+	parallel(len(tasks), tasks...)
+	sort.Slice(snap.Upstreams, func(i, j int) bool { return snap.Upstreams[i].Name < snap.Upstreams[j].Name })
+	snap.Services = mergeServices(deps)
+	for _, d := range deps {
+		for k, v := range d.labels {
+			if snap.Labels[k] == nil {
+				snap.Labels[k] = map[string]int{}
+			}
+			snap.Labels[k][v]++
+		}
+	}
+	return snap, nil
+}
+
+// mergeServices groups deployments into services by name. Services are
+// identified by name alone, so a name that maps to several projects, or to
+// several Applications in one environment, is recorded as a conflict instead
+// of one deployment silently replacing another. Input order does not matter.
+func mergeServices(deps []rawDeployment) []Service {
+	deps = slices.Clone(deps)
+	slices.SortFunc(deps, func(a, b rawDeployment) int {
+		return cmp.Or(strings.Compare(a.Service, b.Service), strings.Compare(a.Env, b.Env), strings.Compare(a.Upstream, b.Upstream), strings.Compare(a.App, b.App))
+	})
+	var out []Service
+	for i := 0; i < len(deps); {
+		j := i
+		for j < len(deps) && deps[j].Service == deps[i].Service {
+			j++
+		}
+		out = append(out, mergeService(deps[i:j]))
+		i = j
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Project != b.Project {
+			return a.Project < b.Project
+		}
+		if a.Domain != b.Domain {
+			return a.Domain < b.Domain
+		}
+		return a.Name < b.Name
+	})
+	return out
+}
+
+// mergeService merges one service's deployments, sorted by env then app.
+func mergeService(deps []rawDeployment) Service {
+	svc := Service{Name: deps[0].Service, Domain: deps[0].domainHint, Dimensions: map[string]string{}, Envs: map[string]*Deployment{}}
+	var projects []string
+	apps := map[string][]string{} // env → "app (upstream)"
+	var envs []string
+	for i := range deps {
+		d := &deps[i]
+		if d.Project != "" && !slices.Contains(projects, d.Project) {
+			projects = append(projects, d.Project)
+		}
+		for k, v := range d.dimensions {
+			if svc.Dimensions[k] == "" {
+				svc.Dimensions[k] = v
+			}
+		}
+		if apps[d.Env] == nil {
+			envs = append(envs, d.Env)
+			svc.Envs[d.Env] = &d.Deployment
+		}
+		apps[d.Env] = append(apps[d.Env], fmt.Sprintf("%s（%s）", d.App, d.Upstream))
+	}
+	slices.Sort(projects)
+	if len(projects) > 0 {
+		svc.Project = projects[0]
+	}
+	if len(projects) > 1 {
+		svc.Conflicts = append(svc.Conflicts, i18n.T(i18n.Default, "c.nameInManyProjects", svc.Name, strings.Join(projects, ", ")))
+	}
+	for _, e := range envs {
+		if len(apps[e]) > 1 {
+			svc.Conflicts = append(svc.Conflicts, i18n.T(i18n.Default, "c.manyApps", svc.Name, e, strings.Join(apps[e], ", ")))
+		}
+	}
+	return svc
+}
+
+type rawDeployment struct {
+	Deployment
+	domainHint string
+	dimensions map[string]string
+	labels     map[string]string
+}
+
+// buildUpstream degrades per call: an unreachable Kargo or Argo CD is recorded
+// in the status instead of failing the whole snapshot.
+func (h *Hub) buildUpstream(ctx context.Context, c *Clients, cat settings.Catalog) (UpstreamStatus, []rawDeployment) {
+	st := UpstreamStatus{Name: c.Name, Envs: c.Envs, CheckedAt: time.Now()}
+	var apps []argocd.Application
+	var stages = map[string]map[string]*kargo.Stage{} // project → stage → Stage
+	parallel(2, func() {
+		var err error
+		if apps, err = c.ArgoCD.ListApplications(ctx); err != nil {
+			st.ArgoCDError = err.Error()
+			return
+		}
+		st.ArgoCDOK = true
+		if v, err := c.ArgoCD.Version(ctx); err == nil {
+			st.ArgoCDVersion = v
+		}
+	}, func() {
+		v, err := c.Kargo.GetVersionInfo(ctx)
+		if err != nil {
+			st.KargoError = err.Error()
+			return
+		}
+		st.KargoOK, st.KargoVersion = true, v
+	})
+
+	var deps []rawDeployment
+	projects := map[string]bool{}
+	for _, a := range apps {
+		d, ok := fromApp(a, c, cat)
+		if !ok {
+			continue
+		}
+		if d.KargoProject != "" {
+			projects[d.KargoProject] = true
+		}
+		deps = append(deps, d)
+	}
+	if st.KargoOK {
+		var mu sync.Mutex
+		var tasks []func()
+		for p := range projects {
+			tasks = append(tasks, func() {
+				list, err := c.Kargo.ListStages(ctx, p)
+				if err != nil {
+					zap.L().Warn("kargo list stages failed", zap.String("upstream", c.Name), zap.String("project", p), zap.Error(err))
+					return
+				}
+				m := map[string]*kargo.Stage{}
+				for i := range list {
+					m[list[i].Metadata.Name] = &list[i]
+				}
+				mu.Lock()
+				stages[p] = m
+				mu.Unlock()
+			})
+		}
+		parallel(8, tasks...)
+	}
+	for i := range deps {
+		d := &deps[i]
+		if s := stages[d.KargoProject][d.KargoStage]; s != nil {
+			applyStage(&d.Deployment, s)
+		}
+	}
+	h.fillVersions(ctx, c, deps)
+	return st, deps
+}
+
+func fromApp(a argocd.Application, c *Clients, cat settings.Catalog) (rawDeployment, bool) {
+	var d rawDeployment
+	d.Upstream, d.App = c.Name, a.Metadata.Name
+	d.Namespace = a.Spec.Destination.Namespace
+	d.Sync, d.Health, d.HealthMessage = a.Status.Sync.Status, a.Status.Health.Status, a.Status.Health.Message
+	if op := a.Status.OperationState; op != nil {
+		d.Operation = op.Phase
+	}
+	d.Images = a.Status.Summary.Images
+	if proj, stage, ok := strings.Cut(a.Metadata.Annotations[authorizedStageAnnotation], ":"); ok {
+		d.KargoProject, d.KargoStage = proj, stage
+	}
+	labels := a.Metadata.Labels
+	d.labels = labels
+	// The Argo CD project, split once and reused for whichever dimensions ask
+	// for it.
+	argoLine, argoEnv := argoProjectValue(a.Spec.Project, c.Envs)
+	d.Env = labelValue(labels, cat.EnvLabel)
+	if cat.EnvLabel == FromArgoProject {
+		d.Env = argoEnv
+	}
+	if d.Env == "" && slices.Contains(c.Envs, d.KargoStage) {
+		d.Env = d.KargoStage
+	}
+	if d.Env == "" {
+		for _, e := range c.Envs {
+			if strings.HasSuffix(a.Metadata.Name, "-"+e) {
+				d.Env = e
+			}
+		}
+	}
+	if d.Env == "" || !slices.Contains(c.Envs, d.Env) {
+		return d, false // not one of ours (e.g. platform apps)
+	}
+	d.Service = labelValue(labels, cat.ServiceLabel)
+	if cat.ServiceLabel == FromArgoProject {
+		d.Service = argoLine
+	}
+	if d.Service == "" {
+		d.Service = strings.TrimSuffix(a.Metadata.Name, "-"+d.Env)
+	}
+	d.Domain = labelValue(labels, cat.DomainLabel)
+	if cat.DomainLabel == FromArgoProject {
+		d.Domain = argoLine
+	}
+	if d.Domain == "" {
+		d.Domain = strings.TrimSuffix(d.Namespace, "-"+d.Env)
+	}
+	d.domainHint = d.Domain
+	d.Project = labelValue(labels, cat.ProjectLabel)
+	if cat.ProjectLabel == FromArgoProject {
+		d.Project = argoLine
+	}
+	if d.Project == "" {
+		// Falling back to the Kargo project is right where Kargo projects group
+		// services, and wrong where each service has one — then every service
+		// looks like its own project. FromArgoProject exists for that case.
+		d.Project = d.KargoProject
+	}
+	d.dimensions = map[string]string{}
+	for _, dim := range cat.Dimensions {
+		if v := labelValue(labels, dim.Label); v != "" {
+			d.dimensions[dim.Key] = v
+		}
+	}
+	if len(d.Images) > 0 {
+		d.Image, d.Tag = splitRef(d.Images[0])
+	}
+	if c.Grafana != "" {
+		d.Grafana = strings.NewReplacer("{service}", d.Service, "{env}", d.Env, "{namespace}", d.Namespace).Replace(c.Grafana)
+	}
+	return d, true
+}
+
+func labelValue(labels map[string]string, key string) string {
+	if key == "" {
+		return ""
+	}
+	return labels[key]
+}
+
+// FromArgoProject asks for a dimension to be read from the Argo CD project
+// instead of a label. Some setups already encode what Tide wants in the
+// AppProject name — "acme-dev" is a business line and an environment — and
+// making Tide read that is one setting, against labelling every Application.
+const FromArgoProject = "argocd:project"
+
+// argoProjectValue splits an Argo CD project name into its leading part and
+// its environment suffix: "acme-dev" with envs [dev qa] gives ("acme", "dev").
+// A name with no known environment suffix is returned whole, because that is
+// what a project without a per-environment split looks like.
+func argoProjectValue(project string, envs []string) (line, env string) {
+	for _, e := range envs {
+		if strings.HasSuffix(project, "-"+e) {
+			return strings.TrimSuffix(project, "-"+e), e
+		}
+	}
+	return project, ""
+}
+
+func applyStage(d *Deployment, s *kargo.Stage) {
+	d.AutoPromotion = s.Status.AutoPromotionEnabled
+	d.AutoHeld = len(s.Status.EffectiveAutoPromotionHolds) > 0
+	if s.Status.CurrentPromotion != nil {
+		d.Promoting = s.Status.CurrentPromotion.Name
+	}
+	cur := s.Current()
+	if cur == nil {
+		return
+	}
+	d.Freight = cur.Name
+	for _, img := range cur.Images {
+		if d.Image == "" || sameRepo(img.RepoURL, d.Image) {
+			d.Image, d.Tag, d.Digest = img.RepoURL, img.Tag, img.Digest
+			break
+		}
+	}
+	if s.Status.LastPromotion != nil && s.Status.LastPromotion.FinishedAt != nil {
+		d.Since = s.Status.LastPromotion.FinishedAt
+	}
+}
+
+// fillVersions adds image metadata where the registry answers; misses leave
+// the version empty rather than failing the view.
+func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment) {
+	var tasks []func()
+	for i := range deps {
+		d := &deps[i]
+		if d.Image == "" || (d.Digest == "" && d.Tag == "") {
+			continue
+		}
+		tasks = append(tasks, func() {
+			ref := d.Digest
+			if ref == "" {
+				ref = d.Tag
+			}
+			if img, err := h.Inspect(ctx, c, d.Image, ref); err == nil {
+				d.Digest, d.Version, d.BuiltAt = img.Digest, img.Version(), img.Created
+			}
+		})
+	}
+	parallel(8, tasks...)
+}
+
+// Inspect reads image metadata, caching by digest.
+// imageKey is not stamped with a generation: a digest names one immutable
+// manifest, so what it says about an image never changes.
+func imageKey(digest string) string { return "tide:catalog:image:" + digest }
+
+// imageTTL is long because the answer cannot go stale, only unused.
+const imageTTL = 24 * time.Hour
+
+func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*registry.Image, error) {
+	byDigest := strings.HasPrefix(ref, "sha256:")
+	if byDigest {
+		h.imgMu.Lock()
+		img := h.images[ref]
+		h.imgMu.Unlock()
+		if img != nil {
+			return img, nil
+		}
+		if img := h.imageFromShared(ctx, ref); img != nil {
+			h.remember(img)
+			return img, nil
+		}
+	}
+	_, repo := registry.SplitImage(image)
+	img, err := c.Registry.Inspect(ctx, repo, ref)
+	if err != nil {
+		return nil, err
+	}
+	h.remember(img)
+	if h.Shared != nil {
+		if b, err := json.Marshal(img); err == nil {
+			h.Shared.Set(ctx, imageKey(img.Digest), b, imageTTL)
+		}
+	}
+	return img, nil
+}
+
+func (h *Hub) remember(img *registry.Image) {
+	h.imgMu.Lock()
+	if h.images == nil {
+		h.images = map[string]*registry.Image{}
+	}
+	h.images[img.Digest] = img
+	h.imgMu.Unlock()
+}
+
+func (h *Hub) imageFromShared(ctx context.Context, digest string) *registry.Image {
+	if h.Shared == nil {
+		return nil
+	}
+	b, ok := h.Shared.Get(ctx, imageKey(digest))
+	if !ok {
+		return nil
+	}
+	var img registry.Image
+	if err := json.Unmarshal(b, &img); err != nil {
+		return nil
+	}
+	return &img
+}
+
+func splitRef(ref string) (repo, tag string) {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		ref = ref[:i]
+	}
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		return ref[:colon], ref[colon+1:]
+	}
+	return ref, ""
+}
+
+func sameRepo(a, b string) bool {
+	_, ra := registry.SplitImage(a)
+	_, rb := registry.SplitImage(b)
+	return ra == rb
+}
+
+// Find returns one service from the snapshot.
+func (s *Snapshot) Find(name string) *Service {
+	for i := range s.Services {
+		if s.Services[i].Name == name {
+			return &s.Services[i]
+		}
+	}
+	return nil
+}

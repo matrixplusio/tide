@@ -1,0 +1,13 @@
+.captcha { display: flex; align-items: center; gap: 10px; width: 100%; }
+.captcha .input { flex: 1; min-width: 0; letter-spacing: .12em; }
+.captcha-img {
+  flex: none; padding: 0; border: 0; border-radius: 6px; overflow: hidden; cursor: pointer;
+  background: var(--fill); line-height: 0; box-shadow: 0 0 0 .5px var(--sep);
+}
+.captcha-img img { width: 120px; height: 38px; display: block; }
+.captcha-img:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.captcha-img[aria-busy="true"] img { opacity: .4; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .captcha-img img { filter: invert(1) hue-rotate(180deg); }
+}
+:root[data-theme="dark"] .captcha-img img { filter: invert(1) hue-rotate(180deg); }

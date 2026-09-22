@@ -1,0 +1,149 @@
+# Tide production manifests. Adjust image, host and gateway before applying,
+# or point a kustomize overlay at kustomization.yaml next to this file.
+#
+# Database: put whatever passwords you like into the two Secrets below, then
+# run `bootstrap-sql.yaml` — it prints the CREATE ROLE / CREATE DATABASE
+# statements already filled in with them, for a superuser to run once.
+#
+# Two roles, one database. `tide_owner` owns the schema and runs the
+# migrations; `tide_app` is what the server connects as and is granted
+# INSERT/SELECT — and nothing else — on audit_log. An owner can grant itself
+# UPDATE at any time, so a single role would make the audit trail a promise
+# in code rather than something PostgreSQL enforces.
+#
+# Redis is optional and holds nothing durable; see the TIDE_REDIS_URL note
+# below and docs/designs/multi-replica.md for what lives where.
+#
+# Scraping is in servicemonitor.yaml, which needs the Prometheus Operator's
+# CRD. It is separate so that a cluster without the operator can apply this
+# file: a missing CRD would otherwise fail the whole apply, and monitoring is
+# not a prerequisite for running.
+#
+# The namespace is in namespace.yaml, so that deleting this file takes Tide
+# and nothing else that happens to share the namespace. The way traffic
+# reaches it is in route.yaml, because that differs per cluster.
+#
+# What is left here needs no CRD and applies anywhere.
+#
+# Nothing in this file owns data. `kubectl delete -f tide.yaml` removes the
+# Deployment, the Service, the PodDisruptionBudget and the two Secrets — and
+# stops there. The namespace stays, anything else sharing it stays, and there
+# is no PersistentVolumeClaim to lose: Tide keeps its state in PostgreSQL.
+# Do not add a Namespace or a PVC to this file.
+
+---
+# The only runtime configuration. Everything else is set in the setup wizard.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tide
+  namespace: tide
+# Every value is quoted, and no comment shares a line with one. A password
+# containing "#" would otherwise be silently truncated at it, and one starting
+# with *, &, !, % or @ is YAML syntax rather than a string. Keep it that way.
+stringData:
+  # Runtime account. Point it at the primary: a read-only replica service
+  # (CloudNativePG's -ro / -r) accepts the connection and fails every write.
+  TIDE_DATABASE_URL: "postgres://tide_app:CHANGE_ME@CHANGE_ME:5432/tide?sslmode=require"
+
+  # openssl rand -base64 32
+  # Losing this makes every stored upstream token and SSO secret unreadable.
+  TIDE_SECRETS_KEY: "CHANGE_ME"
+
+  # Optional shared cache for the service catalog and image metadata. It holds
+  # only data that can be rebuilt from PostgreSQL or the upstreams, so losing
+  # it costs time and never correctness; leave it empty and each replica keeps
+  # its own copy. A URL that does not work fails startup rather than quietly
+  # falling back — see docs/designs/multi-replica.md.
+  # Example: "redis://:PASSWORD@redis:6379/0"
+  TIDE_REDIS_URL: ""
+
+  # openssl rand -hex 24
+  # Scrapers send it as "Authorization: Bearer <token>"; leave empty only when
+  # /metrics cannot be reached from outside the cluster.
+  TIDE_SERVER_METRICS_TOKEN: "CHANGE_ME"
+---
+# Only mounted into the migrate init container, never into the server.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tide-migrate
+  namespace: tide
+stringData:
+  # Schema owner, used only by the migrate init container. Same host as
+  # TIDE_DATABASE_URL, and the same rule: it must be the primary.
+  TIDE_DATABASE_MIGRATE_URL: "postgres://tide_owner:CHANGE_ME@CHANGE_ME:5432/tide?sslmode=require"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tide
+  namespace: tide
+spec:
+  # Both replicas serve every request and each keeps its own catalog cache;
+  # only the two background loops (the executor and the CI intake worker)
+  # elect a leader, with a PostgreSQL advisory lock each.
+  replicas: 2
+  selector: { matchLabels: { app: tide } }
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } # keep serving during upgrades
+  template:
+    metadata:
+      labels: { app: tide }
+    spec:
+      automountServiceAccountToken: false # Tide never talks to the Kubernetes API
+      # Both replicas on one node would make a node drain an outage.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app: tide } }
+      securityContext:
+        runAsNonRoot: true
+        # The distroless image declares USER by name; the kubelet cannot
+        # check that a name is not root, so state the uid. 65532 is
+        # distroless's "nonroot".
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      # Migrations hold a PostgreSQL advisory lock, so both replicas may run
+      # this at the same time; a rollout applies them before serving.
+      initContainers:
+        - name: migrate
+          image: ghcr.io/matrixplusio/tide:v0.0.1-beta.1
+          args: [migrate]
+          envFrom: [{ secretRef: { name: tide-migrate } }]
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+      containers:
+        - name: tide
+          image: ghcr.io/matrixplusio/tide:v0.0.1-beta.1
+          args: [serve]
+          envFrom: [{ secretRef: { name: tide } }]
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tide
+  namespace: tide
+  labels: { app: tide }
+spec:
+  selector: { app: tide }
+  ports: [{ name: http, port: 80, targetPort: http }]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: tide, namespace: tide }
+spec:
+  minAvailable: 1
+  selector: { matchLabels: { app: tide } }

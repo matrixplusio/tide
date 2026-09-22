@@ -1,0 +1,228 @@
+# Tide dev environment on the local docker-desktop cluster.
+#
+# Source is hostPath-mounted: Go rebuilds via air, the web app runs Vite with HMR.
+# Browse https://tide.DEV_DOMAIN (needs an /etc/hosts entry; certificate is the trusted *.DEV_DOMAIN wildcard). Apply with `make dev-up`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tide-dev
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tide
+  namespace: tide-dev
+stringData:
+  # Runtime account: INSERT/SELECT only on audit_log.
+  TIDE_DATABASE_URL: postgres://tide_app:APP_PASSWORD@pgsql.infra.svc:5432/tide?sslmode=disable
+  # Schema owner, used only by `tide migrate`.
+  TIDE_DATABASE_MIGRATE_URL: postgres://tide_owner:OWNER_PASSWORD@pgsql.infra.svc:5432/tide?sslmode=disable
+  # Dev-only key. Never reuse outside this cluster.
+  TIDE_SECRETS_KEY: ZGV2LW9ubHktZW5jcnlwdGlvbi1rZXktMzItYnl0ZXM=
+---
+# Creates the tide database and both roles in the shared infra PostgreSQL.
+# `make dev-up` copies the infra superuser password into tide-dev/pg-admin first.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-provision
+  namespace: tide-dev
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: postgres:18
+          env:
+            - name: PGHOST
+              value: pgsql.infra.svc
+            - name: PGUSER
+              value: postgres
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: { name: pg-admin, key: POSTGRES_PASSWORD }
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              psql -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+              DO $do$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='tide_owner') THEN
+                  CREATE ROLE tide_owner LOGIN PASSWORD 'OWNER_PASSWORD';
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='tide_app') THEN
+                  CREATE ROLE tide_app LOGIN PASSWORD 'APP_PASSWORD';
+                END IF;
+              END $do$;
+              SELECT 'CREATE DATABASE tide OWNER tide_owner' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='tide')\gexec
+              SELECT 'CREATE DATABASE tide_test OWNER tide_owner' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='tide_test')\gexec
+              SQL
+              for db in tide tide_test; do
+                psql -v ON_ERROR_STOP=1 -d $db -c "REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT ALL ON SCHEMA public TO tide_owner; GRANT USAGE ON SCHEMA public TO tide_app;"
+              done
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: go-cache, namespace: tide-dev }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 5Gi } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: node-modules, namespace: tide-dev }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 2Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: tide-dev
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: backend } }
+  template:
+    metadata:
+      labels: { app: backend }
+    spec:
+      # *.DEV_DOMAIN resolves via the laptop's /etc/hosts, which pods do not see. Point the
+      # hosts Tide calls at ingress-nginx so issuer and upstream URLs are the same
+      # ones the browser uses. `make dev-up` fills in the ingress ClusterIP.
+      hostAliases:
+        - ip: INGRESS_IP
+          hostnames: [tide.DEV_DOMAIN, dex.DEV_DOMAIN, argocd.DEV_DOMAIN, kargo.DEV_DOMAIN, git.DEV_DOMAIN]
+      containers:
+        - name: backend
+          image: golang:1.26-alpine
+          workingDir: /workspace
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@v1.61.7
+              exec air -c .air.toml
+          env:
+            - { name: GOPATH, value: /cache/go }
+            - { name: GOCACHE, value: /cache/go-build }
+            - { name: PATH, value: /cache/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin }
+            - { name: CGO_ENABLED, value: "0" }
+            # Trust the local CA for https calls to dex/kargo/argocd.DEV_DOMAIN.
+            - { name: SSL_CERT_DIR, value: "/etc/ssl/certs:/etc/tide/ca" }
+            - { name: TIDE_SERVER_DEV_WEB_PROXY, value: "http://web.tide-dev.svc:5173" }
+            - { name: TIDE_LOG_LEVEL, value: "debug" }
+          envFrom:
+            - secretRef: { name: tide }
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 120
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 2Gi }
+          volumeMounts:
+            - { name: src, mountPath: /workspace }
+            - { name: go-cache, mountPath: /cache }
+            - { name: local-ca, mountPath: /etc/tide/ca, readOnly: true }
+      volumes:
+        - name: src
+          hostPath: { path: SOURCE_PATH, type: Directory }
+        - name: go-cache
+          persistentVolumeClaim: { claimName: go-cache }
+        # Copied from cert-manager/local-ca by `make dev-up`.
+        - name: local-ca
+          secret:
+            secretName: local-ca
+            items: [{ key: ca.crt, path: local-ca.pem }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: tide-dev
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: web } }
+  template:
+    metadata:
+      labels: { app: web }
+    spec:
+      containers:
+        - name: vite
+          image: node:22-alpine
+          workingDir: /app/web
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              corepack enable
+              CI=true pnpm install --frozen-lockfile
+              exec pnpm dev
+          env:
+            - { name: COREPACK_ENABLE_DOWNLOAD_PROMPT, value: "0" }
+            # Vite refuses a Host header it was not told about, and this pod is
+            # reached through the ingress under the laptop's wildcard domain.
+            - { name: TIDE_DEV_HOST, value: "tide.DEV_DOMAIN" }
+            - { name: VITE_HMR_CLIENT_PORT, value: "443" }
+            - { name: VITE_HMR_PROTOCOL, value: "wss" }
+            - { name: VITE_POLL, value: "1" }
+          ports:
+            - { name: http, containerPort: 5173 }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1536Mi }
+          volumeMounts:
+            - { name: src, mountPath: /app }
+            - { name: node-modules, mountPath: /app/web/node_modules }
+      volumes:
+        - name: src
+          hostPath: { path: SOURCE_PATH, type: Directory }
+        - name: node-modules
+          persistentVolumeClaim: { claimName: node-modules }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: backend, namespace: tide-dev }
+spec:
+  selector: { app: backend }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: web, namespace: tide-dev }
+spec:
+  selector: { app: web }
+  ports: [{ name: http, port: 5173, targetPort: http }]
+---
+# Everything goes to the backend, which proxies non-API paths to Vite in dev.
+# One origin keeps the session cookie and OIDC callback identical to production.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tide
+  namespace: tide-dev
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  # No secretName: ingress-nginx serves its default certificate, the
+  # *.DEV_DOMAIN wildcard signed by the locally trusted local-ca.
+  # With TLS configured, plain http is redirected to https.
+  tls:
+    - hosts: [tide.DEV_DOMAIN]
+  rules:
+    - host: tide.DEV_DOMAIN
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: backend, port: { number: 8080 } } }

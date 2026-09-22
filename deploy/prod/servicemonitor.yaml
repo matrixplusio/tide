@@ -1,0 +1,22 @@
+# Scraping for a cluster that runs the Prometheus Operator:
+#
+#   kubectl apply -f servicemonitor.yaml
+#
+# Kept out of tide.yaml because its CRD may not exist — applying a manifest
+# with an unknown kind fails the whole file, and nothing here is needed to
+# run Tide.
+#
+# Without the operator, point your scraper at the tide Service on port http,
+# path /metrics, and send TIDE_SERVER_METRICS_TOKEN as a bearer token.
+# The dashboard next door (grafana-dashboard.json) works either way.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: { name: tide, namespace: tide }
+spec:
+  selector: { matchLabels: { app: tide } }
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      authorization:
+        credentials: { name: tide, key: TIDE_SERVER_METRICS_TOKEN }

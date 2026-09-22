@@ -1,0 +1,57 @@
+/* Tide design tokens. One accent color; semantic colors only for state.
+   Light and dark are both first-class (people check releases at night). */
+:root {
+  --blue: #007aff; --blue-fill: #0071eb; --green: #34c759; --orange: #ff9500; --red: #ff3b30;
+  --gray: #8e8e93; --gray2: #aeaeb2; --gray4: #d1d1d6;
+  --win: #ffffff; --side: rgba(246, 246, 248, .72); --bar: rgba(252, 252, 253, .8);
+  --cell: #ffffff; --raised: #ffffff; --grouped: #f5f5f7; --seg-on: #ffffff;
+  --sep: #0000001a; --sep2: #00000010;
+  --ink: #1d1d1f; --ink2: #6e6e73; --ink3: #3c3c4359;
+  --fill: #78788014; --fill2: #7878801f; --sel: #0000000d;
+  --red-bg: #ff3b3014; --orange-bg: #ff950018; --blue-ring: #007aff40; --red-ring: #ff3b3040;
+
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
+
+  /* spacing (4pt grid) */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px;
+  /* radii */
+  --r-sm: 5px; --r-md: 6px; --r-lg: 9px; --r-xl: 12px;
+  /* motion: micro-interactions 120–200ms, layout 200–320ms */
+  --dur-micro: 140ms; --dur-micro-slow: 200ms; --dur-layout: 240ms; --dur-layout-slow: 320ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1); --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --blue: #0a84ff; --blue-fill: #0a6fe0; --green: #30d158; --orange: #ff9f0a; --red: #ff453a;
+    --gray4: #48484a; --gray2: #636366;
+    --win: #1c1c1e; --side: rgba(40, 40, 42, .72); --bar: rgba(42, 42, 44, .8);
+    --cell: #1c1c1e; --raised: #3a3a3c; --grouped: #000000; --seg-on: #636366;
+    --sep: #ffffff1f; --sep2: #ffffff14;
+    --ink: #f5f5f7; --ink2: #98989d; --ink3: #ebebf54d;
+    --fill: #7878805c; --fill2: #78788070; --sel: #ffffff14;
+    --red-bg: #ff453a24; --orange-bg: #ff9f0a24; --blue-ring: #0a84ff66; --red-ring: #ff453a66;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --blue: #0a84ff; --blue-fill: #0a6fe0; --green: #30d158; --orange: #ff9f0a; --red: #ff453a;
+  --gray4: #48484a; --gray2: #636366;
+  --win: #1c1c1e; --side: rgba(40, 40, 42, .72); --bar: rgba(42, 42, 44, .8);
+  --cell: #1c1c1e; --raised: #3a3a3c; --grouped: #000000; --seg-on: #636366;
+  --sep: #ffffff1f; --sep2: #ffffff14;
+  --ink: #f5f5f7; --ink2: #98989d; --ink3: #ebebf54d;
+  --fill: #7878805c; --fill2: #78788070; --sel: #ffffff14;
+  --red-bg: #ff453a24; --orange-bg: #ff9f0a24; --blue-ring: #0a84ff66; --red-ring: #ff453a66;
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-micro: 0ms; --dur-micro-slow: 0ms; --dur-layout: 0ms; --dur-layout-slow: 0ms;
+  }
+}

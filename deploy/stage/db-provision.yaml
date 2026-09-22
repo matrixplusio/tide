@@ -1,0 +1,44 @@
+# Creates the stage database. The two roles already exist (deploy/dev makes
+# them); this only adds a database of its own so the rehearsal never touches
+# the dev instance's data.
+#
+# The pg-admin secret it reads is created by `make stage-up` from the infra
+# superuser password, deliberately not checked in here.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-provision
+  namespace: tide-stage
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: postgres:18
+          env:
+            - name: PGHOST
+              value: pgsql.infra.svc
+            - name: PGUSER
+              value: postgres
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: { name: pg-admin, key: POSTGRES_PASSWORD }
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              psql -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+              DO $do$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='tide_owner') THEN
+                  CREATE ROLE tide_owner LOGIN PASSWORD 'OWNER_PASSWORD';
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='tide_app') THEN
+                  CREATE ROLE tide_app LOGIN PASSWORD 'APP_PASSWORD';
+                END IF;
+              END $do$;
+              SELECT 'CREATE DATABASE tide_stage OWNER tide_owner' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='tide_stage')\gexec
+              SQL
+              psql -v ON_ERROR_STOP=1 -d tide_stage -c "REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT ALL ON SCHEMA public TO tide_owner; GRANT USAGE ON SCHEMA public TO tide_app;"

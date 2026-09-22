@@ -1,0 +1,250 @@
+# Artifacts for a tag: a multi-architecture image on GHCR, four binaries, and
+# a GitHub release holding them.
+#
+# Everything carries a signed provenance attestation. A tool whose own job is
+# "prove what was deployed" should be able to prove where its own binaries
+# came from; `gh attestation verify` checks it against this repository.
+#
+# The only credential is the automatic GITHUB_TOKEN. Nothing here needs a
+# secret to be configured.
+#
+# One thing is not automatable: a GHCR package starts out private even when
+# its repository is public, and GitHub exposes no REST endpoint for package
+# visibility. The first release of a new package has to be made public once,
+# by hand, under Package settings → Change visibility. Until then `docker
+# pull` answers "unauthorized" to anyone without a token.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build (a dry run; nothing is published)
+        required: true
+        default: v0.0.0-dev
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  # The same gates as CI. A tag that cannot pass them is not a release, and
+  # finding that out after publishing is too late.
+  verify:
+    uses: ./.github/workflows/ci.yml
+    # A called workflow gets at most what its caller passes on.
+    permissions:
+      contents: read
+      packages: write
+
+  image:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # keyless signing of the attestation
+      attestations: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: meta
+        name: Resolve the version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # No QEMU: the Dockerfile cross-compiles, so both stages run natively.
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: steps.meta.outputs.publish == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A pre-release tag must not move :latest — "docker pull tide" should
+      # not hand someone a beta.
+      - id: tags
+        name: Decide the image tags
+        run: |
+          V="${{ steps.meta.outputs.version }}"
+          TAGS="${IMAGE}:${V}"
+          case "$V" in
+            *-*) echo "pre-release, not tagging latest" ;;
+            *)   TAGS="${TAGS},${IMAGE}:latest" ;;
+          esac
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.meta.outputs.publish == 'true' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.date }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: actions/attest-build-provenance@v2
+        if: steps.meta.outputs.publish == 'true'
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  binaries:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The frontend is embedded, so it is built once and every binary
+      # carries the same assets.
+      - name: Build the frontend
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Build the binaries
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_DATE: ${{ steps.meta.outputs.date }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          LDFLAGS="-s -w \
+            -X tide/internal/version.version=${VERSION} \
+            -X tide/internal/version.commit=${GITHUB_SHA} \
+            -X tide/internal/version.date=${BUILD_DATE}"
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"; arch="${target#*/}"
+            out="dist/tide_${VERSION}_${os}_${arch}"
+            echo "building $out"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags="$LDFLAGS" -o "$out" ./cmd/tide
+          done
+          # One file, so `sha256sum -c checksums.txt` verifies the lot.
+          cd dist && sha256sum tide_* > checksums.txt && cat checksums.txt
+
+      - name: Check the version was linked in
+        run: |
+          got=$(./dist/tide_${{ steps.meta.outputs.version }}_linux_amd64 version | head -1)
+          echo "$got"
+          [ "$got" = "tide ${{ steps.meta.outputs.version }}" ] || {
+            echo "::error::the binary reports '$got'; -ldflags did not take"
+            exit 1
+          }
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/tide_*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: dist/
+          retention-days: 7
+
+  publish:
+    # Only a real tag publishes. A manual run stops here, having proven that
+    # everything builds.
+    if: github.event_name == 'push'
+    needs: [image, binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 } # the changelog needs the history
+
+      - uses: actions/download-artifact@v4
+        with: { name: binaries, path: dist }
+
+      - id: notes
+        name: Collect the commits since the previous tag
+        run: |
+          prev=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          {
+            echo "## 变更"
+            echo
+            if [ -n "$prev" ]; then
+              git log --no-merges --pretty='- %s' "${prev}..${GITHUB_REF_NAME}"
+            else
+              echo "- 第一个发布"
+            fi
+            echo
+            echo "## 镜像"
+            echo
+            echo '```'
+            echo "docker pull ${IMAGE}:${GITHUB_REF_NAME}"
+            echo '```'
+            echo
+            echo "digest \`${{ needs.image.outputs.digest }}\`，linux/amd64 与 linux/arm64。"
+            echo
+            echo "## 校验"
+            echo
+            echo "每个制品都带一份签名的来源证明："
+            echo
+            echo '```'
+            echo "gh attestation verify --repo ${GITHUB_REPOSITORY} tide_${GITHUB_REF_NAME}_linux_amd64"
+            echo "gh attestation verify --repo ${GITHUB_REPOSITORY} oci://${IMAGE}:${GITHUB_REF_NAME}"
+            echo "sha256sum -c checksums.txt"
+            echo '```'
+          } > notes.md
+          cat notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body_path: notes.md
+          # Anything with a hyphen in the version is a pre-release: semver
+          # says so, and GitHub then keeps it out of "latest release".
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
