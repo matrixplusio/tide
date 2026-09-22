@@ -6,7 +6,7 @@
 # means QEMU runs pnpm, vite and the Go compiler — that took two hours on a
 # GitHub runner, against a few minutes this way. The frontend bundle is just
 # static files and has no architecture at all.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:26-alpine AS web
 WORKDIR /src/web
 RUN corepack enable
 COPY web/package.json web/pnpm-lock.yaml ./
