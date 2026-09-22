@@ -74,7 +74,7 @@ Accept-Language: zh-CN  → {"code":1002,"msg":"请先登录"}
 | 3012 | 403 | 不能审批自己发起的发布单 | |
 | 3013 | 409 | 审批已超时，发布单已取消 | |
 | 3014 | 409 | 你已经审批过这张发布单 | 每人每张单只能表态一次 |
-| 3020 | 403 | 该环境未开启 CI 触发发布 | 环境的 `ci` 为 `off`（默认） |
+| 3020 | 403 | 该环境未开启 CI 触发发布 | 环境的 `ci` 为 `off`（默认）；该环境的 Kargo Stage 从上游 Stage 取货（不是 `sources.direct`）时也用这个码，msg 说明新镜像到不了这个环境 |
 | **上游与服务目录** ||||
 | 4001 | 503 | 还没有配置上游 | |
 | 4002 | 502 | 上游返回错误 | msg 为上游错误原文（截断） |
@@ -208,6 +208,46 @@ Prometheus 文本格式，不走信封。由 `server.metrics` 开关（默认开
 `Service = { name, project, domain, dimensions, envs }`
 → `{ services: Service[], envOrder, upstreams: UpstreamStatus[], at, inFlight: { "<service>/<env>": releaseId } }`
 错误：4001。
+
+`UpstreamStatus.expiring = CredentialExpiry[]`（`{ upstream, kind, expires, days }`，`kind` 为
+`kargo` / `argocd` / `registry`，`days` 过期后为负）列出 14 天内到期的上游凭据，按剩余天数升序。
+只有在「管理 → 上游」里填了到期日的凭据才会出现——Tide 不解析 token 本身。没有填的、以及
+还早的，这个字段整个不出现。
+
+`UpstreamStatus.registryFailed / registryError / registryAuth`：本次读镜像元数据失败的个数、
+其中一条错误原文（截断 300 字符）、以及这些失败是不是**认证被拒**。失败不影响服务列表，
+只让语义版本、构建时间这些字段变空；`registryAuth: true` 表示换凭据能解决，网络等不来。
+
+`UpstreamStatus.catalog = { applications, kept, noEnv, otherEnv }` 是这个上游本次读到的
+Application 去向。`applications > 0 && kept == 0` 表示服务目录的配置一条都没匹配上——
+上游不是空的，`noEnv` 说明环境维度取不到（通常是环境 label 配错），`otherEnv` 是解析出的
+环境不归这个上游管（正常，平台类应用会落在这里）。
+
+### `GET /api/v1/kargo/generate?domain=`
+权限 environments.manage。按业务域生成 Kargo 流水线配置，**只返回文本，不写任何地方**。
+`domain` 为空时生成全部。
+
+→ `{ result: { domains: [{name, services, warehouses, stages, files: [{path, yaml}]}],
+skipped: [{service, env?, reason}], services, warehouses, stages, fileCount },
+domains: [{name, services}], at }`
+
+生成结果**按业务域分组**：业务域就是一个 Kargo Project，也是人 review 的单位。
+
+- 一个业务域一个 Kargo Project，一个 Project 一个共享的 `PromotionTask`
+- 一个服务一个 Warehouse；服务**实际部署到**的每个环境一个 Stage，按环境顺序串成晋级链，
+  第一个环境 `sources.direct: true`（CI 推的新镜像只能落在 direct 的环境）
+- 生成不了的逐条进 `skipped` 并说明原因，不静默跳过
+
+### `GET /api/v1/kargo/generate.zip?domain=`
+同上，返回 zip 文件（`application/zip`，**不走信封**）。范围内没有可生成的内容时返回 1004。
+
+### `POST /api/v1/kargo/push`
+权限 environments.manage。`{ domain?, message? }` → `{ commit: {id, short_id, web_url}, branch, files, result }`
+
+把生成的内容**一次提交**到「流水线仓库」设置里配置的仓库，写 git 不写集群。支持 GitLab
+和 Gitea，两家的接口差别关在各自的客户端里：GitLab 要纯文本、没有 upsert，Gitea 要
+base64、更新还得带被替换文件的 blob SHA；创建分支的方式也不同。分支不存在时从默认分支
+创建。未配置仓库返回 4001。写审计 `kargo.push`。
 
 ### `GET /api/v1/services/:service`
 → `{ service: Service, releases: Release[] }`。错误：4005。
@@ -473,6 +513,7 @@ POST `{ id, name, description, permissions }`；PUT `{ name, description, permis
 | section | 权限 | 内容 |
 |---|---|---|
 | `upstreams` | environments.manage | `{ items: Upstream[] }` |
+| `pipeline` | environments.manage | `{ provider, baseUrl, project, branch, pathPrefix?, token }`，生成的 Kargo 配置提交到这里。`provider` 为 `gitlab`（默认）或 `gitea`；`project` 必须是 `owner/repo` |
 | `environments` | environments.manage | `{ items: Environment[] }`，顺序即显示顺序（制品来源由 Kargo Stage 决定） |
 | `catalog` | environments.manage | `{ serviceLabel, envLabel, domainLabel, projectLabel, dimensions: Dimension[], batchDimension }` |
 | `notify` | notifications.manage | `{ channels: Channel[], rules: NotifyRule[] }` |

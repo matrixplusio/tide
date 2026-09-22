@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -40,12 +41,125 @@ type Upstream struct {
 	RegistryUser  string `json:"registryUser"`
 	RegistryToken string `json:"registryToken" secret:"true"`
 	InsecureTLS   bool   `json:"insecureTls"`
+	// The day each credential stops working, "2026-10-22", or empty when
+	// nobody wrote it down. Tide does not read an expiry out of the token
+	// itself: every issuer encodes it differently — a JWT carries `exp`, a
+	// registry token needs an API call — and a date somebody types once when
+	// they create the credential costs nothing and cannot be wrong about a
+	// format Tide has not met yet.
+	KargoExpires    string `json:"kargoExpires,omitempty"`
+	ArgoCDExpires   string `json:"argocdExpires,omitempty"`
+	RegistryExpires string `json:"registryExpires,omitempty"`
 	// GrafanaURL is an optional template; {service} and {env} are substituted.
 	GrafanaURL string `json:"grafanaUrl,omitempty"`
 }
 
+// ExpiryWarnDays is how early a credential's expiry starts being mentioned.
+// Two weeks is long enough to get a new token issued through whatever process
+// owns it, and short enough that a credential rotated monthly is not
+// permanently complaining.
+const ExpiryWarnDays = 14
+
+// DateLayout is how expiry dates are written: a day, no time and no zone. A
+// credential expires on a date wherever you read it from, and pretending to
+// know the hour would only invite arguments about which zone it was in.
+const DateLayout = "2006-01-02"
+
+// CredentialExpiry is one credential whose recorded expiry is near or past.
+type CredentialExpiry struct {
+	Upstream string `json:"upstream"`
+	// Kind is "kargo", "argocd" or "registry" — which credential, so the
+	// message can say what to go and reissue.
+	Kind    string `json:"kind"`
+	Expires string `json:"expires"`
+	// Days remaining, negative once the date has gone by.
+	Days int `json:"days"`
+}
+
+// CredentialDates carries the three recorded expiry dates away from the
+// tokens they belong to, so the catalog can warn about them without holding
+// the credentials themselves.
+type CredentialDates struct {
+	Kargo, ArgoCD, Registry string
+}
+
+func (u Upstream) CredentialDates() CredentialDates {
+	return CredentialDates{Kargo: u.KargoExpires, ArgoCD: u.ArgoCDExpires, Registry: u.RegistryExpires}
+}
+
+// Expiring reports the credentials expiring within `within` days, soonest
+// first. A credential with no recorded date says nothing: Tide knows nothing
+// about it, and a guess would be worse than silence.
+func (d CredentialDates) Expiring(upstream string, now time.Time, within int) []CredentialExpiry {
+	today := now.UTC().Truncate(24 * time.Hour)
+	var out []CredentialExpiry
+	for _, c := range []struct{ kind, date string }{
+		{"kargo", d.Kargo}, {"argocd", d.ArgoCD}, {"registry", d.Registry},
+	} {
+		if c.date == "" {
+			continue
+		}
+		t, err := time.Parse(DateLayout, c.date)
+		if err != nil {
+			continue // validation rejects these on save; an old row is not worth a crash
+		}
+		days := int(t.Sub(today).Hours() / 24)
+		if days > within {
+			continue
+		}
+		out = append(out, CredentialExpiry{Upstream: upstream, Kind: c.kind, Expires: c.date, Days: days})
+	}
+	slices.SortFunc(out, func(a, b CredentialExpiry) int { return a.Days - b.Days })
+	return out
+}
+
 type Upstreams struct {
 	Items []Upstream `json:"items"`
+}
+
+// PipelineRepo is where generated Kargo pipelines are committed. Tide writes
+// text through the host's API rather than driving git: it already speaks HTTP
+// to every upstream, and a git binary in the image would need a working tree,
+// an ssh agent and a credential helper to do the same job.
+type PipelineRepo struct {
+	// Provider is which API to speak; empty means GitLab. The two hosts
+	// disagree about enough — content encoding, whether an update needs the
+	// old blob's id, how a branch is created — that guessing from the URL
+	// would be guessing about the part that breaks.
+	Provider string `json:"provider,omitempty"`
+	// BaseURL is the host, e.g. https://gitlab.example.com.
+	BaseURL string `json:"baseUrl"`
+	// Project is the path with namespace, e.g. "devops/k8s-pipelines".
+	Project string `json:"project"`
+	// Branch to commit on. It is created from the default branch when absent,
+	// so pointing this at a review branch costs nothing and keeps generated
+	// configuration out of the default branch until somebody has read it.
+	Branch string `json:"branch"`
+	// PathPrefix is prepended to every generated file's path.
+	PathPrefix string `json:"pathPrefix,omitempty"`
+	// Token needs api scope: writing a commit is not a read.
+	Token string `json:"token" secret:"true"`
+}
+
+// Repository providers Tide can push to.
+const (
+	ProviderGitLab = "gitlab"
+	ProviderGitea  = "gitea"
+)
+
+var Providers = []string{ProviderGitLab, ProviderGitea}
+
+// Host is Provider with the default filled in.
+func (p PipelineRepo) Host() string {
+	if p.Provider == "" {
+		return ProviderGitLab
+	}
+	return p.Provider
+}
+
+// Configured reports whether a push can even be attempted.
+func (p PipelineRepo) Configured() bool {
+	return p.BaseURL != "" && p.Project != "" && p.Token != ""
 }
 
 func (u Upstreams) Named(name string) (Upstream, bool) {
@@ -319,6 +433,7 @@ const (
 	SectionNotify       = "notify"
 	SectionSystem       = "system"
 	SectionSetup        = "setup"
+	SectionPipelineRepo = "pipeline"
 )
 
 var ErrNotConfigured = errors.New("not configured")

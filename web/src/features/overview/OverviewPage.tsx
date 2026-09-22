@@ -14,6 +14,14 @@ export function OverviewPage() {
   const d = q.data
   const upstreams = d?.upstreams ?? []
   const down = upstreams.filter((u) => !u.kargoOk || !u.argocdOk)
+  // An upstream that answers but classifies nothing is not "down", so it
+  // never reaches the banner above — and this page then reports zero services
+  // with no reason given. It is the landing page: it is where most people
+  // first see the number that is wrong.
+  const unclassified = upstreams.filter((u) => (u.envs?.length ?? 0) > 0 && u.catalog?.kept === 0 && u.catalog.applications > 0)
+  const expiring = upstreams.flatMap((u) => u.expiring ?? [])
+  // Soonest first already, from the server; the first one decides the wording.
+  const soonest = expiring.length > 0 ? expiring[0]!.days : null
   const inFlight = d?.inFlight ?? []
   const recentFailed = d?.recentFailed ?? []
   const recent = d?.recent ?? []
@@ -39,8 +47,34 @@ export function OverviewPage() {
                 <span className="mono"> {u.kargoError ?? u.argocdError}</span>
               </Banner>
             ))}
+            {unclassified.map((u) => (
+              <Banner key={`${u.name}-catalog`} tone="warn">
+                <StatusDot state="warn" />{' '}
+                {t('overview.noneClassified', { name: u.name, count: u.catalog.applications })}
+                {can(me, 'environments.manage') && (
+                  <>
+                    {' '}
+                    <Link to="/admin/catalog">{t('overview.openCatalog')}</Link>
+                  </>
+                )}
+              </Banner>
+            ))}
+            {soonest !== null && (
+              <Banner tone="warn">
+                <StatusDot state="warn" />{' '}
+                {soonest < 0
+                  ? t('overview.credentialExpired', { count: expiring.length })
+                  : t('overview.credentialExpiring', { count: soonest })}
+                {can(me, 'environments.manage') && (
+                  <>
+                    {' '}
+                    <Link to="/admin/upstreams">{t('overview.openUpstreams')}</Link>
+                  </>
+                )}
+              </Banner>
+            )}
 
-            <div className="cards" style={{ marginTop: down.length || d.upstreamError ? 14 : 0 }}>
+            <div className="cards" style={{ marginTop: down.length || unclassified.length || expiring.length || d.upstreamError ? 14 : 0 }}>
               <div className="card">
                 <div className="k">{t('overview.inFlight')}</div>
                 <div className={`n ${inFlight.length ? 'orange' : ''}`}>

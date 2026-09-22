@@ -143,9 +143,18 @@ func (a *API) ciRelease(c *gin.Context) {
 		return
 	}
 	if accepted {
-		// The freight is often already there when a warehouse watches the
-		// registry; try once now so the common case does not wait a tick.
-		go a.CI.Process(withoutRequest(c))
+		// Nudge first, then look. Kargo needs a moment to turn a refreshed
+		// warehouse into freight, so a pass made before the nudge can only
+		// find nothing — but the freight is often already there when a
+		// warehouse happened to look just now, so the pass still runs
+		// immediately rather than waiting for the next tick.
+		ctx := withoutRequest(c)
+		// A copy, because the goroutine outlives this handler.
+		waiting := *intake
+		go func() {
+			a.CI.Nudge(ctx, waiting)
+			a.CI.Process(ctx)
+		}()
 	}
 	respond.OK(c, ciIntakeView{CIIntake: intake, Accepted: accepted})
 }

@@ -40,6 +40,17 @@ type ObjectMeta struct {
 	Annotations map[string]string `json:"annotations"`
 }
 
+// Source is one place an Application reads manifests from.
+type Source struct {
+	RepoURL        string `json:"repoURL"`
+	Path           string `json:"path,omitempty"`
+	TargetRevision string `json:"targetRevision,omitempty"`
+	Chart          string `json:"chart,omitempty"`
+	// Ref names this source so another one can reference it for values; a
+	// source with a Ref and no Path contributes no manifests of its own.
+	Ref string `json:"ref,omitempty"`
+}
+
 type Application struct {
 	Metadata ObjectMeta `json:"metadata"`
 	Spec     struct {
@@ -49,6 +60,12 @@ type Application struct {
 			Name      string `json:"name"`
 			Namespace string `json:"namespace"`
 		} `json:"destination"`
+		// Where the manifests come from. Source is the single-source form,
+		// which is what an ordinary service uses; Sources is the multi-source
+		// form, where several repositories are combined and no single one is
+		// "the" place a tag would be written.
+		Source  *Source  `json:"source,omitempty"`
+		Sources []Source `json:"sources,omitempty"`
 	} `json:"spec"`
 	Status struct {
 		Sync struct {
@@ -300,4 +317,64 @@ func (c *Client) UserInfo(ctx context.Context) (map[string]any, error) {
 	var out map[string]any
 	err := c.get(ctx, "/api/v1/session/userinfo", nil, &out)
 	return out, err
+}
+
+// Manifests reports the single source this Application's manifests come from.
+//
+// A tag can only be written into one place, so the multi-source form has no
+// answer here: several repositories are combined and nothing says which one
+// holds the image. Rather than guess — and quietly write the tag into the
+// wrong repository — this says it does not know, and the caller reports the
+// Application as one it cannot handle.
+func (a *Application) Manifests() (Source, bool) {
+	if a.Spec.Source != nil && a.Spec.Source.RepoURL != "" {
+		return *a.Spec.Source, true
+	}
+	// One source with a path and others that only carry a ref is still
+	// unambiguous: the others contribute values, not manifests.
+	var found Source
+	n := 0
+	for _, s := range a.Spec.Sources {
+		if s.Path == "" && s.Chart == "" {
+			continue // a values-only source
+		}
+		found, n = s, n+1
+	}
+	if n == 1 && found.RepoURL != "" {
+		return found, true
+	}
+	return Source{}, false
+}
+
+// workloadKinds are the objects that run containers, and therefore the ones
+// whose image a pipeline would ever want to change.
+//
+// Deliberately about the desired state, not the running one: an Application
+// scaled to zero replicas has a Deployment and no pods, so anything derived
+// from what is actually running — status.summary.images, for instance —
+// reports it as having no images at all. Fifteen real services are parked at
+// zero replicas, and judging by images would drop every one of them silently.
+var workloadKinds = map[string]bool{
+	"Deployment":  true,
+	"StatefulSet": true,
+	"DaemonSet":   true,
+	"CronJob":     true,
+	"Job":         true,
+	"Rollout":     true, // Argo Rollouts
+}
+
+// RunsWorkloads reports whether this Application deploys something that runs
+// containers, as opposed to one that only carries namespace scaffolding —
+// Namespace, ResourceQuota, LimitRange, sealed secrets and the like.
+//
+// An Application with nothing to run has no image to subscribe to and nothing
+// to promote, so generating a pipeline for it produces objects that can only
+// sit there.
+func (a *Application) RunsWorkloads() bool {
+	for _, r := range a.Status.Resources {
+		if workloadKinds[r.Kind] {
+			return true
+		}
+	}
+	return false
 }

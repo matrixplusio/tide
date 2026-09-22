@@ -101,6 +101,17 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 	if deploymentIn(snap, req.Service, req.Env) == nil {
 		return nil, false, fmt.Errorf("%w: %s → %s", ErrNotDeployed, req.Service, req.Env)
 	}
+	// A stage fed by another stage cannot receive a freshly built image: the
+	// freight has to be promoted into it. Accepting anyway buys a half-hour
+	// wait and then "freight never arrived", which is true and tells nobody
+	// what to do. Refusing now, with the reason, costs one call to Kargo.
+	//
+	// Deliberately fails open: warehousesFor returns no clients when the
+	// upstream could not be reached, and an upstream Tide cannot read is no
+	// reason to fail somebody's pipeline.
+	if c, _, _, direct := s.warehousesFor(ctx, req.Service, req.Env); c != nil && !direct {
+		return nil, false, fmt.Errorf("%w: %s", ErrNotDirect, req.Env)
+	}
 	key := req.Key
 	if key == "" {
 		key = req.Digest
@@ -139,6 +150,97 @@ func (s *Service) Run(ctx context.Context) {
 	pg.Lead(ctx, s.PG.DB(), pg.LockCIIntake, s.tick(), "ci intake", s.Process)
 }
 
+// warehousesFor resolves which Kargo warehouses feed this service in this
+// environment. Shared by the nudge and by the expiry message, which need the
+// same three lookups for opposite reasons: one to hurry discovery along, the
+// other to explain why it never produced anything.
+func (s *Service) warehousesFor(ctx context.Context, service, env string) (c *catalog.Clients, project string, warehouses []string, direct bool) {
+	// The cached snapshot on purpose: this runs while a pipeline waits for a
+	// reply, and rebuilding the whole catalog to find one warehouse name would
+	// cost more than the interval this is trying to avoid.
+	snap, err := s.Hub.Snapshot(ctx, false)
+	if err != nil {
+		zap.L().Warn("ci: could not read the catalog", zap.Error(err))
+		return nil, "", nil, false
+	}
+	d := deploymentIn(snap, service, env)
+	if d == nil || d.KargoProject == "" || d.KargoStage == "" {
+		return nil, "", nil, false // not managed by Kargo, or not deployed here
+	}
+	c, err = s.Hub.ClientsFor(ctx, env)
+	if err != nil {
+		zap.L().Warn("ci: no upstream serves this environment", zap.String("env", env), zap.Error(err))
+		return nil, "", nil, false
+	}
+	stage, err := c.Kargo.GetStage(ctx, d.KargoProject, d.KargoStage)
+	if err != nil {
+		zap.L().Warn("ci: could not read the stage", zap.String("project", d.KargoProject),
+			zap.String("stage", d.KargoStage), zap.Error(err))
+		return nil, "", nil, false
+	}
+	names, direct := stage.Warehouses()
+	return c, d.KargoProject, names, direct
+}
+
+// Nudge asks Kargo to look for the image this intake is waiting for, instead
+// of waiting for the warehouse's own interval to come round. It is the whole
+// difference between a release appearing in seconds and appearing at the end
+// of a polling interval measured in minutes.
+//
+// Every failure here is logged and swallowed. Kargo's interval still finds
+// the image on its own; this only decides whether that happens now or later,
+// and an intake must not fail because an optimisation did not.
+func (s *Service) Nudge(ctx context.Context, in pg.CIIntake) {
+	c, project, names, _ := s.warehousesFor(ctx, in.Service, in.Env)
+	if c == nil {
+		return
+	}
+	for _, w := range names {
+		// Asked before the refresh, not after: a refresh resets the warehouse
+		// to "discovering", so reading it straight afterwards only ever says
+		// "not finished yet". What is worth knowing is the verdict of the
+		// discovery before this one — a warehouse that could not reach its
+		// images last time is about to fail again for the same reason.
+		if p := s.discoveryProblem(ctx, c, project, w); p != "" {
+			zap.L().Warn("ci: this warehouse could not discover artifacts last time",
+				zap.String("project", project), zap.String("warehouse", w), zap.String("problem", p))
+		}
+		if err := c.Kargo.RefreshWarehouse(ctx, project, w); err != nil {
+			// Worth a line of its own: a permission the token does not have
+			// looks exactly like everything working, only slower.
+			zap.L().Warn("ci: refreshing the warehouse failed, falling back to kargo's own interval",
+				zap.String("project", project), zap.String("warehouse", w), zap.Error(err))
+			continue
+		}
+		zap.L().Info("ci: warehouse refreshed", zap.String("project", project),
+			zap.String("warehouse", w), zap.String("service", in.Service), zap.String("env", in.Env))
+	}
+}
+
+func (s *Service) discoveryProblem(ctx context.Context, c *catalog.Clients, project, warehouse string) string {
+	wh, err := c.Kargo.GetWarehouse(ctx, project, warehouse)
+	if err != nil {
+		return "" // nothing to say rather than something wrong
+	}
+	return wh.DiscoveryProblem()
+}
+
+// whyNothingArrived asks the warehouses behind this service why they produced
+// no freight. Empty when they are healthy, or when nobody could be asked —
+// the expiry message then reads as it always did.
+func (s *Service) whyNothingArrived(ctx context.Context, in pg.CIIntake) string {
+	c, project, names, _ := s.warehousesFor(ctx, in.Service, in.Env)
+	if c == nil {
+		return ""
+	}
+	for _, w := range names {
+		if p := s.discoveryProblem(ctx, c, project, w); p != "" {
+			return p
+		}
+	}
+	return ""
+}
+
 // Process makes one pass over the waiting intakes. Exported for tests and for
 // the handler, which runs a pass right after accepting so a freight that is
 // already there releases without waiting for the next tick.
@@ -166,7 +268,13 @@ func (s *Service) expire(ctx context.Context) {
 		return
 	}
 	for _, in := range list {
+		// Before giving up, ask Kargo why. "Check that a warehouse watches this
+		// repository" is a guess; "MANIFEST_UNKNOWN: manifest unknown" is the
+		// answer, and it is sitting on the warehouse waiting to be read.
 		msg := i18n.T(i18n.Default, "ci.freightNeverArrived", in.Digest, s.wait().String())
+		if why := s.whyNothingArrived(ctx, in); why != "" {
+			msg = i18n.T(i18n.Default, "ci.freightNeverArrivedBecause", in.Digest, s.wait().String(), why)
+		}
 		if err := s.PG.CI.Resolve(ctx, in.ID, pg.IntakeExpired, "", msg); err != nil {
 			zap.L().Warn("ci: expiring intake failed", zap.Int64("intake_id", in.ID), zap.Error(err))
 			continue

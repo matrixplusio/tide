@@ -328,6 +328,98 @@ func (c *Client) PromoteToStage(ctx context.Context, project, stage, freight str
 	return &out, nil
 }
 
+// RefreshWarehouse asks Kargo to run this warehouse's artifact discovery now
+// rather than at its next scheduled turn, which is what turns a pipeline's
+// "I just pushed an image" into a Freight in seconds instead of at the end of
+// a polling interval.
+//
+// It is an acceleration, never a correctness requirement: Kargo's own
+// interval still finds the image if this call never happens, so callers log a
+// failure and carry on rather than failing what they were doing.
+//
+// This goes over the REST route rather than the KargoService RPC of the same
+// purpose. RefreshResource answers with a google.protobuf.Any, which v1.11.4
+// cannot marshal over Connect's JSON codec: the refresh is applied and then
+// the reply fails with `proto: google.protobuf.Any: unable to resolve "/,
+// Kind=": not found`, so every call looks like a failure while quietly
+// working. The REST route returns an empty body and has no such problem.
+func (c *Client) RefreshWarehouse(ctx context.Context, project, name string) error {
+	return c.rest(ctx, http.MethodPost, "/projects/"+p(project)+"/warehouses/"+p(name)+"/refresh", struct{}{}, nil)
+}
+
+type Condition struct {
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
+}
+
+type Warehouse struct {
+	Metadata ObjectMeta `json:"metadata"`
+	Status   struct {
+		Conditions []Condition `json:"conditions"`
+	} `json:"status"`
+}
+
+func (c *Client) GetWarehouse(ctx context.Context, project, name string) (*Warehouse, error) {
+	var out Warehouse
+	if err := c.rest(ctx, http.MethodGet, "/projects/"+p(project)+"/warehouses/"+p(name), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DiscoveryProblem says what is stopping this warehouse from finding
+// artifacts, in Kargo's own words, or "" when nothing is.
+//
+// Refreshing a warehouse answers 200 as soon as the annotation is written,
+// which says nothing about whether the discovery that follows succeeded. A
+// warehouse whose images have been deleted from the registry answers every
+// refresh cheerfully and produces freight for none of them — and the only
+// symptom, without this, is a release that never appears.
+// The three states a warehouse is observed in, and what separates them:
+//
+//	discovering  Ready=False/DiscoveryInProgress  Healthy=Unknown/Pending
+//	healthy      Ready=True /ArtifactsDiscovered  Healthy=True/ReconciliationSucceeded
+//	broken       Ready=False/DiscoveryFailure     Healthy=False/DiscoveryFailed
+//
+// Healthy is the one to read, and only an explicit False counts. Ready is
+// False for the first second after every refresh, so judging by Ready means
+// calling every healthy warehouse broken; Unknown means Kargo has not decided
+// yet, which is not the same as bad news.
+func (w *Warehouse) DiscoveryProblem() string {
+	broken := false
+	for _, c := range w.Status.Conditions {
+		if c.Type == "Healthy" {
+			broken = c.Status == "False"
+			break
+		}
+	}
+	if !broken {
+		return ""
+	}
+	// Ready carries the detail worth repeating — the registry's own words,
+	// such as "MANIFEST_UNKNOWN: manifest unknown". Healthy only names the
+	// category, so it is the fallback rather than the answer.
+	for _, c := range w.Status.Conditions {
+		if c.Type == "Ready" && c.Status != "True" && c.Reason != "" {
+			if c.Message != "" {
+				return c.Reason + ": " + c.Message
+			}
+			return c.Reason
+		}
+	}
+	for _, c := range w.Status.Conditions {
+		if c.Type == "Healthy" {
+			if c.Message != "" {
+				return c.Reason + ": " + c.Message
+			}
+			return c.Reason
+		}
+	}
+	return ""
+}
+
 func (c *Client) GetPromotion(ctx context.Context, project, name string) (*Promotion, error) {
 	var out Promotion
 	if err := c.rest(ctx, http.MethodGet, "/projects/"+p(project)+"/promotions/"+p(name), nil, &out); err != nil {

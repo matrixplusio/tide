@@ -22,6 +22,9 @@ const emptyUpstream = (): UpstreamItemValues => ({
   registryUrl: '',
   registryUser: '',
   registryToken: '',
+  kargoExpires: '',
+  argocdExpires: '',
+  registryExpires: '',
   insecureTls: false,
   grafanaUrl: '',
 })
@@ -38,6 +41,9 @@ function toValues(u: { items: Upstream[] | null } | null | undefined): Upstreams
       registryUrl: it.registryUrl,
       registryUser: it.registryUser,
       registryToken: it.registryToken,
+      kargoExpires: it.kargoExpires ?? '',
+      argocdExpires: it.argocdExpires ?? '',
+      registryExpires: it.registryExpires ?? '',
       insecureTls: it.insecureTls,
       grafanaUrl: it.grafanaUrl ?? '',
     })),
@@ -55,6 +61,9 @@ function toBody(v: UpstreamsValues): Upstreams {
       registryUrl: it.registryUrl.trim(),
       registryUser: it.registryUser.trim(),
       registryToken: it.registryToken,
+      kargoExpires: (it.kargoExpires ?? '').trim(),
+      argocdExpires: (it.argocdExpires ?? '').trim(),
+      registryExpires: (it.registryExpires ?? '').trim(),
       insecureTls: it.insecureTls,
       grafanaUrl: (it.grafanaUrl ?? '').trim(),
     })),
@@ -147,11 +156,17 @@ export function UpstreamsForm({ initial }: { initial: { items: Upstream[] | null
               <FormField label={t('upstreamForm.kargoToken')} error={e?.kargoToken?.message} required hint={t('upstreamForm.kargoTokenHint')}>
                 {(p) => <PasswordInput {...p} {...register(`items.${i}.kargoToken`)} className="mono" autoComplete="off" />}
               </FormField>
+              <FormField label={t('upstreamForm.kargoExpires')} error={e?.kargoExpires?.message} hint={t('upstreamForm.expiresHint')}>
+                {(p) => <Input {...p} {...register(`items.${i}.kargoExpires`)} mono type="date" autoComplete="off" />}
+              </FormField>
               <FormField label={t('upstreamForm.argocdUrl')} error={e?.argocdUrl?.message} required>
                 {(p) => <Input {...p} {...register(`items.${i}.argocdUrl`)} mono type="url" inputMode="url" placeholder="https://argocd.example.com" autoComplete="off" />}
               </FormField>
               <FormField label={t('upstreamForm.argocdToken')} error={e?.argocdToken?.message} required hint={t('upstreamForm.argocdTokenHint')}>
                 {(p) => <PasswordInput {...p} {...register(`items.${i}.argocdToken`)} className="mono" autoComplete="off" />}
+              </FormField>
+              <FormField label={t('upstreamForm.argocdExpires')} error={e?.argocdExpires?.message} hint={t('upstreamForm.expiresHint')}>
+                {(p) => <Input {...p} {...register(`items.${i}.argocdExpires`)} mono type="date" autoComplete="off" />}
               </FormField>
               <FormField label={t('upstreamForm.registryUrl')} error={e?.registryUrl?.message}>
                 {(p) => <Input {...p} {...register(`items.${i}.registryUrl`)} mono type="url" inputMode="url" placeholder="https://registry.example.com" autoComplete="off" />}
@@ -161,6 +176,9 @@ export function UpstreamsForm({ initial }: { initial: { items: Upstream[] | null
               </FormField>
               <FormField label={t('upstreamForm.registryToken')} error={e?.registryToken?.message}>
                 {(p) => <PasswordInput {...p} {...register(`items.${i}.registryToken`)} className="mono" autoComplete="off" />}
+              </FormField>
+              <FormField label={t('upstreamForm.registryExpires')} error={e?.registryExpires?.message} hint={t('upstreamForm.expiresHint')}>
+                {(p) => <Input {...p} {...register(`items.${i}.registryExpires`)} mono type="date" autoComplete="off" />}
               </FormField>
               <FormField label={t('upstreamForm.grafana')} error={e?.grafanaUrl?.message} hint={t('upstreamForm.grafanaHint')}>
                 {(p) => <Input {...p} {...register(`items.${i}.grafanaUrl`)} mono type="url" inputMode="url" placeholder="https://grafana/d/x?var-service={service}&var-env={env}" autoComplete="off" />}

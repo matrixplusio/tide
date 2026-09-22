@@ -195,6 +195,12 @@ func Register(r *gin.Engine, d Deps) {
 	h("DELETE", "/ci/tokens/:token", need(rbac.SettingsManage), a.revokeCIToken)
 	h("GET", "/ci/intakes", needScoped(rbac.ReleasesView), a.listCIIntakes)
 	h("GET", "/ci/snippet", need(rbac.SettingsManage), a.ciSnippet)
+
+	// Generating a Kargo pipeline reads the catalog and writes nothing, but it
+	// is an environment-wiring job and belongs with upstreams and the catalog.
+	h("GET", "/kargo/generate", need(rbac.EnvironmentsManage), a.generateKargo)
+	h("GET", "/kargo/generate.zip", need(rbac.EnvironmentsManage), a.downloadKargo)
+	h("POST", "/kargo/push", need(rbac.EnvironmentsManage), a.pushKargo)
 }
 
 // auditMeta puts request id and client IP into the request context so every

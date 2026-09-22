@@ -64,7 +64,15 @@ func (s *Service) Init(ctx context.Context) error {
 	}
 	s.initialized.Store(st.Initialized)
 	if !st.Initialized {
-		zap.L().Warn("tide is not initialized: open /setup and enter the setup token", zap.String("setup_token", st.Token))
+		// Every replica announces this, and every replica announces the same
+		// value: the token is stored, not generated per process, and whichever
+		// replica lost the race to create it re-reads the one that won. The
+		// message says so because `kubectl logs` over three replicas shows
+		// three lines, which reads as three tokens worth trying one by one.
+		// Every replica has to say it — you cannot know in advance whose log
+		// you will be reading.
+		zap.L().Warn("tide is not initialized: open /setup and enter the setup token (the same token on every replica)",
+			zap.String("setup_token", st.Token))
 	}
 	return nil
 }

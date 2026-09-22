@@ -122,6 +122,18 @@ func (c *Client) Ping(ctx context.Context) error {
 	return err
 }
 
+// ErrUnauthorized marks a registry refusal that a new credential would fix,
+// as opposed to one a network would. The two are worth telling apart: an
+// expired token and an unreachable host both make image metadata go blank,
+// and only one of them is fixed by reissuing something.
+var ErrUnauthorized = errors.New("registry: authentication failed")
+
+// unauthorized reports whether err is a refusal rather than a failure to
+// reach the registry at all.
+func unauthorized(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden
+}
+
 func (c *Client) fetch(ctx context.Context, repo, path, accept string) ([]byte, string, error) {
 	u := c.BaseURL + "/v2/"
 	if repo != "" {
@@ -167,11 +179,15 @@ func (c *Client) fetch(ctx context.Context, repo, path, accept string) ([]byte, 
 			}
 		}
 		if resp.StatusCode >= 300 {
-			return nil, "", &upstream.HTTPError{Method: "GET", URL: u, Status: resp.StatusCode, Body: string(body)}
+			err := error(&upstream.HTTPError{Method: "GET", URL: u, Status: resp.StatusCode, Body: string(body)})
+			if unauthorized(resp.StatusCode) {
+				err = fmt.Errorf("%w: %w", ErrUnauthorized, err)
+			}
+			return nil, "", err
 		}
 		return body, resp.Header.Get("Docker-Content-Digest"), nil
 	}
-	return nil, "", errors.New("registry: authentication failed")
+	return nil, "", ErrUnauthorized
 }
 
 func (c *Client) token(ctx context.Context, challenge, scope string) (string, error) {
@@ -207,7 +223,14 @@ func (c *Client) token(ctx context.Context, challenge, scope string) (string, er
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return "", &upstream.HTTPError{Method: "GET", URL: realm, Status: resp.StatusCode, Body: string(b)}
+		err := error(&upstream.HTTPError{Method: "GET", URL: realm, Status: resp.StatusCode, Body: string(b)})
+		// The token endpoint refusing the credentials is the most common way
+		// an expired registry password shows up, so it must not be lost in
+		// the general "upstream returned an error" bucket.
+		if unauthorized(resp.StatusCode) {
+			err = fmt.Errorf("%w: %w", ErrUnauthorized, err)
+		}
+		return "", err
 	}
 	var out struct {
 		Token       string `json:"token"`

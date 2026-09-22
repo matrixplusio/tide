@@ -74,6 +74,7 @@ h1, h2, b, strong { font-weight: 600; }
 .hrow { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--ink2);
   padding: 3px 6px; min-width: 0; }
 .hrow.bad { color: var(--red); }
+.hrow.warn { color: var(--orange); }
 /* The whole block is one target when there is somewhere to go. */
 .hlink { display: block; border-radius: var(--r-sm); color: inherit;
   transition: background-color var(--dur-micro) var(--ease-out); }
@@ -111,9 +112,35 @@ h1, h2, b, strong { font-weight: 600; }
 .uhead .t { font-weight: 600; font-size: 13px; }
 .urow { display: flex; align-items: baseline; gap: 8px; padding: 2.5px 0; font-size: 12px; min-width: 0; }
 .urow.bad { color: var(--red); }
+.urow.warn { color: var(--orange); }
 /* A fixed column so the two systems line up and the eye can scan down. */
 .usys { flex: none; width: 62px; color: var(--ink2); }
-.urow.bad .usys { color: inherit; }
+.urow.bad .usys, .urow.warn .usys { color: inherit; }
+/* Contents of a .row that names a file. The row itself is the app's ordinary
+   list row — padding, height and the inset hairline all come from there. */
+.fname { flex: 1 1 auto; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.fmeta { flex: none; color: var(--ink2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+/* The disclosure marker leads the row so every filename starts at the same
+   x — a caret that trails puts the eye back at the wrong place on each line. */
+.fcar { flex: none; width: 12px; color: var(--ink2); font-size: 10.5px; }
+.row.warn { color: var(--orange); }
+.row.warn .fname { flex: none; max-width: 42%; }
+/* A summary that stays out of the way of what it summarises. */
+.tally { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
+  margin: 2px 2px 10px; font-size: 12px; color: var(--ink2); }
+.tally-item { white-space: nowrap; }
+.tally-item + .tally-item::before { content: "·"; margin-right: 14px; color: var(--sep); }
+.tally b { font-weight: 600; font-size: 13px; color: var(--ink);
+  font-variant-numeric: tabular-nums; }
+/* Generated YAML, opened inside its row. Its own material rather than a
+   border: hierarchy comes from surface and position, and an inset panel reads
+   as "inside this row" without drawing a box around it. The margins match the
+   row's padding so it lines up with the filename above it. */
+.yaml { margin: 0 12px 12px; padding: 12px 14px; border-radius: var(--r-md);
+  background: var(--sel); color: var(--ink); overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px;
+  line-height: 1.6; tab-size: 2; white-space: pre; }
 
 /* A button that is only an icon still needs a comfortable target. */
 .btn.icon-only { padding: 0; width: 28px; height: 28px; flex: none;
@@ -163,6 +190,13 @@ h1, h2, b, strong { font-weight: 600; }
 .pad > .ghead:first-child, .pad > :first-child > .ghead:first-child, .cols2 > * > .ghead:first-child,
 .pad > .cols2:first-child > * > :first-child > .ghead:first-child, .sheet-b > .ghead:first-child { padding-top: 2px; }
 .ghead .r { margin-left: auto; font-weight: 400; }
+/* A group header that opens and closes its group. Still a header, not a
+   button: the same size and colour, only clickable, so a page of them does
+   not read as a page of controls. */
+button.ghead { width: 100%; border: 0; background: none; font: inherit;
+  font-size: 11.5px; font-weight: 600; color: var(--ink2); cursor: pointer; text-align: left; }
+button.ghead:hover { color: var(--ink); }
+button.ghead .fcar { color: inherit; }
 .ghead.item-head { padding-top: 26px; }
 /* environment page: 升级 / 重启 switch sits where a section header would, the form's own header follows closely */
 .change-switch { padding: 20px 0 0; }

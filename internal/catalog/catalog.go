@@ -44,6 +44,9 @@ type Clients struct {
 	ArgoCD   *argocd.Client
 	Registry *registry.Client
 	Grafana  string
+	// Expiry is when this upstream's credentials were said to stop working.
+	// Dates only — the tokens stay in the clients that use them.
+	Expiry settings.CredentialDates
 }
 
 type Deployment struct {
@@ -71,7 +74,17 @@ type Deployment struct {
 	Promoting     string     `json:"promoting,omitempty"` // current Kargo promotion name
 	AutoPromotion bool       `json:"autoPromotion"`
 	AutoHeld      bool       `json:"autoHeld"`
-	Grafana       string     `json:"grafana,omitempty"`
+	// Where this environment's manifests live, read from the Argo CD
+	// Application. The Kargo pipeline generator writes the image tag here, so
+	// it needs the exact repository, path and branch rather than a convention.
+	Repo     string `json:"repo,omitempty"`
+	RepoPath string `json:"repoPath,omitempty"`
+	Revision string `json:"revision,omitempty"`
+	// Workload says the Application deploys something that runs containers.
+	// False for the ones that only set a namespace up: they have no image to
+	// subscribe to and nothing to promote.
+	Workload bool   `json:"workload"`
+	Grafana  string `json:"grafana,omitempty"`
 }
 
 type Service struct {
@@ -90,15 +103,48 @@ type Service struct {
 }
 
 type UpstreamStatus struct {
-	Name          string    `json:"name"`
-	Envs          []string  `json:"envs"`
-	KargoOK       bool      `json:"kargoOk"`
-	KargoError    string    `json:"kargoError,omitempty"`
-	KargoVersion  string    `json:"kargoVersion,omitempty"`
-	ArgoCDOK      bool      `json:"argocdOk"`
-	ArgoCDError   string    `json:"argocdError,omitempty"`
-	ArgoCDVersion string    `json:"argocdVersion,omitempty"`
-	CheckedAt     time.Time `json:"checkedAt"`
+	Name          string       `json:"name"`
+	Envs          []string     `json:"envs"`
+	KargoOK       bool         `json:"kargoOk"`
+	KargoError    string       `json:"kargoError,omitempty"`
+	KargoVersion  string       `json:"kargoVersion,omitempty"`
+	ArgoCDOK      bool         `json:"argocdOk"`
+	ArgoCDError   string       `json:"argocdError,omitempty"`
+	ArgoCDVersion string       `json:"argocdVersion,omitempty"`
+	Catalog       CatalogStats `json:"catalog"`
+	// Expiring credentials, soonest first. Empty is the normal case: either
+	// nothing is near its date, or nobody recorded one.
+	Expiring []settings.CredentialExpiry `json:"expiring,omitempty"`
+	// How image metadata lookups went. Failing them is not fatal — versions,
+	// build times and image sizes simply go blank — which is exactly why it
+	// has to be reported: silently blank reads as "nobody labelled these
+	// images", while the usual cause is a credential that stopped working.
+	RegistryFailed int    `json:"registryFailed,omitempty"`
+	RegistryError  string `json:"registryError,omitempty"`
+	// RegistryAuth says the failures were refusals rather than unreachability:
+	// a new credential fixes them, waiting for the network will not.
+	RegistryAuth bool      `json:"registryAuth,omitempty"`
+	CheckedAt    time.Time `json:"checkedAt"`
+}
+
+// CatalogStats accounts for every Application the upstream returned. Without
+// it, a label that matches nothing is indistinguishable from an upstream that
+// holds nothing: each one drops every Application, and the page says "no
+// services yet" — which about a few hundred Applications is simply false, and
+// sends whoever reads it looking in the wrong place.
+type CatalogStats struct {
+	// Applications is what Argo CD returned, before any of it was classified.
+	Applications int `json:"applications"`
+	// Kept became deployments.
+	Kept int `json:"kept"`
+	// NoEnv is the interesting one: the environment dimension resolved to
+	// nothing, which almost always means the configured label is not on the
+	// Applications. NoEnv == Applications is a misconfiguration, not an
+	// empty upstream.
+	NoEnv int `json:"noEnv"`
+	// OtherEnv resolved to an environment this upstream does not serve.
+	// Ordinary — platform and infrastructure Applications land here.
+	OtherEnv int `json:"otherEnv"`
 }
 
 type Snapshot struct {
@@ -189,7 +235,7 @@ func (h *Hub) load(ctx context.Context, gen int64) (map[string]*Clients, []strin
 // Build creates clients for one upstream serving envs.
 func Build(u settings.Upstream, envs []string) *Clients {
 	return &Clients{
-		Name: u.Name, Envs: envs, Grafana: u.GrafanaURL,
+		Name: u.Name, Envs: envs, Grafana: u.GrafanaURL, Expiry: u.CredentialDates(),
 		Kargo:    kargo.New(u.KargoURL, u.KargoToken, u.InsecureTLS),
 		ArgoCD:   argocd.New(u.ArgoCDURL, u.ArgoCDToken, u.InsecureTLS),
 		Registry: registry.New(u.RegistryURL, u.RegistryUser, u.RegistryToken, u.InsecureTLS),
@@ -461,7 +507,16 @@ type rawDeployment struct {
 // buildUpstream degrades per call: an unreachable Kargo or Argo CD is recorded
 // in the status instead of failing the whole snapshot.
 func (h *Hub) buildUpstream(ctx context.Context, c *Clients, cat settings.Catalog) (UpstreamStatus, []rawDeployment) {
-	st := UpstreamStatus{Name: c.Name, Envs: c.Envs, CheckedAt: time.Now()}
+	now := time.Now()
+	st := UpstreamStatus{Name: c.Name, Envs: c.Envs, CheckedAt: now}
+	// A credential that is about to expire breaks this upstream on a date
+	// nobody is watching for. Saying so while it still works is the whole
+	// point; once it has expired the only symptom is an upstream that stopped
+	// answering, which reads as a network problem.
+	st.Expiring = c.Expiry.Expiring(c.Name, now, settings.ExpiryWarnDays)
+	for _, e := range st.Expiring {
+		metrics.CredentialExpiry(e.Upstream, e.Kind, e.Days)
+	}
 	var apps []argocd.Application
 	var stages = map[string]map[string]*kargo.Stage{} // project → stage → Stage
 	parallel(2, func() {
@@ -483,17 +538,18 @@ func (h *Hub) buildUpstream(ctx context.Context, c *Clients, cat settings.Catalo
 		st.KargoOK, st.KargoVersion = true, v
 	})
 
-	var deps []rawDeployment
-	projects := map[string]bool{}
-	for _, a := range apps {
-		d, ok := fromApp(a, c, cat)
-		if !ok {
-			continue
-		}
-		if d.KargoProject != "" {
-			projects[d.KargoProject] = true
-		}
-		deps = append(deps, d)
+	deps, projects, stats := classify(apps, c, cat)
+	st.Catalog = stats
+	// Saying this once per build costs nothing and is the difference between
+	// an hour of reading code and a glance at the log.
+	// An upstream no environment references is meant to classify nothing, so
+	// saying "everything was dropped" about it is noise — and a diagnostic
+	// that cries wolf is one people learn to scroll past.
+	if st.Catalog.Applications > 0 && st.Catalog.Kept == 0 && len(c.Envs) > 0 {
+		zap.L().Warn("catalog: every application was dropped",
+			zap.String("upstream", c.Name), zap.Int("applications", st.Catalog.Applications),
+			zap.Int("no_env", st.Catalog.NoEnv), zap.Int("other_env", st.Catalog.OtherEnv),
+			zap.String("env_label", cat.EnvLabel), zap.Strings("envs", c.Envs))
 	}
 	if st.KargoOK {
 		var mu sync.Mutex
@@ -522,8 +578,43 @@ func (h *Hub) buildUpstream(ctx context.Context, c *Clients, cat settings.Catalo
 			applyStage(&d.Deployment, s)
 		}
 	}
-	h.fillVersions(ctx, c, deps)
+	st.RegistryFailed, st.RegistryError, st.RegistryAuth = h.fillVersions(ctx, c, deps)
+	if st.RegistryFailed > 0 {
+		zap.L().Warn("catalog: image metadata unavailable",
+			zap.String("upstream", c.Name), zap.Int("failed", st.RegistryFailed),
+			zap.Bool("authentication", st.RegistryAuth), zap.String("error", st.RegistryError))
+	}
 	return st, deps
+}
+
+// classify turns the Applications an upstream returned into deployments, and
+// accounts for the ones it did not. The accounting is the point: dropping an
+// Application is silent by nature, and a whole catalog dropped silently looks
+// exactly like an upstream with nothing in it.
+func classify(apps []argocd.Application, c *Clients, cat settings.Catalog) ([]rawDeployment, map[string]bool, CatalogStats) {
+	var deps []rawDeployment
+	projects := map[string]bool{}
+	stats := CatalogStats{Applications: len(apps)}
+	for _, a := range apps {
+		d, ok := fromApp(a, c, cat)
+		if !ok {
+			// fromApp leaves Env set on the way out, which is what separates
+			// "the environment dimension resolved to nothing" from "it
+			// resolved to an environment this upstream does not serve".
+			if d.Env == "" {
+				stats.NoEnv++
+			} else {
+				stats.OtherEnv++
+			}
+			continue
+		}
+		stats.Kept++
+		if d.KargoProject != "" {
+			projects[d.KargoProject] = true
+		}
+		deps = append(deps, d)
+	}
+	return deps, projects, stats
 }
 
 func fromApp(a argocd.Application, c *Clients, cat settings.Catalog) (rawDeployment, bool) {
@@ -535,7 +626,17 @@ func fromApp(a argocd.Application, c *Clients, cat settings.Catalog) (rawDeploym
 		d.Operation = op.Phase
 	}
 	d.Images = a.Status.Summary.Images
-	if proj, stage, ok := strings.Cut(a.Metadata.Annotations[authorizedStageAnnotation], ":"); ok {
+	d.Workload = a.RunsWorkloads()
+	if src, ok := a.Manifests(); ok {
+		d.Repo, d.RepoPath, d.Revision = src.RepoURL, src.Path, src.TargetRevision
+	}
+	// A template that rendered with an empty segment leaves something like
+	// ":dev" or "-pipeline:dev" behind. Treating that as a real project name
+	// produces a Kargo lookup that can only fail, and the service then reports
+	// "not managed by Kargo" for the wrong reason. An annotation whose project
+	// or stage is blank means the same as no annotation at all.
+	if proj, stage, ok := strings.Cut(a.Metadata.Annotations[authorizedStageAnnotation], ":"); ok &&
+		isKargoName(proj) && stage != "" {
 		d.KargoProject, d.KargoStage = proj, stage
 	}
 	labels := a.Metadata.Labels
@@ -557,8 +658,11 @@ func fromApp(a argocd.Application, c *Clients, cat settings.Catalog) (rawDeploym
 			}
 		}
 	}
+	// Not one of ours (e.g. platform apps). Env is deliberately left as it
+	// was resolved: buildUpstream reads it to tell a label that matched
+	// nothing from an environment that belongs to somebody else.
 	if d.Env == "" || !slices.Contains(c.Envs, d.Env) {
-		return d, false // not one of ours (e.g. platform apps)
+		return d, false
 	}
 	d.Service = labelValue(labels, cat.ServiceLabel)
 	if cat.ServiceLabel == FromArgoProject {
@@ -598,6 +702,21 @@ func fromApp(a argocd.Application, c *Clients, cat settings.Catalog) (rawDeploym
 		d.Grafana = strings.NewReplacer("{service}", d.Service, "{env}", d.Env, "{namespace}", d.Namespace).Replace(c.Grafana)
 	}
 	return d, true
+}
+
+// isKargoName rejects what a half-rendered template leaves behind: an empty
+// string, or a name that is only the template's literal part ("-pipeline").
+// A Kargo project is a Kubernetes namespace, so it starts and ends with an
+// alphanumeric.
+func isKargoName(s string) bool {
+	if s == "" {
+		return false
+	}
+	first, last := s[0], s[len(s)-1]
+	ok := func(c byte) bool {
+		return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+	}
+	return ok(first) && ok(last)
 }
 
 func labelValue(labels map[string]string, key string) string {
@@ -649,8 +768,15 @@ func applyStage(d *Deployment, s *kargo.Stage) {
 }
 
 // fillVersions adds image metadata where the registry answers; misses leave
-// the version empty rather than failing the view.
-func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment) {
+// the version empty rather than failing the view. It reports how many lookups
+// failed, one error worth showing for them, and whether they were refusals.
+//
+// The count and the message are the point. Dropping these errors made an
+// expired registry credential look like images nobody had labelled — no error
+// anywhere, just emptier rows — which is the hardest kind of problem to go
+// looking for.
+func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment) (failed int, message string, auth bool) {
+	var mu sync.Mutex
 	var tasks []func()
 	for i := range deps {
 		d := &deps[i]
@@ -662,12 +788,35 @@ func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment
 			if ref == "" {
 				ref = d.Tag
 			}
-			if img, err := h.Inspect(ctx, c, d.Image, ref); err == nil {
-				d.Digest, d.Version, d.BuiltAt = img.Digest, img.Version(), img.Created
+			img, err := h.Inspect(ctx, c, d.Image, ref)
+			if err != nil {
+				isAuth := errors.Is(err, registry.ErrUnauthorized)
+				mu.Lock()
+				failed++
+				// Authentication wins the reported message even when it is not
+				// the first failure: it names something a person can go and
+				// fix, where a timeout usually names a symptom of it.
+				if message == "" || (isAuth && !auth) {
+					message, auth = truncateError(err.Error()), isAuth
+				}
+				mu.Unlock()
+				return
 			}
+			d.Digest, d.Version, d.BuiltAt = img.Digest, img.Version(), img.Created
 		})
 	}
 	parallel(8, tasks...)
+	return failed, message, auth
+}
+
+// truncateError keeps the upstream's own words but not all of them: registry
+// bodies can be long, and this one ends up on a page.
+func truncateError(s string) string {
+	const limit = 300
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "…"
 }
 
 // Inspect reads image metadata, caching by digest.

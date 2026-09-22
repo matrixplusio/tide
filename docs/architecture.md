@@ -195,7 +195,9 @@ token 仍是密文。
 
 首次启动检测到未初始化时进入 setup 模式，全程在网页上完成：
 
-1. 启动时生成随机 setup token，**打印到 Pod 日志**（JSON 日志的 `setup_token` 字段）
+1. 启动时生成随机 setup token，**打印到 Pod 日志**（JSON 日志的 `setup_token` 字段）。
+   token 存在数据库（加密），不是每个进程各生成一份：多副本同时启动时只有一个副本能
+   建成，其余的读回已存的那个再打印，所以每个副本打印的是同一个 token
 2. 访问任意页面 → 跳 `/setup`，输入这个 token
 3. **创建本地管理员**：用户名 + 自己设定的密码（至少 12 位，bcrypt 存储）。创建、标记已初始化、
    登录在同一个事务里完成——两个浏览器同时走 setup 只会有一个成为管理员
@@ -324,9 +326,15 @@ duration_ms、ip、user）；静态资源和健康检查是 debug 级。日志�
 | `tide_items_executing` | gauge | — | 执行器正在跑的条目数 |
 | `tide_releases_waiting` | gauge | state（confirming / approving） | 卡在待确认、待审批的单 |
 | `tide_catalog_refresh_seconds` | histogram | outcome | 服务目录刷新耗时，规模变大时先看它 |
+| `tide_upstream_credential_expiry_days` | gauge | upstream、kind（kargo / argocd / registry） | 上游凭据距到期还有几天，过期后为负 |
+
+`tide_upstream_credential_expiry_days` 只对在「管理 → 上游」里填了到期日的凭据产生序列：
+没填就没有这条序列，这是诚实的答复。**告警要判断值小，不要判断序列缺失**，否则等于要求
+每个凭据都必须填日期。
 
 建议的告警：上游 5xx 或 timeout 比例升高、`tide_items_executing` 长时间不降（执行器卡住）、
-`tide_releases_waiting{state="approving"}` 长时间大于 0、目录刷新 p95 明显变慢。
+`tide_releases_waiting{state="approving"}` 长时间大于 0、目录刷新 p95 明显变慢、
+`tide_upstream_credential_expiry_days < 7`。
 
 ## 权限
 
