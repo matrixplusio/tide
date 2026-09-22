@@ -68,6 +68,14 @@ var (
 		Help: "Always 1; the build is in the labels.",
 	}, []string{"version", "commit", "go"})
 
+	// credentialExpiry only exists for credentials somebody recorded a date
+	// for; an upstream with no date reports no series, which is the honest
+	// answer. Alert on it being low, not on it being absent.
+	credentialExpiry = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "tide_upstream_credential_expiry_days",
+		Help: "Days until a recorded upstream credential expiry; negative once past.",
+	}, []string{"upstream", "kind"})
+
 	catalogRefresh = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "tide_catalog_refresh_seconds",
 		Help:    "Service catalog refresh duration, by outcome.",
@@ -81,7 +89,7 @@ func init() {
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		httpRequests, httpDuration, upstreamRequests, upstreamDuration,
 		releasesFinished, releaseDuration, itemsExecuting, releasesWaiting, catalogRefresh,
-		buildInfo,
+		buildInfo, credentialExpiry,
 	)
 }
 
@@ -147,4 +155,11 @@ func CatalogRefresh(d time.Duration, err error) {
 		outcome = "error"
 	}
 	catalogRefresh.WithLabelValues(outcome).Observe(d.Seconds())
+}
+
+// CredentialExpiry records how long one upstream credential has left, in
+// days. Called on every catalog build, so the value follows the calendar
+// without anything having to schedule it.
+func CredentialExpiry(upstream, kind string, days int) {
+	credentialExpiry.WithLabelValues(upstream, kind).Set(float64(days))
 }

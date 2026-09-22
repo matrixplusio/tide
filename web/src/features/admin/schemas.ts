@@ -224,6 +224,18 @@ export const catalogSchema = z
   })
 export type CatalogValues = z.infer<typeof catalogSchema>
 
+// ---- pipeline repository ------------------------------------------------------
+
+export const pipelineRepoSchema = z.object({
+  provider: z.enum(['gitlab', 'gitea']),
+  baseUrl: baseUrl(),
+  project: z.string().trim().min(1, i18n.t('kargogen.projectRequired')).max(256),
+  branch: zOptionalText(256),
+  pathPrefix: zOptionalText(256),
+  token: secret(i18n.t('kargogen.token'), true),
+})
+export type PipelineRepoValues = z.infer<typeof pipelineRepoSchema>
+
 // ---- upstreams ----------------------------------------------------------------
 
 export const upstreamItemSchema = z.object({
@@ -235,6 +247,11 @@ export const upstreamItemSchema = z.object({
   registryUrl: optionalUrl(),
   registryUser: zOptionalText(256),
   registryToken: secret(i18n.t('av.registryPassword'), false),
+  // The server is the authority on what a usable date is; the browser's date
+  // input already refuses the shapes people get wrong by hand.
+  kargoExpires: zOptionalText(10),
+  argocdExpires: zOptionalText(10),
+  registryExpires: zOptionalText(10),
   insecureTls: z.boolean(),
   grafanaUrl: optionalUrl(),
 })

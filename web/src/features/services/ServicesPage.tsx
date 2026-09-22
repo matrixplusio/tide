@@ -36,6 +36,12 @@ export function ServicesPage() {
 
   const data = useServices()
   const services = data.data?.services ?? []
+  // Applications the upstreams returned but could not classify. While this is
+  // above zero and nothing came through, "no services yet" is the one thing
+  // the page must not say: the upstream is full, the settings match nothing.
+  // Optional chaining covers the seconds during a rollout when this tab is
+  // newer than the backend answering it.
+  const unclassified = (data.data?.upstreams ?? []).reduce((n, u) => ((u.envs?.length ?? 0) > 0 && u.catalog?.kept === 0 ? n + (u.catalog.applications ?? 0) : n), 0)
   const envs = data.data?.envOrder ?? me.envOrder
 
   // Scope (project, domain, dimensions) and the search are applied separately
@@ -100,7 +106,7 @@ export function ServicesPage() {
             </Button>
           )}
         </div>
-        {data.isPending && <Loading />}
+        {data.isPending && <Loading label={t('services.reading')} />}
         {isApiError(data.error, ErrCode.NoUpstreams) ? (
           <NoUpstreamsBanner canConfigure={can(me, 'environments.manage')}>{t('services.noUpstreams')}</NoUpstreamsBanner>
         ) : (
@@ -109,7 +115,18 @@ export function ServicesPage() {
         {data.data && groups.length === 0 && (
           <EmptyState>
             {total === 0 ? (
-              t('services.none')
+              unclassified > 0 ? (
+                <>
+                  {t('services.noneClassified', { count: unclassified })}{' '}
+                  {can(me, 'environments.manage') && (
+                    <Button size="small" variant="quiet" onClick={() => nav('/admin/catalog')}>
+                      {t('services.openCatalog')}
+                    </Button>
+                  )}
+                </>
+              ) : (
+                t('services.none')
+              )
             ) : outOfScope > 0 ? (
               <>
                 {t('services.filteredOut', { count: outOfScope })}{' '}

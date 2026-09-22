@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { UpstreamStatusPanel } from './UpstreamStatusPanel'
 import type { UpstreamStatus } from '../../lib/types'
 
@@ -11,6 +11,7 @@ const up = (over: Partial<UpstreamStatus> = {}): UpstreamStatus => ({
   kargoVersion: 'v1.11.4',
   argocdOk: true,
   argocdVersion: 'v3.5.3',
+  catalog: { applications: 12, kept: 12, noEnv: 0, otherEnv: 0 },
   checkedAt: at,
   ...over,
 })
@@ -55,5 +56,29 @@ describe('UpstreamStatusPanel', () => {
   it('says nothing when there is nothing to say', () => {
     const { container } = render(<UpstreamStatusPanel upstreams={[]} />)
     expect(container.innerHTML).toBe('')
+  })
+
+  it('shows the credential the sidebar warning was about', () => {
+    // The sidebar links here; a warning that leads to a page saying nothing
+    // is worse than no warning, because it costs a click to learn nothing.
+    render(<UpstreamStatusPanel upstreams={[up({ expiring: [{ upstream: 'onprem', kind: 'registry', expires: '2026-10-22', days: 9 }] })]} />)
+    expect(screen.getByText('Registry 凭据')).toBeTruthy()
+    expect(screen.getByText('2026-10-22 到期，还有 9 天')).toBeTruthy()
+  })
+
+  it('says so when an upstream answers but yields no services', () => {
+    render(<UpstreamStatusPanel upstreams={[up({ catalog: { applications: 217, kept: 0, noEnv: 217, otherEnv: 0 } })]} />)
+    expect(screen.getByText('读到 217 个 Application，但没有一个能归类')).toBeTruthy()
+  })
+
+  it('distinguishes a refused registry from an unreachable one', () => {
+    // Both make versions go blank; only one is fixed by reissuing something.
+    render(<UpstreamStatusPanel upstreams={[up({ registryFailed: 12, registryAuth: true, registryError: 'HTTP 401' })]} />)
+    expect(screen.getByText(/认证被拒/)).toBeTruthy()
+
+    cleanup()
+    render(<UpstreamStatusPanel upstreams={[up({ registryFailed: 12, registryError: 'HTTP 502' })]} />)
+    expect(screen.queryByText(/认证被拒/)).toBeNull()
+    expect(screen.getByText(/12 个镜像读不到元数据/)).toBeTruthy()
   })
 })

@@ -14,6 +14,7 @@ import { RolesPage } from './roles/RolesPage'
 import { RoleDetailPage } from './roles/RoleDetailPage'
 import { CIPage } from './ci/CIPage'
 import { CatalogPage, EnvironmentsPage, GeneralPage, NotifyPage, ReleasePolicyPage, SecurityPage, SsoPage, UpstreamsPage } from './settings/SettingsPages'
+import { KargoGenPage } from './settings/KargoGenPage'
 
 function isNarrow(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches
@@ -44,6 +45,7 @@ export default function AdminRoutes() {
           <Route path="environments" element={guard('environments.manage', <EnvironmentsPage />)} />
           <Route path="upstreams" element={guard('environments.manage', <UpstreamsPage />)} />
           <Route path="catalog" element={guard('environments.manage', <CatalogPage />)} />
+          <Route path="kargo" element={guard('environments.manage', <KargoGenPage />)} />
           <Route path="release" element={guard('settings.manage', <ReleasePolicyPage />)} />
           <Route path="notify" element={guard('notifications.manage', <NotifyPage />)} />
           <Route path="ci" element={guard('settings.manage', <CIPage />)} />

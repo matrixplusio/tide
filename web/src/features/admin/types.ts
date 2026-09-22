@@ -63,6 +63,10 @@ export interface Upstream {
   registryUrl: string
   registryUser: string
   registryToken: string
+  /** Day each credential stops working, "2026-10-22"; empty when unrecorded. */
+  kargoExpires?: string
+  argocdExpires?: string
+  registryExpires?: string
   insecureTls: boolean
   grafanaUrl?: string
 }
@@ -173,9 +177,24 @@ export interface SettingsData {
   security?: Security | null
   release?: ReleasePolicy | null
   system?: SystemSettings | null
+  pipeline?: PipelineRepo | null
 }
 
-export type SettingsSection = 'catalog' | 'upstreams' | 'environments' | 'notify' | 'oidc' | 'security' | 'release' | 'system'
+/** Where generated Kargo pipelines are committed. Tide writes through
+ *  GitLab's API rather than driving git. */
+export interface PipelineRepo {
+  /** Which API to speak; empty means gitlab. */
+  provider?: 'gitlab' | 'gitea'
+  baseUrl: string
+  /** Path with namespace, e.g. "devops/k8s-pipelines". */
+  project: string
+  /** Created from the default branch when it does not exist yet. */
+  branch: string
+  pathPrefix?: string
+  token: string
+}
+
+export type SettingsSection = 'catalog' | 'upstreams' | 'environments' | 'notify' | 'oidc' | 'security' | 'release' | 'system' | 'pipeline'
 
 /** An approval rule and the environments it covers (first match wins). */
 export interface ApprovalPolicy {
@@ -233,4 +252,54 @@ export interface CISnippet {
   url: string
   variable: string
   snippet: string
+}
+
+// ---- kargo pipeline generation ----------------------------------------------
+
+export interface KargoFile {
+  /** Relative, "<domain>/<name>.yaml". */
+  path: string
+  yaml: string
+}
+
+/** A service that produced nothing, and why. Never silent: a generator that
+ *  quietly drops one leaves a release process missing exactly one thing. */
+export interface KargoSkipped {
+  service: string
+  env?: string
+  reason: string
+}
+
+/** Everything generated for one business domain, which is also one Kargo
+ *  project. Grouped rather than flat because the domain is what a person
+ *  reviews. */
+export interface KargoDomain {
+  name: string
+  services: number
+  warehouses: number
+  stages: number
+  files: KargoFile[]
+}
+
+export interface KargoResult {
+  domains: KargoDomain[]
+  skipped: KargoSkipped[]
+  services: number
+  warehouses: number
+  stages: number
+  fileCount: number
+}
+
+export interface KargoPlan {
+  result: KargoResult
+  /** Every business domain in the catalog, for the picker. */
+  domains: { name: string; services: number }[]
+  at: string
+}
+
+export interface KargoPushed {
+  commit: { id: string; short_id?: string; title?: string; web_url?: string }
+  branch: string
+  files: number
+  result: KargoResult
 }

@@ -53,6 +53,33 @@ func TestFromAppDefaultsAndDimensions(t *testing.T) {
 		t.Fatalf("kargo project fallback: %+v", d.Deployment)
 	}
 
+	// A template that rendered with an empty segment leaves an annotation that
+	// names no project. Reading it as one produces a Kargo lookup that can
+	// only fail, and the service then reports the wrong reason for it.
+	for name, annotation := range map[string]string{
+		"empty service segment": "-pipeline:dev",
+		"empty project":         ":dev",
+		"empty stage":           "acme-pipeline:",
+		"trailing dash":         "acme-:dev",
+	} {
+		a := app(t, `{"metadata":{"name":"svc-dev","annotations":{"kargo.akuity.io/authorized-stage":"`+annotation+`"}},
+			"spec":{"destination":{"namespace":"acme-dev"}}}`)
+		d, ok := fromApp(a, c, cat)
+		if !ok {
+			t.Fatalf("%s: the app itself is still in scope", name)
+		}
+		if d.KargoProject != "" || d.KargoStage != "" {
+			t.Errorf("%s: %q gave project=%q stage=%q, want both empty",
+				name, annotation, d.KargoProject, d.KargoStage)
+		}
+	}
+	// A well-formed one still works.
+	a = app(t, `{"metadata":{"name":"svc2-dev","annotations":{"kargo.akuity.io/authorized-stage":"acme-pipeline:dev"}},
+		"spec":{"destination":{"namespace":"acme-dev"}}}`)
+	if d, ok := fromApp(a, c, cat); !ok || d.KargoProject != "acme-pipeline" || d.KargoStage != "dev" {
+		t.Errorf("well-formed annotation: %+v", d.Deployment)
+	}
+
 	// Apps outside the configured environments are ignored.
 	if _, ok := fromApp(app(t, `{"metadata":{"name":"argocd-server"},"spec":{"destination":{"namespace":"argocd"}}}`), c, cat); ok {
 		t.Fatal("platform app must be ignored")
@@ -176,5 +203,41 @@ func TestMergeServicesConflicts(t *testing.T) {
 				t.Fatalf("%s/%s picked %s vs %s", name, e, d.App, again[name].Envs[e].App)
 			}
 		}
+	}
+}
+
+// The incident this exists to prevent: an environment label that no
+// Application carries. Every Application is dropped, and without the
+// accounting the page says "no services yet" about a few hundred of them.
+// What separates a misconfiguration from an empty upstream is that NoEnv,
+// not OtherEnv, accounts for all of them.
+func TestClassifyExplainsWhyEverythingWasDropped(t *testing.T) {
+	c := &Clients{Name: "local", Envs: []string{"dev", "qa"}}
+	cat := settings.DefaultCatalog()
+	cat.EnvLabel = "tide.io/env" // configured, but nothing carries it
+
+	apps := []argocd.Application{
+		// No env label, and no name suffix or Kargo stage to fall back on.
+		app(t, `{"metadata":{"name":"order-api"},"spec":{"destination":{"namespace":"acme"}}}`),
+		app(t, `{"metadata":{"name":"cart-api"},"spec":{"destination":{"namespace":"acme"}}}`),
+		// Resolves to an environment this upstream does not serve. Ordinary,
+		// and must not be counted as the misconfiguration.
+		app(t, `{"metadata":{"name":"gateway","labels":{"tide.io/env":"prod"}},"spec":{"destination":{"namespace":"platform"}}}`),
+	}
+
+	deps, _, stats := classify(apps, c, cat)
+	if len(deps) != 0 {
+		t.Fatalf("expected everything to be dropped, kept %d", len(deps))
+	}
+	if stats.Applications != 3 || stats.Kept != 0 || stats.NoEnv != 2 || stats.OtherEnv != 1 {
+		t.Fatalf("stats do not explain the drop: %+v", stats)
+	}
+
+	// The same Applications with the label Tide was actually told to read.
+	cat.EnvLabel = ""
+	apps[0] = app(t, `{"metadata":{"name":"order-api-dev"},"spec":{"destination":{"namespace":"acme-dev"}}}`)
+	deps, _, stats = classify(apps, c, cat)
+	if len(deps) != 1 || stats.Kept != 1 || stats.Applications != 3 {
+		t.Fatalf("expected one of three to be kept: %d deps, %+v", len(deps), stats)
 	}
 }

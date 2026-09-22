@@ -207,7 +207,37 @@ export interface UpstreamStatus {
   argocdOk: boolean
   argocdError?: string
   argocdVersion?: string
+  catalog: CatalogStats
+  /** Credentials near or past their recorded expiry, soonest first. */
+  expiring?: CredentialExpiry[]
+  /** Image metadata lookups that failed; versions and build times go blank. */
+  registryFailed?: number
+  registryError?: string
+  /** The failures were refusals: a new credential fixes them, the network will not. */
+  registryAuth?: boolean
   checkedAt: string
+}
+
+/** One credential whose recorded expiry is near or past. Absent entirely when
+ *  nobody wrote a date down — Tide never reads expiry out of a token. */
+export interface CredentialExpiry {
+  upstream: string
+  kind: 'kargo' | 'argocd' | 'registry'
+  expires: string
+  /** Days remaining; negative once the date has gone by. */
+  days: number
+}
+
+/** What became of the Applications this upstream returned. `kept === 0` with
+ *  `applications > 0` means the catalog settings match nothing — which reads
+ *  as an empty upstream unless the page says otherwise. */
+export interface CatalogStats {
+  applications: number
+  kept: number
+  /** The environment dimension resolved to nothing: the usual misconfiguration. */
+  noEnv: number
+  /** Resolved to an environment this upstream does not serve. Ordinary. */
+  otherEnv: number
 }
 
 export interface Artifact {

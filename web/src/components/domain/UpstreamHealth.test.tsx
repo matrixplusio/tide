@@ -10,6 +10,7 @@ const up = (name: string, kargoOk = true, argocdOk = true): UpstreamStatus => ({
   argocdOk,
   kargoError: kargoOk ? '' : `dial ${name} kargo: connection refused`,
   argocdError: argocdOk ? '' : `dial ${name} argocd: 401`,
+  catalog: { applications: 12, kept: 12, noEnv: 0, otherEnv: 0 },
   checkedAt: new Date().toISOString(),
 })
 
@@ -40,6 +41,33 @@ describe('UpstreamHealth', () => {
     expect(screen.getByText('Argo CD · onprem')).toBeTruthy()
     expect(screen.getByText('Kargo · gcp')).toBeTruthy()
     expect(screen.getByText('其余 1 项正常')).toBeTruthy()
+  })
+
+  it('warns about a credential before it expires, while everything still answers', () => {
+    const u = up('onprem')
+    u.expiring = [{ upstream: 'onprem', kind: 'registry', expires: '2026-10-02', days: 9 }]
+    render(<UpstreamHealth upstreams={[u]} />)
+    // Still "all ok" — nothing is down yet. That is exactly why the warning
+    // has to be said out loud rather than inferred from an outage.
+    expect(screen.getByText('1 个上游正常')).toBeTruthy()
+    const warn = screen.getByText('上游凭据 9 天后到期')
+    expect(warn.closest('.hrow')?.className).toContain('warn')
+    expect(warn.closest('.hrow')?.getAttribute('title')).toContain('registry')
+  })
+
+  it('switches to the past tense once the date has gone by', () => {
+    const u = up('onprem')
+    u.expiring = [
+      { upstream: 'onprem', kind: 'registry', expires: '2026-09-20', days: -3 },
+      { upstream: 'onprem', kind: 'kargo', expires: '2026-09-30', days: 7 },
+    ]
+    render(<UpstreamHealth upstreams={[u]} />)
+    expect(screen.getByText('有 2 项上游凭据已过期')).toBeTruthy()
+  })
+
+  it('stays quiet when no expiry date was ever recorded', () => {
+    render(<UpstreamHealth upstreams={[up('onprem')]} />)
+    expect(document.querySelectorAll('.hrow.warn')).toHaveLength(0)
   })
 
   it('does not claim anything when nothing is configured', () => {

@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../../lib/api'
 import type { CheckResult, Paged, RoleBinding } from '../../lib/types'
-import type { Channel, CIIntake, CISnippet, CIToken, DiscoveredLabel, GroupRow, RbacCatalog, Role, SettingsData, SettingsSection, Upstream, UserDetail, UserRow } from './types'
+import type { Channel, CIIntake, CISnippet, CIToken, DiscoveredLabel, GroupRow, KargoPlan, KargoPushed, RbacCatalog, Role, SettingsData, SettingsSection, Upstream, UserDetail, UserRow } from './types'
 
 const enc = encodeURIComponent
 
@@ -207,3 +207,26 @@ export const useUpdateBinding = () =>
   useInvalidating(({ id, ...scope }: { id: number; envs: string[]; projects: string[]; types: string[] }) => apiFetch<RoleBinding>(`/api/v1/role-bindings/${id}`, { method: 'PUT', body: scope }), RBAC_KEYS)
 
 export const useDeleteBinding = () => useInvalidating((id: number) => apiFetch<null>(`/api/v1/role-bindings/${id}`, { method: 'DELETE' }), RBAC_KEYS)
+
+// ---- kargo pipeline generation ----------------------------------------------
+
+/** Generating reads every upstream fresh, so it is asked for explicitly
+ *  rather than on every render. */
+export function useKargoPlan(domain: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['kargo-generate', domain],
+    queryFn: ({ signal }) => apiFetch<KargoPlan>(`/api/v1/kargo/generate?domain=${enc(domain)}`, { signal }),
+    enabled,
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+  })
+}
+
+/** Commits the generated pipeline. One commit, so the repository is never
+ *  left describing a pipeline that half exists. */
+export function usePushKargo() {
+  return useMutation({
+    mutationFn: (body: { domain: string; message?: string }) =>
+      apiFetch<KargoPushed>('/api/v1/kargo/push', { method: 'POST', body }),
+  })
+}

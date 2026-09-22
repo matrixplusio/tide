@@ -46,6 +46,39 @@ export function UpstreamStatusPanel({ upstreams, error }: { upstreams: UpstreamS
             </div>
             <System name="Kargo" ok={u.kargoOk} version={u.kargoVersion} error={u.kargoError} />
             <System name="Argo CD" ok={u.argocdOk} version={u.argocdVersion} error={u.argocdError} />
+            {/* This is the page the sidebar warning links to, so it is where
+                the detail behind it has to be: which credential, what date,
+                how long left. */}
+            {(u.expiring ?? []).map((e) => (
+              <div className="urow warn" key={`${e.kind}-${e.expires}`}>
+                <StatusDot state="warn" />
+                <span className="usys">{t(`upstreamStatus.kind.${e.kind}`)}</span>
+                <span className="d grow">
+                  {e.days < 0
+                    ? t('upstreamStatus.expiredOn', { at: e.expires })
+                    : t('upstreamStatus.expiresOn', { at: e.expires, count: e.days })}
+                </span>
+              </div>
+            ))}
+            {(u.registryFailed ?? 0) > 0 && (
+              <div className="urow warn">
+                <StatusDot state="warn" />
+                <span className="usys">{t('upstreamStatus.kind.registry')}</span>
+                <span className="d prewrap grow">
+                  {t(u.registryAuth ? 'upstreamStatus.registryAuth' : 'upstreamStatus.registryFailed', { count: u.registryFailed })}
+                  {u.registryError ? ` — ${u.registryError}` : ''}
+                </span>
+              </div>
+            )}
+            {/* An upstream that answers but yields nothing is not "up" in any
+                sense that matters; the count is the only way to see it here. */}
+            {(u.envs?.length ?? 0) > 0 && u.catalog && u.catalog.applications > 0 && u.catalog.kept === 0 && (
+              <div className="urow warn">
+                <StatusDot state="warn" />
+                <span className="usys">{t('upstreamStatus.catalog')}</span>
+                <span className="d grow">{t('upstreamStatus.noneClassified', { count: u.catalog.applications })}</span>
+              </div>
+            )}
           </div>
         ))}
       </Group>

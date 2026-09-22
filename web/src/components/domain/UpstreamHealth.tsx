@@ -19,6 +19,11 @@ export function UpstreamHealth({ upstreams, detailPath }: { upstreams: UpstreamS
     ...(u.argocdOk ? [] : [{ key: `${u.name}-argocd`, label: `Argo CD · ${u.name}`, error: u.argocdError }]),
   ])
   const rest = upstreams.length * 2 - down.length
+  // A credential nearing its date is not "down" — everything still answers —
+  // but it is the only warning anyone will get before it stops. It goes in
+  // the same place as the outage it is about to cause.
+  const expiring = upstreams.flatMap((u) => u.expiring ?? [])
+  const soonest = expiring.reduce<number | null>((m, e) => (m === null || e.days < m ? e.days : m), null)
   const rows =
     down.length === 0 ? (
       <div className="hrow">
@@ -36,12 +41,26 @@ export function UpstreamHealth({ upstreams, detailPath }: { upstreams: UpstreamS
         {rest > 0 && <div className="hrow">{t('nav.upstreamsRestOk', { count: rest })}</div>}
       </>
     )
+  const warning = soonest === null ? null : (
+    <div className="hrow warn" title={expiring.map((e) => `${e.upstream} · ${e.kind} · ${e.expires}`).join('\n')}>
+      <StatusDot state="warn" />
+      <span className="ellipsis">
+        {soonest < 0 ? t('nav.credentialExpired', { count: expiring.length }) : t('nav.credentialExpiring', { count: soonest })}
+      </span>
+    </div>
+  )
   // Summarising means the detail has to live somewhere reachable, and a
   // tooltip is not somewhere: this links to the page that shows all of it.
-  if (!detailPath) return rows
+  const all = (
+    <>
+      {rows}
+      {warning}
+    </>
+  )
+  if (!detailPath) return all
   return (
     <Link to={detailPath} className="hlink" title={t('nav.upstreamsDetail')}>
-      {rows}
+      {all}
     </Link>
   )
 }

@@ -111,6 +111,8 @@ func mapDomainError(err error) *errcode.Error {
 		return errcode.NewKey(errcode.NotFound, "ci.envUnknown")
 	case errors.Is(err, ci.ErrNotDeployed):
 		return errcode.New(errcode.ServiceNotDeployed, "")
+	case errors.Is(err, ci.ErrNotDirect):
+		return errcode.NewKey(errcode.CIDisabled, "ci.notDirect")
 
 	case errors.Is(err, catalog.ErrNoUpstreams):
 		return errcode.New(errcode.NoUpstreams, "")

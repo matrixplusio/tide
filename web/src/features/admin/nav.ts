@@ -27,6 +27,7 @@ export const ADMIN_GROUPS: readonly { label: string; items: readonly AdminItem[]
       { path: 'environments', label: 'admin.navEnvironments', perm: 'environments.manage', hint: 'admin.navEnvironmentsHint' },
       { path: 'upstreams', label: 'admin.navUpstreams', perm: 'environments.manage', hint: 'admin.navUpstreamsHint' },
       { path: 'catalog', label: 'admin.navCatalog', perm: 'environments.manage', hint: 'admin.navCatalogHint' },
+      { path: 'kargo', label: 'admin.navKargo', perm: 'environments.manage', hint: 'admin.navKargoHint' },
       { path: 'release', label: 'admin.navPolicy', perm: 'settings.manage', hint: 'admin.navPolicyHint' },
       { path: 'notify', label: 'admin.navNotify', perm: 'notifications.manage', hint: 'admin.navNotifyHint' },
       { path: 'ci', label: 'admin.navCI', perm: 'settings.manage', hint: 'admin.navCIHint' },

@@ -44,6 +44,11 @@ var sections = map[string]sectionDef{
 		func(ctx context.Context, s *settings.Store) (any, error) { return s.Environments(ctx) }},
 	settings.SectionCatalog: {rbac.EnvironmentsManage, func() any { return &settings.Catalog{} },
 		func(ctx context.Context, s *settings.Store) (any, error) { return s.Catalog(ctx) }},
+	settings.SectionPipelineRepo: {rbac.EnvironmentsManage, func() any { return &settings.PipelineRepo{} },
+		func(ctx context.Context, s *settings.Store) (any, error) {
+			var r settings.PipelineRepo
+			return redactedOrNil(s.Load(ctx, settings.SectionPipelineRepo, &r), &r)
+		}},
 	settings.SectionNotify: {rbac.NotificationsManage, func() any { return &settings.Notify{} },
 		func(ctx context.Context, s *settings.Store) (any, error) {
 			n, err := s.Notify(ctx)
@@ -346,6 +351,24 @@ func (a *API) validateSection(ctx context.Context, v any) error {
 		if s.Announcement.Enabled && s.Announcement.Text == "" {
 			add(validate.FieldKey("announcement.text", "s.announceTextRequired"))
 		}
+	case *settings.PipelineRepo:
+		trim(&s.Provider, &s.BaseURL, &s.Project, &s.Branch, &s.PathPrefix)
+		if s.Provider == "" {
+			s.Provider = settings.ProviderGitLab
+		}
+		if !slices.Contains(settings.Providers, s.Provider) {
+			add(validate.FieldKey("provider", "s.unknownProvider", s.Provider))
+		}
+		add(validate.HTTPURL("baseUrl", s.BaseURL, true, validate.BaseURL))
+		// "owner/repo": Gitea addresses the two halves separately, and GitLab
+		// wants the whole path with its namespace. Neither works without one.
+		if s.Project == "" {
+			add(validate.FieldKey("project", "s.projectRequired"))
+		} else if !strings.Contains(strings.Trim(s.Project, "/"), "/") {
+			add(validate.FieldKey("project", "s.projectPath"))
+		}
+		add(validate.Required("token", s.Token, "label.token"))
+		s.PathPrefix = strings.Trim(s.PathPrefix, "/")
 	default:
 		return errors.New("unknown settings type")
 	}
@@ -499,6 +522,24 @@ func validateUpstreams(u *settings.Upstreams, envs settings.Environments, add fu
 			add(validate.FieldKey(f("registryUser"), "s.registryUserNeeded"))
 		}
 		add(validate.HTTPURL(f("grafanaUrl"), it.GrafanaURL, false, validate.AnyURL))
+		trim(&it.KargoExpires, &it.ArgoCDExpires, &it.RegistryExpires)
+		for _, e := range []struct {
+			field, value string
+		}{
+			{"kargoExpires", it.KargoExpires},
+			{"argocdExpires", it.ArgoCDExpires},
+			{"registryExpires", it.RegistryExpires},
+		} {
+			if e.value == "" {
+				continue // optional: a credential with no recorded date is fine
+			}
+			// Rejecting a date far in the future catches the usual slip of
+			// typing the year wrong, which would silence the warning for a
+			// century instead of raising it.
+			if t, err := time.Parse(settings.DateLayout, e.value); err != nil || t.After(time.Now().AddDate(10, 0, 0)) {
+				add(validate.FieldKey(f(e.field), "s.expiryFormat"))
+			}
+		}
 	}
 	for _, e := range envs.Items {
 		if e.Upstream != "" && !names[e.Upstream] {

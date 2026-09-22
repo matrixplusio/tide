@@ -101,8 +101,11 @@ kubectl apply -f deploy/prod/healthcheckpolicy.yaml
 setup token 来确认操作的人有集群权限：
 
 ```bash
-kubectl -n tide logs deploy/tide | grep setup_token
+kubectl -n tide logs deploy/tide --all-containers --prefix | grep setup_token
 ```
+
+多副本时每个 Pod 都会打印一行，**三行里的 token 是同一个**，不用挨个试：token 存在
+数据库里，不是各自生成的，没抢到创建权的副本会把已存的那个读回来再打印。
 
 拿着它打开你配的域名：
 

@@ -19,6 +19,12 @@ var (
 	ErrEnvUnknown  = errors.New("unknown environment")
 	ErrCIDisabled  = errors.New("environment does not take releases from CI")
 	ErrNotDeployed = errors.New("service is not deployed to this environment")
+	// ErrNotDirect means the environment exists and takes CI releases, but its
+	// Kargo stage receives freight from another stage rather than from the
+	// warehouse. A freshly built image can never reach it directly, so
+	// accepting the intake would only produce a half-hour wait ending in
+	// "freight never arrived" — which is true and useless.
+	ErrNotDirect = errors.New("environment does not take freight directly from a warehouse")
 )
 
 // TokenPrefix marks a Tide CI token in logs and secret scanners. Pipelines
