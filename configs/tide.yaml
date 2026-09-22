@@ -1,0 +1,28 @@
+# Boot-time configuration (CONVENTIONS.md §6). Runtime settings live in the database.
+# Every key can be overridden by an environment variable: TIDE_ + upper-cased
+# path with "_" (database.url → TIDE_DATABASE_URL). Secrets are never put here.
+server:
+  addr: ":8080"
+  # Proxies whose X-Forwarded-For hop is trusted when resolving the client IP.
+  trusted_proxies: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1/32"]
+  # Development only: proxy non-API requests to the Vite dev server.
+  dev_web_proxy: ""
+  # Prometheus metrics at /metrics. Set a token (TIDE_SERVER_METRICS_TOKEN)
+  # when the path is reachable from outside the cluster; scrapers then send
+  # "Authorization: Bearer <token>".
+  metrics: true
+  metrics_token: ""  # TIDE_SERVER_METRICS_TOKEN
+database:
+  url: ""          # TIDE_DATABASE_URL (runtime account tide_app)
+  migrate_url: ""  # TIDE_DATABASE_MIGRATE_URL (schema owner, `tide migrate` only)
+# Optional shared cache for the service catalog and image metadata. Without
+# it each replica builds its own, which costs one walk over every Argo CD
+# Application per replica and lets two replicas show versions that differ for
+# up to 30 seconds. Nothing durable is kept here: losing Redis costs time,
+# never data.
+redis:
+  url: ""          # TIDE_REDIS_URL, e.g. redis://tide-redis:6379/0
+secrets:
+  key: ""          # TIDE_SECRETS_KEY: base64 of 32 random bytes (openssl rand -base64 32)
+log:
+  level: info

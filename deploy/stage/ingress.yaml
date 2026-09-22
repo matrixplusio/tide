@@ -1,0 +1,21 @@
+# The cluster runs ingress-nginx, not a Gateway API controller, so the
+# overlay drops the HTTPRoute and reaches the same Service this way.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tide
+  namespace: tide-stage
+  annotations:
+    cert-manager.io/cluster-issuer: CHANGE_ME
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [tide-stage.example.test]
+      secretName: tide-stage-tls
+  rules:
+    - host: tide-stage.example.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: tide, port: { number: 80 } } }

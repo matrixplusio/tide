@@ -1,0 +1,20 @@
+name: Feature
+description: Something Tide should be able to do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: |
+        What are you trying to do, and what makes it hard today? Describe the
+        situation rather than the solution — there may be a better one.
+    validations: { required: true }
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead

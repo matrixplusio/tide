@@ -1,0 +1,72 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: standard
+  enable:
+    - asasalint
+    - bidichk
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - dupword
+    - durationcheck
+    - errname
+    - errorlint
+    - forbidigo
+    - gocheckcompilerdirectives
+    - gosec
+    - loggercheck
+    - makezero
+    - misspell
+    - musttag
+    - nilerr
+    - nilnesserr
+    - noctx
+    - predeclared
+    - reassign
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+  settings:
+    # Rules CONVENTIONS.md states in prose; a reviewer should not be the only thing
+    # standing between them and the codebase.
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: '^fmt\.Print.*$'
+          msg: logs go through internal/logging (zap, JSON) — CONVENTIONS.md §3
+        - pattern: '^log\.(Print|Fatal|Panic).*$'
+          msg: logs go through internal/logging (zap, JSON) — CONVENTIONS.md §3
+        - pattern: 'gin\.Context\.(JSON|IndentedJSON|SecureJSON|PureJSON|AsciiJSON|XML|YAML|String|Data)$'
+          msg: handlers answer with respond.OK / Fail / Page — CONVENTIONS.md §4.2
+        - pattern: 'gin\.Context\.(Param|Query|DefaultQuery|QueryArray|QueryMap|PostForm)$'
+          msg: path and query values are read and validated by v1.params — CONVENTIONS.md §4.4
+    gosec:
+      excludes:
+        - G104 # unhandled errors are covered by errcheck with its own exclusions
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, errcheck, noctx, unparam, dupword, containedctx]
+      # The envelope writer is the one place that may write a response body,
+      # and /healthz and /readyz are the documented exceptions to it (§4.1).
+      - path: internal/server/api/(respond/respond|v1/params)\.go
+        linters: [forbidigo]
+      - path: internal/server/server\.go
+        linters: [forbidigo]
+      # Command-line tools print to a terminal; that is their output.
+      # Anchored patterns do not match how paths are reported, so match the
+      # directory anywhere in the path.
+      - path: (^|/)(hack|cmd)/
+        linters: [forbidigo]
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [tide]

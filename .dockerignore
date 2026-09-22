@@ -1,0 +1,7 @@
+.git
+tmp
+bin
+web/node_modules
+.pnpm-store
+deploy
+docs

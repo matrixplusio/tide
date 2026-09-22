@@ -1,0 +1,75 @@
+# Local OIDC provider for the dev environment.
+# Users: admin@tide.local / password, or "Log in with Example" (mock, groups: authors).
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: dex, namespace: tide-dev }
+data:
+  config.yaml: |
+    issuer: https://dex.DEV_DOMAIN/dex
+    storage: { type: memory }
+    web: { http: 0.0.0.0:5556 }
+    oauth2: { skipApprovalScreen: true }
+    enablePasswordDB: true
+    staticClients:
+      - id: tide
+        name: Tide
+        secret: tide-dev-secret
+        redirectURIs: [https://tide.DEV_DOMAIN/api/v1/auth/sso/callback]
+    staticPasswords:
+      - email: admin@tide.local
+        hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+        username: admin
+        userID: 08a8684b-db88-4b73-90a9-3cd1661f5466
+      - email: ops@tide.local
+        hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+        username: ops
+        userID: 41331323-6f44-45e6-b3b9-2c4b60c02be5
+    connectors:
+      - type: mockCallback
+        id: mock
+        name: Example
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: dex, namespace: tide-dev }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: dex } }
+  template:
+    metadata:
+      labels: { app: dex }
+    spec:
+      containers:
+        - name: dex
+          image: ghcr.io/dexidp/dex:v2.44.0
+          args: [dex, serve, /etc/dex/config.yaml]
+          ports: [{ name: http, containerPort: 5556 }]
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          volumeMounts: [{ name: config, mountPath: /etc/dex }]
+      volumes:
+        - name: config
+          configMap: { name: dex }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: dex, namespace: tide-dev }
+spec:
+  selector: { app: dex }
+  ports: [{ name: http, port: 5556, targetPort: http }]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: dex, namespace: tide-dev }
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [dex.DEV_DOMAIN]
+  rules:
+    - host: dex.DEV_DOMAIN
+      http:
+        paths:
+          - path: /dex
+            pathType: Prefix
+            backend: { service: { name: dex, port: { number: 5556 } } }

@@ -1,0 +1,44 @@
+# A rehearsal of the production manifests on the local docker-desktop
+# cluster: the same single binary, the same migrate init container, the same
+# two replicas. The dev environment (tide-dev) is a different shape entirely
+# — hostPath source with air and Vite — so it cannot answer whether the
+# production manifests work.
+#
+#   make stage-up      build, push, apply, wait
+#   make stage-down    remove everything this created
+#
+# It uses its own namespace and its own database so nothing here touches the
+# dev instance or the demo data in the `tide` database.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: tide-stage
+resources:
+  - ../prod
+  - ingress.yaml
+images:
+  - name: CHANGE_ME/tide
+    newName: localhost:5001/tide
+    newTag: stage
+# The two Secrets are created by `make stage-up` from local.mk, so no
+# credential is checked in; the base's placeholder ones are replaced.
+patches:
+  # The cluster has no Gateway API controller or Prometheus operator; the
+  # ingress in this overlay stands in for the HTTPRoute.
+  - target: { kind: HTTPRoute, name: tide }
+    patch: |
+      $patch: delete
+      apiVersion: gateway.networking.k8s.io/v1
+      kind: HTTPRoute
+      metadata: { name: tide, namespace: tide-stage }
+  - target: { kind: ServiceMonitor, name: tide }
+    patch: |
+      $patch: delete
+      apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata: { name: tide, namespace: tide-stage }
+  # The registry serves plain HTTP inside the cluster.
+  - target: { kind: Deployment, name: tide }
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always

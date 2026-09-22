@@ -1,0 +1,10 @@
+# The namespace, on its own.
+#
+# Kept out of tide.yaml so that `kubectl delete -f tide.yaml` removes Tide and
+# nothing else. A Namespace in that file would take everything inside it —
+# including whatever else happens to live there, such as a Redis — which is
+# not what "delete this application" should mean.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tide

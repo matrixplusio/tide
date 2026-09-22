@@ -1,0 +1,32 @@
+# GKE Gateway health check.
+#
+#   kubectl apply -f healthcheckpolicy.yaml
+#
+# Without this, a GKE load balancer probes "/" and expects 200. That is the
+# single-page app's entry point, not a health endpoint: it answers whatever
+# the app answers, it does not know whether the database is reachable, and a
+# redirect or a 404 there takes the whole backend out of rotation.
+#
+# /readyz is the endpoint that exists for this: plain text, no envelope, and
+# it checks the database connection. /healthz is liveness only — it says the
+# process is up, which is not the same question.
+#
+# GKE-specific. On another ingress, point its own health check at /readyz.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: tide
+  namespace: tide
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        requestPath: /readyz
+        # The container port, not the Service port: the load balancer talks
+        # to the pods directly through the NEG.
+        port: 8080
+  targetRef:
+    group: ""
+    kind: Service
+    name: tide

@@ -1,0 +1,36 @@
+/tmp/
+/bin/
+node_modules/
+/internal/web/dist/*
+!/internal/web/dist/.keep
+# The local demo environment: a throwaway Argo CD, Kargo, Gitea, registry and
+# a sample GitOps repository with made-up services. It is a fixture for
+# trying Tide out, not part of it, and it carries one organisation's service
+# names. docs/development.md says how to build your own.
+/deploy/dev/upstream/
+
+# Local cluster settings: hostnames, CA secret and dev passwords. Copy
+# local.mk.example and edit. See the Makefile.
+/local.mk
+.DS_Store
+/.pnpm-store/
+
+# Internal documentation: local cluster addresses, demo credentials, schedules
+# and infrastructure plans. Kept out of the repository on purpose — see
+# docs/README.md for what is here and what is not.
+/docs/internal/
+
+# Screenshots and the operator handbook: every image is a real Tide screen
+# with real service names, versions and digests on it. They belong with the
+# deployment they were taken from, not in the repository.
+/docs/images/
+/docs/sop/
+
+# A local pointer at CONVENTIONS.md for editor tooling; the standard itself
+# is CONVENTIONS.md and that is what ships.
+/CLAUDE.md
+
+# Local tooling.
+/hack/*.sh
+/hack/*.txt
+/.githooks/

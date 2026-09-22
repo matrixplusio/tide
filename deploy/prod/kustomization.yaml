@@ -1,0 +1,25 @@
+# Production base. Overlays change the image tag, the host and the secrets;
+# nothing else should need templating, because everything else about a Tide
+# instance is configured in the setup wizard and stored in the database.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: tide
+resources:
+  - namespace.yaml
+  - tide.yaml
+  # Gateway API by default; swap it for an Ingress where that is what the
+  # cluster runs. See the comments in the file.
+  - route.yaml
+  # Not applied by default: it prints the bootstrap SQL and is deleted
+  # again. Apply it on its own when setting the database up.
+  #- bootstrap-sql.yaml
+  # Needs the Prometheus Operator's CRD; uncomment where that is installed.
+  #- servicemonitor.yaml
+  # GKE only: points the load balancer's health check at /readyz. Without it
+  # GKE probes "/" and takes the backend out of rotation on anything but 200.
+  #- healthcheckpolicy.yaml
+# The manifests already name a published image; this is where you point them
+# at your own registry or pin a different version.
+images:
+  - name: ghcr.io/matrixplusio/tide
+    newTag: v0.0.1-beta.1

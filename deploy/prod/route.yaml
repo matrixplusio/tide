@@ -1,0 +1,49 @@
+# How traffic reaches Tide. Separate from tide.yaml because this is the part
+# that differs per cluster — and because a manifest naming a kind the cluster
+# does not have fails the whole file.
+#
+# Gateway API (below). Replace the parentRefs and the hostname:
+#
+#   kubectl apply -f route.yaml
+#
+# A Gateway in another namespace has to allow routes from this one; check its
+# listeners' allowedRoutes, or the route stays NotAllowedByListeners.
+#
+# On a cluster with ingress-nginx instead, delete the HTTPRoute below and use:
+#
+#   apiVersion: networking.k8s.io/v1
+#   kind: Ingress
+#   metadata:
+#     name: tide
+#     namespace: tide
+#   spec:
+#     ingressClassName: nginx
+#     rules:
+#       - host: tide.CHANGE_ME
+#         http:
+#           paths:
+#             - path: /
+#               pathType: Prefix
+#               backend:
+#                 service: { name: tide, port: { number: 80 } }
+#     tls:
+#       - hosts: [tide.CHANGE_ME]
+#         secretName: CHANGE_ME
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: { name: tide, namespace: tide }
+spec:
+  # The Gateway to attach to, and the name people type. Quoted for the same
+  # reason as the Secret values: a hostname is a string, not YAML syntax.
+  parentRefs:
+    - name: "CHANGE_ME"
+      namespace: "CHANGE_ME"
+  hostnames:
+    - "tide.CHANGE_ME"
+  rules:
+    # /metrics is for in-cluster scrapers only; it is also token-gated.
+    - matches: [{ path: { type: PathPrefix, value: /metrics } }]
+      filters:
+        - type: RequestRedirect
+          requestRedirect: { statusCode: 302, path: { type: ReplaceFullPath, replaceFullPath: / } }
+    - backendRefs: [{ name: tide, port: 80 }]
