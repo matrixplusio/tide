@@ -212,7 +212,7 @@ func (a *API) pushKargo(c *gin.Context) {
 	if message == "" {
 		message = defaultCommitMessage(req.Domain, res)
 	}
-	commit, err := pushTo(cfg).Push(ctx, cfg.Branch, message, out)
+	commit, err := pushTo(cfg).Push(ctx, cfg.Branch, message, out, pruneScope(prefix, req.Domain, res))
 	if err != nil {
 		respond.Fail(c, err)
 		return
@@ -223,6 +223,31 @@ func (a *API) pushKargo(c *gin.Context) {
 		"files": len(out), "stages": res.Stages, "warehouses": res.Warehouses,
 	})
 	respond.OK(c, gin.H{"commit": commit, "branch": cfg.Branch, "files": len(out), "result": res})
+}
+
+// pruneScope names the directories this push is authoritative over, so that
+// what the generator no longer emits is deleted rather than left for Argo CD
+// to go on applying. A warehouse whose file stopped being generated because
+// the service now builds into a different repository keeps creating freight
+// from the old one otherwise, and nothing about the cluster says why.
+//
+// Generating everything owns the whole tree, which is what lets a domain that
+// has no services left disappear. Generating one domain owns exactly the
+// directories it produced — naming their parent instead would delete every
+// other domain in the same commit.
+func pruneScope(prefix, domain string, res kargogen.Result) []string {
+	if domain == "" {
+		return []string{prefix}
+	}
+	out := make([]string, 0, len(res.Domains))
+	for _, d := range res.Domains {
+		if prefix == "" {
+			out = append(out, d.Name)
+			continue
+		}
+		out = append(out, prefix+"/"+d.Name)
+	}
+	return out
 }
 
 // defaultCommitMessage says what changed in the subject, because a repository

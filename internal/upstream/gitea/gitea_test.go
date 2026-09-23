@@ -56,7 +56,7 @@ func TestPushEncodesContentAndQuotesTheBlobItReplaces(t *testing.T) {
 	commit, err := New(srv.URL, "tide/k8s-apps", "tok", false).Push(context.Background(), "kargo", "m", []repo.File{
 		{Path: "trade/project.yaml", Content: "kind: Project"},
 		{Path: "trade/stages.yaml", Content: "kind: Stage"},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestPushCreatesTheBranchFromTheDefault(t *testing.T) {
 	defer srv.Close()
 
 	if _, err := New(srv.URL, "tide/k8s-apps", "tok", false).Push(context.Background(), "kargo", "m",
-		[]repo.File{{Path: "a.yaml", Content: "x"}}); err != nil {
+		[]repo.File{{Path: "a.yaml", Content: "x"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if body["branch"] != "main" || body["new_branch"] != "kargo" {
@@ -123,13 +123,13 @@ func TestProjectSplitsIntoOwnerAndName(t *testing.T) {
 		t.Fatalf("owner=%q name=%q", c.Owner, c.Name)
 	}
 	if _, err := New("https://gitea", "k8s-apps", "t", false).Push(context.Background(), "b", "m",
-		[]repo.File{{Path: "a", Content: "b"}}); err == nil {
+		[]repo.File{{Path: "a", Content: "b"}}, nil); err == nil {
 		t.Fatal("a project without an owner was accepted")
 	}
 }
 
 func TestPushRefusesAnEmptyCommit(t *testing.T) {
-	if _, err := New("https://gitea", "o/r", "t", false).Push(context.Background(), "b", "m", nil); err == nil {
+	if _, err := New("https://gitea", "o/r", "t", false).Push(context.Background(), "b", "m", nil, nil); err == nil {
 		t.Fatal("an empty commit was accepted")
 	}
 }
