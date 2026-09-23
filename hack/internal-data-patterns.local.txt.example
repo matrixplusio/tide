@@ -1,0 +1,18 @@
+# Rules about the environment this checkout is used for. Not in the
+# repository — copy this file to internal-data-patterns.local.txt and fill it
+# in. The generic rules live next door in internal-data-patterns.txt.
+#
+#   <人能看懂的名字>|<扩展正则>
+#
+# Keep every pattern specific. A rule that fires on ordinary prose trains
+# people to ignore the check, which is worse than not having one.
+#
+# The examples below are the shapes worth covering. Replace the values.
+
+# 内部域名|(^|[^a-z0-9.-])[a-z0-9-]+\.(example-corp|example-internal)\.(com|test)
+# 内网网段|(^|[^0-9])10\.(0|1)\.[0-9]{1,3}\.[0-9]{1,3}
+# 真实业务线代号|(^|[^a-zA-Z0-9])(alpha|beta)(-[a-z]+)?([^a-zA-Z0-9]|$)
+# 真实服务名|(one-real-service|another-real-service)
+# 行业用词|(某个行业的词|另一个)
+# 开发库口令|(some_dev_role|SomeDevPassword)
+# 真实站点名|(^|[^A-Za-z])(SITE1|SITE2)([^A-Za-z]|$)

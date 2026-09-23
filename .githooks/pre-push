@@ -1,0 +1,38 @@
+#!/usr/bin/env sh
+# Only main leaves this machine.
+#
+# The public repository is meant to hold one branch. Everything else here —
+# dev, and the feat/ and fix/ branches that feed it — is work in progress,
+# and work in progress is where real service names, cluster addresses and
+# test credentials turn up before anybody has looked at them. The content
+# gate on commit is the first line; this is the second, and it is the one
+# that does not depend on the gate's patterns being complete.
+#
+# Enable with: git config core.hooksPath .githooks  (or `make hooks`)
+#
+# To push something else on purpose, say so out loud:
+#   ALLOW_PUSH=1 git push origin <ref>
+
+while read -r local_ref _local_sha remote_ref _remote_sha; do
+	# Deleting a remote ref arrives with a null local ref; let it through,
+	# it publishes nothing.
+	case "$local_ref" in
+		'' | '(delete)') continue ;;
+	esac
+
+	case "$remote_ref" in
+		refs/heads/main | refs/tags/*) continue ;;
+	esac
+
+	if [ -n "$ALLOW_PUSH" ]; then
+		continue
+	fi
+
+	printf '✗ 只有 main 和 tag 能推到线上\n\n' >&2
+	printf '    被拒绝的:  %s -> %s\n\n' "$local_ref" "$remote_ref" >&2
+	printf '  发版流程是 feat/fix 合到 dev，发布时 dev 合 main，推 main 再打 tag。\n' >&2
+	printf '  确实要推别的，写明白：ALLOW_PUSH=1 git push ...\n' >&2
+	exit 1
+done
+
+exit 0

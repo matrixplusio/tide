@@ -1,0 +1,21 @@
+# What must never reach a public repository, one rule per line:
+#
+#   <人能看懂的名字>|<扩展正则>
+#
+# Keep every pattern specific. A rule that fires on ordinary prose trains
+# people to ignore this check, which is worse than not having it.
+#
+# These are the generic rules, and they are public. Anything naming one real
+# environment — its domains, its network ranges, its service names — goes in
+# hack/internal-data-patterns.local.txt, which is not in the repository:
+# a list of the things you are hiding is itself worth hiding.
+# Copy hack/internal-data-patterns.local.txt.example to start one.
+
+凭据形态|(ghp_[A-Za-z0-9]{20}|glpat-[A-Za-z0-9_-]{20}|xox[baprs]-[A-Za-z0-9-]{10}|-----BEGIN [A-Z ]*PRIVATE KEY)
+云厂商密钥|(AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})
+内部文件不该被跟踪|^(CLAUDE\.md|docs/internal/|docs/sop/|local\.mk)$
+# Not here: "a password in a connection string". Test fixtures and throwaway
+# CI values look exactly like real ones, and a rule that fires on them teaches
+# people to ignore this check. Secret scanning is gitleaks' job; this file is
+# about one thing — data belonging to one specific environment.
+kubeconfig 片段|(client-key-data|client-certificate-data):\s*[A-Za-z0-9+/]{40}
