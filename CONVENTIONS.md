@@ -181,6 +181,8 @@ web/src/features/<name>     页面、查询、表单 schema
 | 多副本看到同一份设置 / 权限 | `pg.TestAnotherReplicaSees*`（真 PG） |
 | 后台循环只有一个副本在跑 | `pg.TestOnlyOneReplicaLeads`、`TestLeadershipMovesWhenTheLeaderStops`（真 PG） |
 | 共享缓存往返不丢字段 | `catalog.TestSharedSnapshotKeepsEverythingIncludingLabels` |
+| §10 只有 `main` 和 tag 出门 | `.githooks/pre-push` |
+| §10 真实数据不进提交 | `.githooks/pre-commit` |
 
 ## 10. 分支与提交
 
@@ -190,6 +192,12 @@ web/src/features/<name>     页面、查询、表单 schema
   的人有什么影响。
 - **提交、PR、代码注释中不出现任何 AI 相关署名或字样**（不加 Co-Authored-By）。
 - 不 amend / force-push 已进入 `dev` 或 `main` 的提交。
+- **只有 `main` 和 tag 推到线上**，`dev` 和各 `feat/*` `fix/*` 留在本机。在途的分支
+  是真实服务名、集群地址和测试口令最容易先落地的地方，而它们上线与否是一次
+  `git push` 的手滑之差。`dependabot/*` 由 GitHub 自己建，不在此列。
+- 两道门禁都在 `.githooks/`（`make hooks` 挂上）：`pre-commit` 扫暂存区里的真实
+  数据，`pre-push` 只放行 `main` 和 tag。第二道是给第一道兜底的——它不依赖第一道
+  的正则写全。确实要推别的分支就写明白：`ALLOW_PUSH=1 git push ...`。
 
 ## 11. 发布
 
