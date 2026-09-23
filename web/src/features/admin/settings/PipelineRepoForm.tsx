@@ -18,6 +18,8 @@ function toValues(r: PipelineRepo | null | undefined): PipelineRepoValues {
     pathPrefix: r?.pathPrefix ?? '',
     token: r?.token ?? '',
     bareDomain: r?.bareDomain ?? false,
+    imageStrategy: (r?.imageStrategy as PipelineRepoValues['imageStrategy']) || 'Lexical',
+    tagPattern: r?.tagPattern ?? '',
   }
 }
 
@@ -45,6 +47,8 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
         pathPrefix: (v.pathPrefix ?? '').trim(),
         token: v.token,
         bareDomain: v.bareDomain,
+        imageStrategy: v.imageStrategy,
+        tagPattern: (v.tagPattern ?? '').trim(),
       })
       // The server only stores settings it could authenticate, so a
       // successful save already means the token works. Refetching turns that
@@ -84,6 +88,23 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
         </FormField>
         <FormField label={t('kargogen.pathPrefix')} error={e.pathPrefix?.message} hint={t('kargogen.pathPrefixHint')}>
           {(p) => <Input {...p} {...form.register('pathPrefix')} mono placeholder="kargo" autoComplete="off" spellCheck={false} />}
+        </FormField>
+        <FormField label={t('kargogen.imageStrategy')} error={e.imageStrategy?.message} required hint={t('kargogen.imageStrategyHint')}>
+          {(p) => (
+            <Select
+              {...p}
+              {...form.register('imageStrategy')}
+              options={[
+                ['Lexical', t('kargogen.stratLexical')],
+                ['SemVer', t('kargogen.stratSemVer')],
+                ['NewestBuild', t('kargogen.stratNewestBuild')],
+                ['Digest', t('kargogen.stratDigest')],
+              ]}
+            />
+          )}
+        </FormField>
+        <FormField label={t('kargogen.tagPattern')} error={e.tagPattern?.message} hint={t('kargogen.tagPatternHint')}>
+          {(p) => <Input {...p} {...form.register('tagPattern')} mono placeholder="^[0-9]" autoComplete="off" spellCheck={false} />}
         </FormField>
         <FormField label={t('kargogen.projectNaming')} plainLabel hint={t('kargogen.bareDomainHint')}>
           {(p) => <Checkbox id={p.id} {...form.register('bareDomain')} label={t('kargogen.bareDomain')} />}

@@ -249,8 +249,11 @@ domains: [{name, services}], at }`
 base64、更新还得带被替换文件的 blob SHA；创建分支的方式也不同。分支不存在时从默认分支
 创建。未配置仓库返回 4001。写审计 `kargo.push`。
 
-### `GET /api/v1/services/:service`
+### `GET /api/v1/services/:service?env=`
 → `{ service: Service, releases: Release[] }`。错误：4005。
+
+`releases` 是这个服务最近 20 条发布记录，**跨全部环境**；`env` 把它收窄到一个环境。
+收窄在服务端做：客户端过滤那 20 条，会在某个环境记录较多时把其他环境显示成「没有发布记录」。
 
 ### `GET /api/v1/services/:service/envs/:env`
 → `{ deployment: Deployment, live: Live, canOperate: bool, can: { create, sync, restart, pods }, releases: Release[], promotions: PromotionView[], promotionsError?: string, conflicts?: string[] }`（`can` 按这个服务的项目 / 类型判断；`canOperate` = `can.create`）
@@ -513,7 +516,7 @@ POST `{ id, name, description, permissions }`；PUT `{ name, description, permis
 | section | 权限 | 内容 |
 |---|---|---|
 | `upstreams` | environments.manage | `{ items: Upstream[] }` |
-| `pipeline` | environments.manage | `{ provider, baseUrl, project, branch, pathPrefix?, token }`，生成的 Kargo 配置提交到这里。`provider` 为 `gitlab`（默认）或 `gitea`；`project` 必须是 `owner/repo` |
+| `pipeline` | environments.manage | `{ provider, baseUrl, project, branch, pathPrefix?, token, bareDomain?, imageStrategy?, tagPattern? }`，生成的 Kargo 配置提交到这里。`provider` 为 `gitlab`（默认）或 `gitea`；`project` 必须是 `owner/repo`；`imageStrategy` 默认 `Lexical`、`tagPattern` 默认 `^[0-9]`（Kargo 自己的默认是 SemVer，对非语义化版本的 tag 发现不到任何镜像） |
 | `environments` | environments.manage | `{ items: Environment[] }`，顺序即显示顺序（制品来源由 Kargo Stage 决定） |
 | `catalog` | environments.manage | `{ serviceLabel, envLabel, domainLabel, projectLabel, dimensions: Dimension[], batchDimension }` |
 | `notify` | notifications.manage | `{ channels: Channel[], rules: NotifyRule[] }` |

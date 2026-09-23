@@ -68,6 +68,10 @@ func (r Result) Files() []File {
 type Options struct {
 	// Domain limits generation to one business domain; empty does all of them.
 	Domain string
+	// ImageStrategy and TagPattern decide which tag a warehouse treats as the
+	// newest. Empty falls back to the defaults in withDefaults.
+	ImageStrategy string
+	TagPattern    string
 	// ProjectPrefix goes in front of the domain to make the Kargo project's
 	// name. A Kargo project is a cluster-scoped namespace, so a bare domain
 	// like "base" collides the moment a second business line has one too;
@@ -101,6 +105,12 @@ func (o Options) withDefaults() Options {
 	}
 	if o.EnvLabel == "" {
 		o.EnvLabel = "tide.io/env"
+	}
+	if o.ImageStrategy == "" {
+		o.ImageStrategy = settings.StrategyLexical
+	}
+	if o.TagPattern == "" {
+		o.TagPattern = settings.DefaultTagPattern
 	}
 	return o
 }
@@ -189,7 +199,7 @@ func generateDomain(domain string, services []catalog.Service, order []string, o
 			continue
 		}
 		c.services++
-		warehouses = append(warehouses, warehouseYAML(svc.Name, domain, deployed[0].Image))
+		warehouses = append(warehouses, warehouseYAML(svc.Name, domain, deployed[0].Image, opts))
 		c.warehouses++
 		for i, d := range deployed {
 			from := ""
@@ -268,7 +278,7 @@ spec:
 `, name, domain)
 }
 
-func warehouseYAML(service, domain, image string) string {
+func warehouseYAML(service, domain, image string, opts Options) string {
 	return fmt.Sprintf(`apiVersion: kargo.akuity.io/v1alpha1
 kind: Warehouse
 metadata:
@@ -284,7 +294,16 @@ spec:
     - image:
         repoURL: %s
         discoveryLimit: 20
-`, service, domain, image)
+        # Stated rather than left to Kargo, whose default is SemVer: against
+        # tags that are not semantic versions that discovers nothing at all,
+        # and a warehouse that finds nothing looks exactly like one whose
+        # credentials are wrong.
+        imageSelectionStrategy: %s
+        # allowTagsRegexes, not allowTags: the singular form was removed in
+        # Kargo v1.11 and a warehouse still using it fails discovery outright.
+        allowTagsRegexes:
+          - %q
+`, service, domain, image, opts.ImageStrategy, opts.TagPattern)
 }
 
 // stageYAML writes one stage. from is the stage this one is promoted from;

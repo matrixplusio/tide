@@ -118,9 +118,12 @@ func (a *API) kargoPlan(c *gin.Context, domain string) (kargogen.Result, *catalo
 	// The labels Tide reads the catalog by are the labels the generated
 	// stages should carry: a promotion policy selecting on them then means the
 	// same thing as a filter on the services page.
+	strategy, pattern := repoCfg.Selection()
 	return kargogen.Generate(snap, envs, kargogen.Options{
 		Domain:        domain,
 		ProjectPrefix: !repoCfg.BareDomain,
+		ImageStrategy: strategy,
+		TagPattern:    pattern,
 		ServiceLabel:  labelOrDefault(cat.ServiceLabel, "tide.io/service"),
 		EnvLabel:      labelOrDefault(cat.EnvLabel, "tide.io/env"),
 	}), snap, nil

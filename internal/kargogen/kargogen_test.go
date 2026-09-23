@@ -185,3 +185,39 @@ func TestStagesCarrySelectableLabels(t *testing.T) {
 		}
 	}
 }
+
+// Kargo's own default is SemVer, and against tags that are not semantic
+// versions it discovers nothing — every warehouse reports
+// "MissingImageReferences" and looks exactly like one whose credentials are
+// wrong. Saying the strategy out loud is the difference between a pipeline
+// that works and one that silently finds no images at all.
+func TestWarehousesStateHowImagesAreChosen(t *testing.T) {
+	snap := &catalog.Snapshot{Services: []catalog.Service{svc("order-api", "trade", dep("dev"))}}
+
+	r := Generate(snap, envs("dev"), Options{})
+	def := find(t, r, "trade/warehouses.yaml")
+	for _, want := range []string{
+		"imageSelectionStrategy: Lexical",
+		// The plural form: allowTags was removed in Kargo v1.11 and a
+		// warehouse still using it fails discovery outright.
+		"allowTagsRegexes:",
+		`- "^[0-9]"`,
+	} {
+		if !strings.Contains(def, want) {
+			t.Errorf("default warehouse is missing %q:\n%s", want, def)
+		}
+	}
+	// A field, not a mention of one in a comment.
+	for _, line := range strings.Split(def, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "allowTags:") {
+			t.Error("used the singular allowTags, which Kargo v1.11 refuses")
+		}
+	}
+
+	// A different convention is configured, not assumed.
+	r = Generate(snap, envs("dev"), Options{ImageStrategy: "SemVer", TagPattern: `^v\d+\.`})
+	custom := find(t, r, "trade/warehouses.yaml")
+	if !strings.Contains(custom, "imageSelectionStrategy: SemVer") || !strings.Contains(custom, `- "^v\\d+\\."`) {
+		t.Errorf("configured selection was not used:\n%s", custom)
+	}
+}

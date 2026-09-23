@@ -139,6 +139,14 @@ type PipelineRepo struct {
 	PathPrefix string `json:"pathPrefix,omitempty"`
 	// Token needs api scope: writing a commit is not a read.
 	Token string `json:"token" secret:"true"`
+	// ImageStrategy is how Kargo picks the newest image. Kargo's own default
+	// is SemVer, which finds nothing at all when tags are not semantic
+	// versions — and finding nothing looks exactly like a credential problem.
+	ImageStrategy string `json:"imageStrategy,omitempty"`
+	// TagPattern keeps non-build tags out of the running. Under Lexical a tag
+	// like "cache" or "latest" sorts above any digit and would be chosen as
+	// the newest image.
+	TagPattern string `json:"tagPattern,omitempty"`
 	// BareDomain names Kargo projects after the business domain alone
 	// ("base") instead of after the line and the domain ("acme-base"). A
 	// Kargo project is a cluster-scoped namespace, so the prefixed form is
@@ -154,6 +162,38 @@ const (
 )
 
 var Providers = []string{ProviderGitLab, ProviderGitea}
+
+// How Kargo orders the tags it discovers.
+const (
+	// StrategyLexical suits tags that begin with a sortable timestamp, where
+	// dictionary order is chronological.
+	StrategyLexical = "Lexical"
+	StrategySemVer  = "SemVer"
+	// StrategyNewestBuild reads each image's build time, which means one
+	// manifest fetch per tag per warehouse — expensive at a few hundred
+	// warehouses, and unnecessary when the tag already sorts.
+	StrategyNewestBuild = "NewestBuild"
+	StrategyDigest      = "Digest"
+)
+
+var ImageStrategies = []string{StrategyLexical, StrategySemVer, StrategyNewestBuild, StrategyDigest}
+
+// DefaultTagPattern admits only tags that start with a digit, which leaves
+// out "latest", "cache", "main" and branch names. Without it the first
+// Lexical discovery would pick whichever of those sorts highest.
+const DefaultTagPattern = `^[0-9]`
+
+// Selection is the image strategy and tag filter with the defaults applied.
+func (p PipelineRepo) Selection() (strategy, pattern string) {
+	strategy, pattern = p.ImageStrategy, p.TagPattern
+	if strategy == "" {
+		strategy = StrategyLexical
+	}
+	if pattern == "" {
+		pattern = DefaultTagPattern
+	}
+	return strategy, pattern
+}
 
 // Host is Provider with the default filled in.
 func (p PipelineRepo) Host() string {

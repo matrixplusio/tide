@@ -36,6 +36,11 @@ h1, h2, b, strong { font-weight: 600; }
 .break { word-break: break-all; overflow-wrap: anywhere; min-width: 0; }
 .block { display: block; }
 .tag { font-size: 11px; }
+/* A value that is only part of what it names. The dotted underline is the
+   web's long-standing mark for "there is more here"; without it a shortened
+   tag reads as the whole tag and nobody thinks to hover. */
+.abbr { text-decoration: underline dotted currentColor; text-underline-offset: 2px;
+  text-decoration-thickness: from-font; cursor: help; }
 .pills { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 
 /* Below this the sidebar plus the service matrix stop fitting, so the page
