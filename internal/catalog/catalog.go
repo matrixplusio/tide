@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -993,11 +994,22 @@ func applyStage(d *Deployment, s *kargo.Stage) {
 // anywhere, just emptier rows — which is the hardest kind of problem to go
 // looking for.
 func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment) (failed int, message string, auth bool) {
+	built := h.buildTag(ctx)
 	var mu sync.Mutex
 	var tasks []func()
 	for i := range deps {
 		d := &deps[i]
 		if d.Image == "" || (d.Digest == "" && d.Tag == "") {
+			continue
+		}
+		// A tag that cannot have come out of a build will not be in the
+		// registry, and asking anyway costs a round trip to another site per
+		// deployment on every rebuild. The placeholders left in a repository
+		// for services nobody has built yet are the whole of this case: 27 of
+		// them here, 27 refusals a rebuild, none of them a problem with the
+		// registry or with anybody's credentials.
+		if d.Digest == "" && built != nil && !built.MatchString(d.Tag) {
+			d.ImageUnknown = true
 			continue
 		}
 		tasks = append(tasks, func() {
@@ -1025,6 +1037,31 @@ func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment
 	}
 	parallel(8, tasks...)
 	return failed, message, auth
+}
+
+// buildTag compiles what this installation said its build tags look like, or
+// nil when it has not said.
+//
+// Nil on purpose rather than a default: the default pattern exists for Kargo,
+// where getting it wrong means a warehouse discovers nothing and somebody
+// notices. Getting it wrong here would blank every version and build time on
+// every page with no error anywhere, so an installation that has not stated
+// its convention is asked, not guessed at.
+func (h *Hub) buildTag(ctx context.Context) *regexp.Regexp {
+	if h.Settings == nil {
+		return nil
+	}
+	var cfg settings.PipelineRepo
+	if err := h.Settings.Load(ctx, settings.SectionPipelineRepo, &cfg); err != nil || cfg.TagPattern == "" {
+		return nil
+	}
+	re, err := regexp.Compile(cfg.TagPattern)
+	if err != nil {
+		zap.L().Warn("catalog: the configured tag pattern does not compile",
+			zap.String("pattern", cfg.TagPattern), zap.Error(err))
+		return nil
+	}
+	return re
 }
 
 // truncateError keeps the upstream's own words but not all of them: registry
