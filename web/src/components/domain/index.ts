@@ -2,6 +2,7 @@ export { VersionLabel, DeployDot, ReleaseStatusPill, ItemStatusPill, HealthPill,
 export { ReleaseRow } from './ReleaseRow'
 export { RolloutView, PodsList, ResourcesList, PromotionSteps } from './Live'
 export { ConfirmSheet } from './ConfirmSheet'
+export { RefreshNow } from './RefreshNow'
 export { phaseTone, phaseDot } from './tones'
 export { NoUpstreamsBanner } from './NoUpstreamsBanner'
 export { ConflictBanner } from './ConflictBanner'

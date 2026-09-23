@@ -83,7 +83,7 @@ func TestPushCreatesTheBranchWhenAsked(t *testing.T) {
 }
 
 func TestPushRefusesAnEmptyCommit(t *testing.T) {
-	if _, err := New("https://gitlab", "g/r", "t", false).Push(context.Background(), "b", "m", nil); err == nil {
+	if _, err := New("https://gitlab", "g/r", "t", false).Push(context.Background(), "b", "m", nil, nil); err == nil {
 		t.Fatal("an empty commit was accepted")
 	}
 }
@@ -182,7 +182,7 @@ func TestPushChoosesCreateOrUpdatePerFile(t *testing.T) {
 	commit, err := New(srv.URL, "g/r", "t", false).Push(context.Background(), "kargo", "m", []repo.File{
 		{Path: "trade/project.yaml", Content: "a"},
 		{Path: "trade/stages.yaml", Content: "b"},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestPushIntoAMissingBranch(t *testing.T) {
 	defer srv.Close()
 
 	if _, err := New(srv.URL, "g/r", "t", false).Push(context.Background(), "kargo", "m",
-		[]repo.File{{Path: "a.yaml", Content: "x"}}); err != nil {
+		[]repo.File{{Path: "a.yaml", Content: "x"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if body["start_branch"] != "main" {
@@ -267,7 +267,69 @@ func TestPushNeverSendsStartBranchForAnExistingBranch(t *testing.T) {
 	defer srv.Close()
 
 	if _, err := New(srv.URL, "g/r", "t", false).Push(context.Background(), "kargo", "m",
-		[]repo.File{{Path: "a.yaml", Content: "x"}}); err != nil {
+		[]repo.File{{Path: "a.yaml", Content: "x"}}, nil); err != nil {
 		t.Fatalf("push to an existing branch was refused: %v", err)
+	}
+}
+
+// A generator that stops emitting a file leaves the old one behind, and Argo
+// CD goes on applying it: a warehouse subscribed to a repository the service
+// no longer builds into keeps creating freight nobody asked for. The delete
+// has to travel in the same commit as the writes, or the repository spends a
+// moment describing both shapes and Argo CD may apply the mixture.
+func TestPushDeletesWhatItNoLongerGeneratesInTheSameCommit(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "/repository/tree"):
+			_, _ = w.Write([]byte(`[
+				{"type":"blob","path":"kargo/acme-base/project.yaml"},
+				{"type":"blob","path":"kargo/acme-base/warehouses.yaml"},
+				{"type":"blob","path":"kargo/acme-base/stages.yaml"},
+				{"type":"blob","path":"kargo/acme-admin/project.yaml"},
+				{"type":"blob","path":"README.md"}
+			]`))
+		case strings.Contains(r.URL.Path, "/repository/branches/"):
+			_, _ = w.Write([]byte(`{"name":"main"}`))
+		case strings.Contains(r.URL.Path, "/repository/commits"):
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			_, _ = w.Write([]byte(`{"id":"deadbeefcafe","short_id":"deadbeef"}`))
+		default:
+			_, _ = w.Write([]byte(`{"default_branch":"main"}`))
+		}
+	}))
+	defer srv.Close()
+
+	_, err := New(srv.URL, "g/r", "t", false).Push(context.Background(), "main", "m",
+		[]repo.File{
+			{Path: "kargo/acme-base/project.yaml", Content: "a"},
+			{Path: "kargo/acme-base/warehouses.yaml", Content: "b"},
+		}, []string{"kargo/acme-base"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := map[string]string{}
+	for _, a := range body["actions"].([]any) {
+		m := a.(map[string]any)
+		got[m["file_path"].(string)] = m["action"].(string)
+	}
+	want := map[string]string{
+		"kargo/acme-base/project.yaml":    "update",
+		"kargo/acme-base/warehouses.yaml": "update",
+		"kargo/acme-base/stages.yaml":     "delete",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("one commit, three actions expected: %v", got)
+	}
+	for path, action := range want {
+		if got[path] != action {
+			t.Errorf("%s: got %q, want %q", path, got[path], action)
+		}
+	}
+	// The domain this push did not regenerate must be untouched.
+	if _, ok := got["kargo/acme-admin/project.yaml"]; ok {
+		t.Error("deleted a directory the caller was not authoritative over")
 	}
 }

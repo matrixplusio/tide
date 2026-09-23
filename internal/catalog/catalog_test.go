@@ -3,7 +3,9 @@ package catalog
 import (
 	"tide/internal/i18n"
 
+	"context"
 	"encoding/json"
+	"regexp"
 	"slices"
 	"testing"
 	"time"
@@ -346,5 +348,43 @@ func TestBackgroundRefreshIsRateLimited(t *testing.T) {
 	h2 := &Hub{building: make(chan struct{})}
 	if h2.claimRefresh() {
 		t.Error("started a refresh while one was already building")
+	}
+}
+
+// The placeholder tags left in a repository for services nobody has built yet
+// cost a refusal from the registry each, on every rebuild, from another site
+// — 27 of them in the installation this was written for. None of them is a
+// problem with the registry or with anybody's credentials, and the registry's
+// answer is the same either way: GitLab says 401 for a repository that does
+// not exist, so the failures cannot even be told apart from a bad token.
+//
+// A tag that does not match what this installation calls a build tag is not
+// asked about at all.
+func TestTagsThatCannotBeBuildsAreNotAskedAbout(t *testing.T) {
+	built := regexp.MustCompile(`^[0-9]{14}-`)
+	for name, tc := range map[string]struct {
+		tag string
+		ask bool
+	}{
+		"a real build":           {"20260923110703-0c2dd7a7-0122", true},
+		"a placeholder in git":   {"PLACEHOLDER", false},
+		"a base image's own tag": {"1.27.5-alpine", false},
+		"a moving pointer":       {"latest", false},
+	} {
+		if got := built.MatchString(tc.tag); got != tc.ask {
+			t.Errorf("%s (%q): asked=%v, want %v", name, tc.tag, got, tc.ask)
+		}
+	}
+}
+
+// Guessing here is worse than doing nothing: the default pattern exists for
+// Kargo, where a wrong one means a warehouse discovers nothing and somebody
+// notices within the hour. A wrong one here blanks every version and build
+// time on every page and reports no error at all. So an installation that has
+// not stated its convention keeps being asked about every tag.
+func TestWithoutAStatedConventionEveryTagIsStillAskedAbout(t *testing.T) {
+	h := &Hub{}
+	if got := h.buildTag(context.Background()); got != nil {
+		t.Errorf("an unconfigured installation must not have a pattern guessed for it: %v", got)
 	}
 }

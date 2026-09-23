@@ -140,3 +140,133 @@ func TestPublishingHappensBeforeTheBuildContextIsCancelled(t *testing.T) {
 		t.Fatal("nothing was published")
 	}
 }
+
+// A restart throws away the tag → digest step and nothing else: the metadata
+// behind every digest is already in the shared tier, valid for a day, because
+// a digest names one manifest forever. Losing only that step still cost a
+// fresh pod a question to the registry about every deployment it has — 10.8
+// of the 11.2 seconds a cold build was measured to take.
+//
+// So the step is shared too, and a replica that never saw the tag can still
+// reach the metadata.
+func TestTheTagToDigestStepSurvivesARestart(t *testing.T) {
+	ctx := context.Background()
+	shared := &cache.Memory{}
+	const image = "registry.example.com/acme/order-api"
+	const tag = "20260923110703-0c2dd7a7-0122"
+	const digest = "sha256:aa9a1d768a978f66f4b83b9a849fc5c21ad93772dd9c6ced874ec76b7ecc19d8"
+
+	// What a process that resolved this tag leaves behind.
+	shared.Set(ctx, tagKey(image, tag), []byte(digest), tagTTL)
+
+	// A pod that has just started: nothing in memory, everything to do.
+	fresh := &Hub{Shared: shared}
+	if got := fresh.digestFromShared(ctx, image, tag); got != digest {
+		t.Fatalf("a new process could not resolve the tag: %q", got)
+	}
+
+	// Without a shared tier there is simply nothing, and the caller reads the
+	// registry — which is the behaviour this replaces, not one it breaks.
+	if got := (&Hub{}).digestFromShared(ctx, image, tag); got != "" {
+		t.Errorf("no shared cache must mean no answer, got %q", got)
+	}
+
+	// Anything that is not a digest is refused rather than passed on: a
+	// truncated or overwritten value would otherwise be looked up as one and
+	// come back empty, which reads as "this image has no metadata".
+	shared.Set(ctx, tagKey(image, "junk"), []byte("not-a-digest"), tagTTL)
+	if got := fresh.digestFromShared(ctx, image, "junk"); got != "" {
+		t.Errorf("a value that is not a digest must be ignored, got %q", got)
+	}
+
+	// Two tags of the same image do not collide.
+	const other = "sha256:bb9a1d768a978f66f4b83b9a849fc5c21ad93772dd9c6ced874ec76b7ecc19d9"
+	shared.Set(ctx, tagKey(image, "20260923110704-0c2dd7a8-0123"), []byte(other), tagTTL)
+	if got := fresh.digestFromShared(ctx, image, tag); got != digest {
+		t.Errorf("tags collided: %q", got)
+	}
+}
+
+// counting wraps a cache and records what was read from it.
+type counting struct {
+	cache.Cache
+	gets int
+}
+
+func (c *counting) Get(ctx context.Context, key string) ([]byte, bool) {
+	c.gets++
+	return c.Cache.Get(ctx, key)
+}
+
+// Asking for a fresh snapshot has to reach the upstreams. It used to stop one
+// step short: it skipped this replica's copy and then took another replica's,
+// which is the same answer with somebody else's name on it and can be minutes
+// old. The only caller who asks is a person who pressed a button because they
+// are waiting for something the generation counter cannot know about — an
+// Application edited by hand, a service just onboarded — so a cached answer
+// is precisely what must not come back.
+func TestAskingForFreshSkipsTheSharedCopyToo(t *testing.T) {
+	ctx := context.Background()
+	shared := &counting{Cache: &cache.Memory{}}
+	hub := &Hub{Shared: shared}
+	hub.toShared(ctx, 3, &Snapshot{At: time.Now().Add(-9 * time.Minute)})
+
+	// Without settings a real build cannot finish, and that is the point:
+	// reaching the build at all is the evidence that the shared copy was not
+	// taken instead. What is asserted is the read, not the outcome.
+	shared.gets = 0
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = hub.rebuild(ctx, 3, true)
+	}()
+	if shared.gets != 0 {
+		t.Errorf("fresh read the shared copy %d times; it must go to the upstreams", shared.gets)
+	}
+
+	// Not fresh: taking another replica's snapshot is exactly what should
+	// happen, and it costs one read instead of a walk over every Application.
+	shared.gets = 0
+	got, err := hub.rebuild(ctx, 3, false)
+	if err != nil || got == nil {
+		t.Fatalf("a generation another replica already built should need no build: %v", err)
+	}
+	if shared.gets == 0 {
+		t.Error("the shared copy was not consulted at all")
+	}
+}
+
+// A build that panics used to wedge the catalog for the life of the process:
+// h.building stayed set, the channel every other reader waits on was never
+// closed, and each of them blocked for ever. A crash would at least have
+// restarted; this was a pod that answered its health check and served
+// nothing. So the release has to survive the panic.
+func TestAPanickingBuildDoesNotWedgeEveryReaderAfterIt(t *testing.T) {
+	ctx := context.Background()
+	hub := &Hub{} // no settings: the build cannot finish
+
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = hub.rebuild(ctx, 1, true)
+	}()
+
+	hub.mu.Lock()
+	building := hub.building
+	hub.mu.Unlock()
+	if building != nil {
+		t.Fatal("the build slot was left occupied, so every later reader waits for ever")
+	}
+
+	// And a reader that arrives now gets as far as trying, rather than
+	// blocking. Bounded, because the failure this guards against is a hang.
+	done := make(chan struct{})
+	go func() {
+		defer func() { _ = recover() }()
+		defer close(done)
+		_, _ = hub.rebuild(ctx, 1, true)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a reader after the panic is still blocked")
+	}
+}

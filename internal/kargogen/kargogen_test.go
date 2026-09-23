@@ -307,3 +307,66 @@ func TestOneArtifactLineStillChains(t *testing.T) {
 		}
 	}
 }
+
+// svcIn is svc with the business line spelled out.
+func svcIn(name, project, domain string, ds ...*catalog.Deployment) catalog.Service {
+	x := svc(name, domain, ds...)
+	x.Project = project
+	return x
+}
+
+// A business domain can belong to two business lines at once: the same word
+// names one group of services built out of one GitLab group and another group
+// built out of a second. A Kargo project is a cluster-scoped namespace, so the
+// two cannot share one — and putting them together would also put one line's
+// promotion permissions over the other's services.
+func TestOneDomainInTwoBusinessLinesBecomesTwoProjects(t *testing.T) {
+	snap := &catalog.Snapshot{Services: []catalog.Service{
+		svcIn("cart", "acme", "shop", depIn("dev", "registry.example.com/acme-dev/cart")),
+		svcIn("checkout", "acme", "shop", depIn("dev", "registry.example.com/acme-dev/checkout")),
+		svcIn("storefront", "other", "shop", depIn("dev", "registry.example.com/other-dev/storefront")),
+	}}
+	r := Generate(snap, envs("dev"), Options{ProjectPrefix: true})
+
+	names := map[string]int{}
+	for _, d := range r.Domains {
+		names[d.Name] = d.Stages
+	}
+	if len(names) != 2 {
+		t.Fatalf("expected two Kargo projects, got %v", names)
+	}
+	if names["acme-shop"] != 2 || names["other-shop"] != 1 {
+		t.Fatalf("services landed in the wrong project: %v", names)
+	}
+	// Each project is written to its own directory, so one push cannot
+	// overwrite the other.
+	find(t, r, "acme-shop/project.yaml")
+	find(t, r, "other-shop/project.yaml")
+}
+
+// An Application that carries no project label falls back to the Kargo
+// project named in its authorized-stage annotation — and that name already
+// contains the domain. Appending the domain a second time invents a project
+// nobody asked for, writes a directory for it, and asks Kargo to create it;
+// the services inside would look plausible and be entirely separate from the
+// siblings they belong with.
+func TestAProjectThatAlreadyNamesTheDomainIsNotDoubled(t *testing.T) {
+	for name, tc := range map[string]struct {
+		project, domain, want string
+	}{
+		"a business line and a domain":       {"acme", "shop", "acme-shop"},
+		"already the Kargo project":          {"acme-shop", "shop", "acme-shop"},
+		"project and domain are one":         {"shop", "shop", "shop"},
+		"a domain that merely ends the same": {"acme-workshop", "shop", "acme-workshop-shop"},
+	} {
+		got := projectName(catalog.Service{Project: tc.project, Domain: tc.domain}, true)
+		if got != tc.want {
+			t.Errorf("%s: got %q, want %q", name, got, tc.want)
+		}
+	}
+
+	// Without the prefix the domain stands alone, whatever the project says.
+	if got := projectName(catalog.Service{Project: "acme", Domain: "shop"}, false); got != "shop" {
+		t.Errorf("bare domain: got %q", got)
+	}
+}
