@@ -388,3 +388,32 @@ func TestWithoutAStatedConventionEveryTagIsStillAskedAbout(t *testing.T) {
 		t.Errorf("an unconfigured installation must not have a pattern guessed for it: %v", got)
 	}
 }
+
+// The endpoint a build pipeline calls must never wait. Everything it asks the
+// catalog — does this service exist, does this environment take images
+// straight from a warehouse — is rechecked by the worker afterwards, and the
+// endpoint accepts the notification when it cannot tell. So it reads whatever
+// has been built, however old, and never builds.
+//
+// A pipeline that waited out a fan-out across every upstream is how a
+// ten-second timeout in somebody's CI turns into a build reporting failure
+// for a release that in fact happened. Measured: 9968ms, against a 10s
+// timeout, after forty minutes of quiet had let the snapshot age past
+// staleLimit.
+func TestTheCachedSnapshotIsWhateverThereIsAndNeverABuild(t *testing.T) {
+	h := &Hub{} // no settings: a build would panic, and must not be reached
+	if got := h.Cached(); got != nil {
+		t.Fatalf("nothing built yet means nothing to hand over: %+v", got)
+	}
+
+	// Older than anything Snapshot would serve, and still returned: the
+	// alternative for this caller is not a fresher answer, it is no answer
+	// and a pipeline held open.
+	ancient := &Snapshot{At: time.Now().Add(-24 * time.Hour)}
+	h.mu.Lock()
+	h.snap = ancient
+	h.mu.Unlock()
+	if got := h.Cached(); got != ancient {
+		t.Fatalf("age must not disqualify the only answer there is: %+v", got)
+	}
+}
