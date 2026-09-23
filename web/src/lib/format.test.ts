@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dayBound, describeUserAgent } from './format'
+import { dayBound, describeUserAgent, shortTag } from './format'
 
 describe('describeUserAgent', () => {
   it('names common browsers and systems', () => {
@@ -20,5 +20,32 @@ describe('dayBound', () => {
     expect(new Date(dayBound('2026-09-18', true)!).getTime()).toBe(new Date(2026, 8, 18, 23, 59, 59, 999).getTime())
     expect(dayBound('', false)).toBeUndefined()
     expect(dayBound('18/09/2026', true)).toBeUndefined()
+  })
+})
+
+describe('shortTag', () => {
+  // The commit and the build number are read off a pipeline and matched
+  // character by character; shortening them is how two builds start looking
+  // like the same one. Only the year and the time of day are dropped.
+  it('keeps the commit and the build number whole', () => {
+    expect(shortTag('20260920070636-4d7fdb08-0310')).toBe('0920-4d7fdb08-0310')
+  })
+
+  it('keeps a leading zero in the build number', () => {
+    // 0310 and 310 are different builds; trimming the zero to save a column
+    // makes them read as one.
+    expect(shortTag('20260101000000-abcdef12-0001')).toBe('0101-abcdef12-0001')
+  })
+
+  it('leaves a tag it does not recognise alone', () => {
+    expect(shortTag('v1.2.3')).toBe('v1.2.3')
+    expect(shortTag('latest')).toBe('latest')
+  })
+
+  it('truncates an unrecognised tag only when it would break the column', () => {
+    const long = 'release-candidate-for-the-autumn-launch'
+    expect(shortTag(long)).toBe('release-candidate-fo…')
+    expect(shortTag('')).toBe('')
+    expect(shortTag(undefined)).toBe('')
   })
 })

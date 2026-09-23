@@ -194,6 +194,10 @@ export interface PipelineRepo {
   token: string
   /** Name Kargo projects after the domain alone instead of line-and-domain. */
   bareDomain?: boolean
+  /** How Kargo orders discovered tags; empty means Lexical. */
+  imageStrategy?: string
+  /** Which tags count as builds; empty means "starts with a digit". */
+  tagPattern?: string
 }
 
 export type SettingsSection = 'catalog' | 'upstreams' | 'environments' | 'notify' | 'oidc' | 'security' | 'release' | 'system' | 'pipeline'

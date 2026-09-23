@@ -35,11 +35,19 @@ function isNoUpstreams(err: unknown): boolean {
   return err instanceof ApiError && err.code === ErrCode.NoUpstreams
 }
 
-export function useService(service: string) {
+/** env narrows the release history. Narrowed on the server, because the
+ *  history is the most recent twenty across every environment: filtering
+ *  those in the browser would report "no prod releases" the moment dev had
+ *  twenty of its own. */
+export function useService(service: string, env = '') {
   return useQuery({
-    queryKey: ['service', service],
-    queryFn: ({ signal }) => apiFetch<{ service: Service; releases: Release[] | null }>(`/api/v1/services/${svc(service)}`, { signal }),
+    queryKey: ['service', service, env],
+    queryFn: ({ signal }) =>
+      apiFetch<{ service: Service; releases: Release[] | null }>(`/api/v1/services/${svc(service)}${env ? `?env=${encodeURIComponent(env)}` : ''}`, { signal }),
     refetchInterval: 15_000,
+    // The environment tabs should not blank the list while the next answer
+    // is on its way; the old rows stay until they are replaced.
+    placeholderData: keepPreviousData,
   })
 }
 

@@ -30,10 +30,23 @@ export function sinceMs(s?: string | null): number | null {
 }
 
 // 20260916151427-46b7619f-0022 → 0916-46b7
+/**
+ * Shortens a build tag for a dense table, keeping what people compare by.
+ *
+ * `20260920070636-4d7fdb08-0310` becomes `0920-4d7fdb08-0310`: the year and
+ * the time of day go, the commit and the build number stay whole. Those two
+ * are identifiers — somebody reads them off a pipeline or a commit and
+ * matches them character by character, and a truncated commit collides far
+ * more often than its length suggests. The date stays as MMDD because that
+ * is read as "when", not matched.
+ *
+ * Anything that is not this shape is left alone up to a length, because a
+ * tag Tide does not recognise is one it should not reinterpret.
+ */
 export function shortTag(tag?: string): string {
   if (!tag) return ''
-  const m = tag.match(/^\d{4}(\d{4})\d{6}-([0-9a-f]{4})/)
-  return m ? `${m[1]}-${m[2]}` : tag.length > 14 ? tag.slice(0, 14) + '…' : tag
+  const m = tag.match(/^\d{4}(\d{4})\d{6}-(.+)$/)
+  return m ? `${m[1]}-${m[2]}` : tag.length > 20 ? tag.slice(0, 20) + '…' : tag
 }
 
 export function shortDigest(d?: string, n = 12): string {

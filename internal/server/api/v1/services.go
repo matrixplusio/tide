@@ -181,12 +181,18 @@ func (a *API) deployment(c *gin.Context, p *params, fresh bool) (*catalog.Servic
 }
 
 func (a *API) getService(c *gin.Context) {
-	svc, _, err := a.deployment(c, newParams(c), false)
+	p := newParams(c)
+	// Filtering here rather than in the browser: the history is the twenty
+	// most recent releases across every environment, so narrowing that list
+	// client-side would show nothing for prod as soon as dev had twenty of
+	// its own — and "no prod releases" would be a lie.
+	env := p.match("env", reEnv, "label.envName")
+	svc, _, err := a.deployment(c, p, false)
 	if err != nil {
 		respond.Fail(c, err)
 		return
 	}
-	history, _, err := a.PG.Releases.List(c.Request.Context(), pg.ReleaseFilter{Service: svc.Name}, 1, 20)
+	history, _, err := a.PG.Releases.List(c.Request.Context(), pg.ReleaseFilter{Service: svc.Name, Env: env}, 1, 20)
 	if err != nil {
 		respond.Fail(c, err)
 		return

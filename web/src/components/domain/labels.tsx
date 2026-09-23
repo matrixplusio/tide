@@ -5,11 +5,16 @@ import { Pill, StatusDot, type Tone } from '../ui'
 
 export function VersionLabel({ a, full }: { a?: { version?: string; tag?: string } | null; full?: boolean }) {
   if (!a || (!a.tag && !a.version)) return <span className="faint">{i18n.t('domain.notDeployed')}</span>
+  const short = shortTag(a.tag)
   return (
     <span>
       {a.version && <b>{a.version} </b>}
       {/* two layers: bold semver first, build tag secondary; without a semver the tag is the identifier */}
-      <span className={a.version ? 'mono muted tag' : 'mono'}>{full ? a.tag : shortTag(a.tag)}</span>
+      {/* Marked as abbreviated when it is: a shortened tag that looks like
+          the whole thing gives nobody a reason to go looking for the rest. */}
+      <span className={[a.version ? 'mono muted tag' : 'mono', full || short === a.tag ? '' : 'abbr'].filter(Boolean).join(' ')} title={full ? undefined : a.tag}>
+        {full ? a.tag : short}
+      </span>
     </span>
   )
 }

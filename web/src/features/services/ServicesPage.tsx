@@ -169,9 +169,9 @@ export function ServicesPage() {
                         key={s.name}
                         className="tap"
                         tabIndex={0}
-                        onClick={() => nav(`/services/${encodeURIComponent(s.name)}`)}
+                        onClick={() => nav(`/services/${encodeURIComponent(s.name)}`, { state: { from: `/services?${params}` } })}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') nav(`/services/${encodeURIComponent(s.name)}`)
+                          if (e.key === 'Enter') nav(`/services/${encodeURIComponent(s.name)}`, { state: { from: `/services?${params}` } })
                         }}
                       >
                         <td className="nowrap">

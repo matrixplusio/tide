@@ -387,6 +387,17 @@ func (a *API) validateSection(ctx context.Context, v any) error {
 		}
 		add(validate.Required("token", s.Token, "label.token"))
 		s.PathPrefix = strings.Trim(s.PathPrefix, "/")
+		trim(&s.ImageStrategy, &s.TagPattern)
+		if s.ImageStrategy != "" && !slices.Contains(settings.ImageStrategies, s.ImageStrategy) {
+			add(validate.FieldKey("imageStrategy", "s.unknownStrategy", s.ImageStrategy))
+		}
+		// A pattern that does not compile is refused here rather than in
+		// Kargo, where it surfaces as a warehouse that discovers nothing.
+		if s.TagPattern != "" {
+			if _, err := regexp.Compile(s.TagPattern); err != nil {
+				add(validate.FieldKey("tagPattern", "s.badTagPattern"))
+			}
+		}
 	default:
 		return errors.New("unknown settings type")
 	}
