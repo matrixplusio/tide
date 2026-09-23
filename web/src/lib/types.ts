@@ -182,6 +182,9 @@ export interface Deployment {
   promoting?: string
   autoPromotion: boolean
   autoHeld: boolean
+  /** The registry could not be asked about this image: a blank version and
+   *  build time mean "no answer", not "nothing was labelled". */
+  imageUnknown?: boolean
   grafana?: string
 }
 
@@ -249,7 +252,11 @@ export interface Artifact {
 
 export interface Anomaly {
   code: string
+  /** As it was put to whoever confirmed, in their language. Kept verbatim. */
   message: string
+  /** The same sentence's facts, so it can be rebuilt in the reader's
+   *  language. Absent on releases created before this existed. */
+  args?: string[] | null
 }
 
 export interface ImagePayload {

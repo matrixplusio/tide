@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -340,11 +341,21 @@ func (a *API) requireAnyScope(ps ...rbac.Permission) gin.HandlerFunc {
 // targetOf resolves a service in env to what scoped grants look at: its
 // project and its value of the catalog's batch dimension. A service missing
 // from the catalog has neither, so only unscoped grants apply to it.
+// targetStaleness bounds how old a snapshot may be when all that is wanted
+// from it is a service's project and type. Those follow the Application's
+// labels, so they change when somebody edits git, not from minute to minute;
+// waiting for a fresh catalogue to learn them puts a cross-site fan-out in
+// front of a button press.
+const targetStaleness = 5 * time.Minute
+
 func (a *API) targetOf(ctx context.Context, service, env string) rbac.Target {
 	t := rbac.Target{Env: env}
-	snap, err := a.Hub.Snapshot(ctx, false)
-	if err != nil {
-		return t
+	snap := a.Hub.Recent(targetStaleness)
+	if snap == nil {
+		var err error
+		if snap, err = a.Hub.Snapshot(ctx, false); err != nil {
+			return t
+		}
 	}
 	svc := snap.Find(service)
 	if svc == nil {

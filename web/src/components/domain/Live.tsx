@@ -28,7 +28,11 @@ export function RolloutView({ live, since }: { live: Live; since?: string }) {
                 {s.target > s.targetReady && t('live.notReady', { count: s.target - s.targetReady })}
                 {s.other > 0 && t('live.oldRemain', { count: s.other })}
               </div>
-              <div className={`prog ${s.unhealthy ? 'bad' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={t('live.progressLabel', { name: r.name })}>
+              {/* Blue while it is still moving, green once every pod is on the
+                  target version. Without the third state a finished rollout
+                  looks the same as one still in progress, which is the one
+                  distinction this bar exists to make. */}
+              <div className={`prog ${s.unhealthy ? 'bad' : s.done ? 'done' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={t('live.progressLabel', { name: r.name })}>
                 <i style={{ width: `${pct}%` }} />
               </div>
             </div>
@@ -143,9 +147,12 @@ const stepNames: Record<string, string> = {
 }
 
 function stepLabel(uses: string, name: string) {
+  // stepNames holds catalogue keys, so every branch has to render one. The
+  // two that matched a known step used to return the key itself, which put
+  // "live.step.gitClone" on screen for exactly the steps Tide recognises.
   const direct = stepNames[uses]
-  if (direct) return direct
-  for (const [k, v] of Object.entries(stepNames)) if (name.includes(k)) return v
+  if (direct) return i18n.t(direct)
+  for (const [k, v] of Object.entries(stepNames)) if (name.includes(k)) return i18n.t(v)
   if (/update-image/.test(name)) return i18n.t('live.step.setImage')
   if (/commit/.test(name)) return i18n.t('live.step.gitCommit')
   return uses || name

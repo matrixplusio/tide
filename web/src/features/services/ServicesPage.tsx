@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMe } from '../../app/session'
 import { can } from '../../lib/permissions'
 import { isApiError } from '../../lib/api'
@@ -168,14 +168,25 @@ export function ServicesPage() {
                       <tr
                         key={s.name}
                         className="tap"
-                        tabIndex={0}
-                        onClick={() => nav(`/services/${encodeURIComponent(s.name)}`, { state: { from: `/services?${params}` } })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') nav(`/services/${encodeURIComponent(s.name)}`, { state: { from: `/services?${params}` } })
+                        // The whole row stays clickable, but the name below is
+                        // the real link: a row that only answers to onClick
+                        // cannot be opened in a new tab, has no address to
+                        // copy and shows nothing in the status bar — on a list
+                        // of a few hundred services that is most of how it
+                        // gets used. This handler then has to stand aside for
+                        // anything the browser should handle itself, which is
+                        // every click with a modifier and every click that
+                        // landed on a link (the version cells are links too).
+                        onClick={(e) => {
+                          if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+                          if ((e.target as HTMLElement).closest('a')) return
+                          nav(`/services/${encodeURIComponent(s.name)}`, { state: { from: `/services?${params}` } })
                         }}
                       >
                         <td className="nowrap">
-                          <b>{s.name}</b>
+                          <Link className="inherit" to={`/services/${encodeURIComponent(s.name)}`} state={{ from: `/services?${params}` }}>
+                            <b>{s.name}</b>
+                          </Link>
                           {!!s.conflicts?.length && (
                             <>
                               {' '}

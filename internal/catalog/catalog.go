@@ -83,8 +83,15 @@ type Deployment struct {
 	// Workload says the Application deploys something that runs containers.
 	// False for the ones that only set a namespace up: they have no image to
 	// subscribe to and nothing to promote.
-	Workload bool   `json:"workload"`
-	Grafana  string `json:"grafana,omitempty"`
+	Workload bool `json:"workload"`
+	// ImageUnknown says the registry could not be asked about this image, so
+	// the version and build time below are blank for want of an answer rather
+	// than because nobody labelled the image. Without it the two look
+	// identical on the page, and the row reads as a service with a sparse
+	// build — not as a tag that names nothing in the registry, which is what
+	// a placeholder left in git actually is.
+	ImageUnknown bool   `json:"imageUnknown,omitempty"`
+	Grafana      string `json:"grafana,omitempty"`
 }
 
 type Service struct {
@@ -145,6 +152,12 @@ type CatalogStats struct {
 	// OtherEnv resolved to an environment this upstream does not serve.
 	// Ordinary — platform and infrastructure Applications land here.
 	OtherEnv int `json:"otherEnv"`
+	// NoWorkload resolved to an environment but runs nothing that can be
+	// released. A Kustomize layer that only creates a Namespace, a set of
+	// quotas or RBAC is a real Application, correctly labelled, and still not
+	// a service: it has no image, so every column Tide shows about it is
+	// empty and nothing can ever be promoted to it.
+	NoWorkload int `json:"noWorkload"`
 }
 
 type Snapshot struct {
@@ -180,7 +193,30 @@ type Hub struct {
 
 	imgMu  sync.Mutex
 	images map[string]*registry.Image // digest → metadata; digests are immutable
+	// tags resolves "repo:tag" to a digest so a rebuild can reach the cache
+	// above. Argo CD reports what is running as a tag, not a digest, so
+	// without this every rebuild asked the registry about every deployment
+	// again — the digest cache was never consulted on the path that matters.
+	tags map[string]tagHit
 }
+
+// tagHit is a tag's digest and when it was learned. Tags, unlike digests, can
+// be moved, so this expires; the digest it points at never does.
+type tagHit struct {
+	digest string
+	at     time.Time
+	// err is set when the lookup failed. Remembering the failure matters as
+	// much as remembering success: an image that was never pushed fails on
+	// every rebuild, and a few dozen of those are a few dozen round trips to
+	// a registry across a site boundary.
+	err error
+}
+
+// tagTTL bounds how stale a tag→digest answer can be. The tag itself always
+// comes fresh from Argo CD; only the metadata behind it is cached, so the
+// worst case is a version label and a digest that lag a few minutes behind a
+// tag that was moved — and tags in a release pipeline are not moved.
+const tagTTL = 5 * time.Minute
 
 var ErrNoUpstreams = errors.New("no upstreams configured")
 
@@ -278,6 +314,28 @@ func (h *Hub) Named(ctx context.Context, name string) (*Clients, error) {
 
 // Snapshot returns the cached view, rebuilding it when older than cacheTTL.
 // Concurrent callers share one rebuild.
+// Recent returns the last snapshot built, if it is no older than age, and
+// never builds one.
+//
+// For callers that need a fact about a service which does not move — which
+// project it belongs to, which type — rather than its live state. Snapshot
+// would make them wait out a fan-out across every upstream whenever the
+// thirty-second cache happened to have just expired, and one of those callers
+// is the confirm button: pressing it went and rebuilt the catalogue before
+// the release could start. A snapshot minutes old answers "which project is
+// this service in" exactly as well as a fresh one.
+//
+// Nil means there is nothing recent enough, and the caller should fall back
+// to Snapshot: an answer is still needed, it just no longer has to be free.
+func (h *Hub) Recent(age time.Duration) *Snapshot {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.snap == nil || time.Since(h.snap.At) > age {
+		return nil
+	}
+	return h.snap
+}
+
 func (h *Hub) Snapshot(ctx context.Context, fresh bool) (*Snapshot, error) {
 	gen, err := h.generation(ctx)
 	if err != nil {
@@ -608,6 +666,11 @@ func classify(apps []argocd.Application, c *Clients, cat settings.Catalog) ([]ra
 			}
 			continue
 		}
+		// Classified correctly and still not a service; see NoWorkload.
+		if !d.Workload {
+			stats.NoWorkload++
+			continue
+		}
 		stats.Kept++
 		if d.KargoProject != "" {
 			projects[d.KargoProject] = true
@@ -791,6 +854,7 @@ func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment
 			img, err := h.Inspect(ctx, c, d.Image, ref)
 			if err != nil {
 				isAuth := errors.Is(err, registry.ErrUnauthorized)
+				d.ImageUnknown = true
 				mu.Lock()
 				failed++
 				// Authentication wins the reported message even when it is not
@@ -828,15 +892,27 @@ func imageKey(digest string) string { return "tide:catalog:image:" + digest }
 const imageTTL = 24 * time.Hour
 
 func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*registry.Image, error) {
-	byDigest := strings.HasPrefix(ref, "sha256:")
-	if byDigest {
+	digest := ref
+	if !strings.HasPrefix(ref, "sha256:") {
+		// A tag. Resolve it to a digest first, or the cache below — keyed by
+		// digest, and correct forever — can never be reached.
+		if d, err, ok := h.tagged(image, ref); ok {
+			if err != nil {
+				return nil, err
+			}
+			digest = d
+		} else {
+			digest = ""
+		}
+	}
+	if digest != "" {
 		h.imgMu.Lock()
-		img := h.images[ref]
+		img := h.images[digest]
 		h.imgMu.Unlock()
 		if img != nil {
 			return img, nil
 		}
-		if img := h.imageFromShared(ctx, ref); img != nil {
+		if img := h.imageFromShared(ctx, digest); img != nil {
 			h.remember(img)
 			return img, nil
 		}
@@ -844,15 +920,44 @@ func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*regi
 	_, repo := registry.SplitImage(image)
 	img, err := c.Registry.Inspect(ctx, repo, ref)
 	if err != nil {
+		h.rememberTag(image, ref, "", err)
 		return nil, err
 	}
 	h.remember(img)
+	h.rememberTag(image, ref, img.Digest, nil)
 	if h.Shared != nil {
 		if b, err := json.Marshal(img); err == nil {
 			h.Shared.Set(ctx, imageKey(img.Digest), b, imageTTL)
 		}
 	}
 	return img, nil
+}
+
+// tagged returns what this tag resolved to last time, while that is still
+// fresh enough to believe.
+func (h *Hub) tagged(image, tag string) (digest string, err error, ok bool) {
+	if tag == "" {
+		return "", nil, false
+	}
+	h.imgMu.Lock()
+	defer h.imgMu.Unlock()
+	hit, ok := h.tags[image+":"+tag]
+	if !ok || time.Since(hit.at) > tagTTL {
+		return "", nil, false
+	}
+	return hit.digest, hit.err, true
+}
+
+func (h *Hub) rememberTag(image, tag, digest string, err error) {
+	if tag == "" || strings.HasPrefix(tag, "sha256:") {
+		return
+	}
+	h.imgMu.Lock()
+	defer h.imgMu.Unlock()
+	if h.tags == nil {
+		h.tags = map[string]tagHit{}
+	}
+	h.tags[image+":"+tag] = tagHit{digest: digest, at: time.Now(), err: err}
 }
 
 func (h *Hub) remember(img *registry.Image) {

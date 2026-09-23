@@ -41,28 +41,11 @@ func (a *API) overview(c *gin.Context) {
 		e := errcode.From(err)
 		out["upstreamError"] = gin.H{"code": e.Code, "msg": e.Text(i18n.From(ctx))}
 	} else {
-		type envStat struct {
-			Services   int `json:"services"`
-			Unexpected int `json:"unexpected"`
-		}
-		stats := map[string]*envStat{}
-		unexpected := []*catalog.Deployment{}
-		domains := map[string]bool{}
-		for _, svc := range vis.services(snap.Services) {
-			domains[svc.Domain] = true
-			for env, d := range svc.Envs {
-				if stats[env] == nil {
-					stats[env] = &envStat{}
-				}
-				stats[env].Services++
-				if d.Health != "Healthy" || d.Sync != "Synced" {
-					stats[env].Unexpected++
-					unexpected = append(unexpected, d)
-				}
-			}
-		}
+		seen := vis.services(snap.Services)
+		stats, unhealthy, drifted, domains := fleetState(seen)
 		out["upstreams"], out["envOrder"], out["envStats"] = snap.Upstreams, snap.EnvOrder, stats
-		out["unexpected"], out["serviceCount"], out["domainCount"] = unexpected, len(vis.services(snap.Services)), len(domains)
+		out["unhealthy"], out["drifted"] = unhealthy, drifted
+		out["serviceCount"], out["domainCount"] = len(seen), domains
 	}
 	// Releases are listed within the same scope as the services they touch.
 	seen := pg.ReleaseFilter{Services: relVis.names()}
@@ -580,4 +563,47 @@ func promotionView(p *kargo.Promotion) PromotionView {
 		v.Steps = append(v.Steps, sv)
 	}
 	return v
+}
+
+// envStat is one environment's line on the overview.
+type envStat struct {
+	Services  int `json:"services"`
+	Unhealthy int `json:"unhealthy"`
+	Drifted   int `json:"drifted"`
+}
+
+// fleetState counts the two things that can be wrong with a deployment, and
+// counts them separately.
+//
+// Health and sync are independent axes that mean different things. Unhealthy
+// is "this service is not serving". OutOfSync is "the cluster does not match
+// git", which in an installation where nothing prunes is the resting state of
+// very nearly every Application. Adding the two together gave "178 of 179
+// unexpected" — a number nobody can act on, and one that reads as broken
+// monitoring rather than as a fleet that mostly works. Only the unhealthy
+// ones are listed; drift is a count, because a list of almost everything is
+// not a list.
+func fleetState(svcs []catalog.Service) (map[string]*envStat, []*catalog.Deployment, int, int) {
+	stats := map[string]*envStat{}
+	unhealthy := []*catalog.Deployment{}
+	drifted := 0
+	domains := map[string]bool{}
+	for _, svc := range svcs {
+		domains[svc.Domain] = true
+		for env, d := range svc.Envs {
+			if stats[env] == nil {
+				stats[env] = &envStat{}
+			}
+			stats[env].Services++
+			if d.Health != "Healthy" {
+				stats[env].Unhealthy++
+				unhealthy = append(unhealthy, d)
+			}
+			if d.Sync != "Synced" {
+				stats[env].Drifted++
+				drifted++
+			}
+		}
+	}
+	return stats, unhealthy, drifted, len(domains)
 }

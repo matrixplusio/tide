@@ -6,8 +6,11 @@ export interface OverviewData {
   upstreams: UpstreamStatus[] | null
   upstreamError?: { code: number; msg: string } | null
   envOrder: string[] | null
-  envStats: Record<string, { services: number; unexpected: number } | undefined> | null
-  unexpected: Deployment[] | null
+  envStats: Record<string, { services: number; unhealthy: number; drifted: number } | undefined> | null
+  /** Not serving. Drift is counted separately: it is the resting state of
+   *  most Applications where nothing prunes, so mixing the two buries it. */
+  unhealthy: Deployment[] | null
+  drifted: number
   serviceCount: number
   domainCount: number
   inFlight: Release[] | null

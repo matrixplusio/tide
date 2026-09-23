@@ -7,6 +7,7 @@ import (
 	"errors"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -244,20 +245,24 @@ func buildTime(c *Candidate, a *release.Artifact) time.Time {
 func Anomalies(sys settings.ReleasePolicy, cands *Candidates, target, current *Candidate, from *release.Artifact, everDeployed bool, now time.Time) []release.Anomaly {
 	var out []release.Anomaly
 	if from == nil {
-		// An anomaly is stored on the release, so it reads the same for
-		// everyone later, like an audit record.
-		msg := at("pl.firstDeploy")
+		// The message is stored so it reads later exactly as it read to
+		// whoever confirmed, like an audit record; Args carry the same facts
+		// separately so a reader in another language can be shown them in
+		// theirs. The two variants are separate codes for the same reason:
+		// one message per code, or the code cannot stand in for it.
+		code, msg := release.AnomalyFirstDeploy, at("pl.firstDeploy")
 		if everDeployed {
-			msg = at("pl.firstDeployPerKargo")
+			code, msg = release.AnomalyFirstDeployPerKargo, at("pl.firstDeployPerKargo")
 		}
-		out = append(out, release.Anomaly{Code: "first_deploy", Message: msg})
+		out = append(out, release.Anomaly{Code: code, Message: msg})
 		return out
 	}
 	tt := buildTime(target, &release.Artifact{Tag: target.Tag, BuiltAt: target.BuiltAt})
 	ct := buildTime(current, from)
 	if !tt.IsZero() && !ct.IsZero() && tt.Before(ct) {
+		to, back := label(target.Version, target.Tag), label(from.Version, from.Tag)
 		out = append(out, release.Anomaly{Code: "rollback",
-			Message: at("pl.rollback", label(target.Version, target.Tag), label(from.Version, from.Tag))})
+			Message: at("pl.rollback", to, back), Args: []string{to, back}})
 	}
 	if !tt.IsZero() && !ct.IsZero() && tt.After(ct) && sys.MultiVersionJump > 0 {
 		n := 0
@@ -268,8 +273,9 @@ func Anomalies(sys settings.ReleasePolicy, cands *Candidates, target, current *C
 			}
 		}
 		if n > sys.MultiVersionJump {
+			count, was, now := strconv.Itoa(n), label(from.Version, from.Tag), label(target.Version, target.Tag)
 			out = append(out, release.Anomaly{Code: "multi_version_jump",
-				Message: at("pl.versionJump", n, label(from.Version, from.Tag), label(target.Version, target.Tag))})
+				Message: at("pl.versionJump", n, was, now), Args: []string{count, was, now}})
 		}
 	}
 	if sys.MinSoakMinutes > 0 {
@@ -287,8 +293,10 @@ func Anomalies(sys settings.ReleasePolicy, cands *Candidates, target, current *C
 			}
 			soak := time.Duration(sys.MinSoakMinutes) * time.Minute
 			if since != nil && now.Sub(*since) < soak {
+				soaked := now.Sub(*since).Round(time.Minute).String()
 				out = append(out, release.Anomaly{Code: "short_soak",
-					Message: at("pl.shortSoak", up, now.Sub(*since).Round(time.Minute).String(), sys.MinSoakMinutes)})
+					Message: at("pl.shortSoak", up, soaked, sys.MinSoakMinutes),
+					Args:    []string{up, soaked, strconv.Itoa(sys.MinSoakMinutes)}})
 			}
 		}
 	}
