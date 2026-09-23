@@ -4,7 +4,7 @@ import { useMe } from '../../app/session'
 import { can } from '../../lib/permissions'
 import { ErrCode } from '../../lib/errcode'
 import { Banner, Chev, EmptyState, ErrorState, Group, GroupHeader, Loading, Note, Page, Pill, Row, StatusDot, Toolbar } from '../../components/ui'
-import { DeployDot, NoUpstreamsBanner, ReleaseRow } from '../../components/domain'
+import { DeployDot, NoUpstreamsBanner, RefreshNow, ReleaseRow } from '../../components/domain'
 import { useOverview } from './queries'
 
 export function OverviewPage() {
@@ -30,7 +30,14 @@ export function OverviewPage() {
 
   return (
     <>
-      <Toolbar title={t('overview.title')} sub={t('overview.greeting', { name: me.user.name })} />
+      <Toolbar
+        title={t('overview.title')}
+        sub={
+          <>
+            {t('overview.greeting', { name: me.user.name })} <RefreshNow query="overview" path="/api/v1/overview" />
+          </>
+        }
+      />
       <Page>
         {q.isPending && <Loading />}
         {q.error && <ErrorState error={q.error} onRetry={() => void q.refetch()} />}
