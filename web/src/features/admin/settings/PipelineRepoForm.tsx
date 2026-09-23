@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { applyServerError } from '../../../lib/forms'
-import { Button, ButtonRow, Form, FormErrorBanner, FormField, Group, GroupHeader, Input, Note, PasswordInput, Select, useToast } from '../../../components/ui'
-import { useSaveSettings } from '../queries'
+import { Button, ButtonRow, Checkbox, Form, FormErrorBanner, FormField, Group, GroupHeader, Input, Note, PasswordInput, Select, useToast } from '../../../components/ui'
+import { useRepoIdentity, useSaveSettings } from '../queries'
 import { pipelineRepoSchema, type PipelineRepoValues } from '../schemas'
 import type { PipelineRepo } from '../types'
 
@@ -16,6 +17,7 @@ function toValues(r: PipelineRepo | null | undefined): PipelineRepoValues {
     branch: r?.branch ?? '',
     pathPrefix: r?.pathPrefix ?? '',
     token: r?.token ?? '',
+    bareDomain: r?.bareDomain ?? false,
   }
 }
 
@@ -26,6 +28,9 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
   const toast = useToast()
   const save = useSaveSettings<PipelineRepo>('pipeline')
   const [formError, setFormError] = useState<unknown>(null)
+  const qc = useQueryClient()
+  const configured = !!(initial?.baseUrl && initial.project)
+  const who = useRepoIdentity(configured)
   const form = useForm<PipelineRepoValues>({ resolver: zodResolver(pipelineRepoSchema), values: toValues(initial) })
   const e = form.formState.errors
 
@@ -39,7 +44,12 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
         branch: (v.branch ?? '').trim(),
         pathPrefix: (v.pathPrefix ?? '').trim(),
         token: v.token,
+        bareDomain: v.bareDomain,
       })
+      // The server only stores settings it could authenticate, so a
+      // successful save already means the token works. Refetching turns that
+      // into something the page says out loud.
+      await qc.invalidateQueries({ queryKey: ['kargo-identity'] })
       toast.success(t('kargogen.repoSaved'))
     } catch (err) {
       if (!applyServerError(form, err)) setFormError(err)
@@ -75,10 +85,19 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
         <FormField label={t('kargogen.pathPrefix')} error={e.pathPrefix?.message} hint={t('kargogen.pathPrefixHint')}>
           {(p) => <Input {...p} {...form.register('pathPrefix')} mono placeholder="kargo" autoComplete="off" spellCheck={false} />}
         </FormField>
+        <FormField label={t('kargogen.projectNaming')} plainLabel hint={t('kargogen.bareDomainHint')}>
+          {(p) => <Checkbox id={p.id} {...form.register('bareDomain')} label={t('kargogen.bareDomain')} />}
+        </FormField>
         <FormField label={t('kargogen.token')} error={e.token?.message} required hint={t('kargogen.tokenHint')}>
           {(p) => <PasswordInput {...p} {...form.register('token')} className="mono" autoComplete="off" />}
         </FormField>
       </Group>
+      {who.data?.username && (
+        <Note>
+          {t('kargogen.identity', { user: who.data.name ? `${who.data.name} (${who.data.username})` : who.data.username, project: who.data.project ?? '' })}
+        </Note>
+      )}
+      {who.data?.error && <Note>{t('kargogen.identityUnknown', { msg: who.data.error })}</Note>}
       <Note>{t('kargogen.repoHint')}</Note>
       <ButtonRow>
         <Button type="submit" disabled={save.isPending}>

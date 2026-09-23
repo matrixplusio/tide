@@ -192,6 +192,8 @@ export interface PipelineRepo {
   branch: string
   pathPrefix?: string
   token: string
+  /** Name Kargo projects after the domain alone instead of line-and-domain. */
+  bareDomain?: boolean
 }
 
 export type SettingsSection = 'catalog' | 'upstreams' | 'environments' | 'notify' | 'oidc' | 'security' | 'release' | 'system' | 'pipeline'
@@ -302,4 +304,15 @@ export interface KargoPushed {
   branch: string
   files: number
   result: KargoResult
+}
+
+/** Who the pipeline-repository token belongs to. Commits land under this
+ *  name, which a token string does not reveal. */
+export interface RepoIdentity {
+  username?: string
+  name?: string
+  project?: string
+  canWrite?: boolean
+  /** The host did not answer; the settings themselves are fine. */
+  error?: string
 }

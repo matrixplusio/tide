@@ -194,3 +194,27 @@ func (c *Client) branchExists(ctx context.Context, branch string) (bool, error) 
 	}
 	return false, err
 }
+
+// Whoami implements repo.Pusher.
+func (c *Client) Whoami(ctx context.Context) (*repo.Identity, error) {
+	var me struct {
+		Login    string `json:"login"`
+		FullName string `json:"full_name"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/user", nil, &me); err != nil {
+		return nil, err
+	}
+	var proj struct {
+		FullName    string `json:"full_name"`
+		Permissions struct {
+			Push bool `json:"push"`
+		} `json:"permissions"`
+	}
+	if err := c.do(ctx, http.MethodGet, c.repoPath(), nil, &proj); err != nil {
+		return nil, err
+	}
+	return &repo.Identity{
+		Username: me.Login, Name: me.FullName,
+		Project: proj.FullName, CanWrite: proj.Permissions.Push,
+	}, nil
+}

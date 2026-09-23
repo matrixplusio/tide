@@ -208,3 +208,43 @@ func (c *Client) BranchExists(ctx context.Context, project, branch string) (bool
 	}
 	return false, err
 }
+
+// Whoami implements repo.Pusher.
+func (c *Client) Whoami(ctx context.Context) (*repo.Identity, error) {
+	var me struct {
+		Username string `json:"username"`
+		Name     string `json:"name"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/user", nil, &me); err != nil {
+		return nil, err
+	}
+	// permissions tells us whether this token may push, which "the project
+	// exists" does not: read access is enough to see it and not enough to
+	// commit, and that difference only shows up at the commit otherwise.
+	var proj struct {
+		PathWithNamespace string `json:"path_with_namespace"`
+		Permissions       struct {
+			ProjectAccess *struct {
+				AccessLevel int `json:"access_level"`
+			} `json:"project_access"`
+			GroupAccess *struct {
+				AccessLevel int `json:"access_level"`
+			} `json:"group_access"`
+		} `json:"permissions"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/projects/"+p(c.Project), nil, &proj); err != nil {
+		return nil, err
+	}
+	level := 0
+	if a := proj.Permissions.ProjectAccess; a != nil {
+		level = a.AccessLevel
+	}
+	if a := proj.Permissions.GroupAccess; a != nil && a.AccessLevel > level {
+		level = a.AccessLevel
+	}
+	// 30 is Developer, the lowest level that may push to a branch.
+	return &repo.Identity{
+		Username: me.Username, Name: me.Name,
+		Project: proj.PathWithNamespace, CanWrite: level >= 30,
+	}, nil
+}

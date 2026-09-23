@@ -378,6 +378,11 @@ const zhCN = {
     fAction: '操作',
   },
   kargogen: {
+    projectNaming: 'Project 命名',
+    bareDomain: '只用业务域（base），不带项目前缀',
+    bareDomainHint: '默认是「项目-业务域」（acme-base）。Kargo Project 就是集群级的 namespace，不带前缀时两条业务线各有一个同名业务域就会撞',
+    identity: '令牌属于 {{user}}，对 {{project}} 有写入权限。推送产生的提交会记在这个账号名下。',
+    identityUnknown: '暂时问不到令牌属于谁：{{msg}}',
     expandAll: '全部展开',
     collapseAll: '全部收起',
     countFiles: '文件',
