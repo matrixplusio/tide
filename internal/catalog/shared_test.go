@@ -140,3 +140,49 @@ func TestPublishingHappensBeforeTheBuildContextIsCancelled(t *testing.T) {
 		t.Fatal("nothing was published")
 	}
 }
+
+// A restart throws away the tag → digest step and nothing else: the metadata
+// behind every digest is already in the shared tier, valid for a day, because
+// a digest names one manifest forever. Losing only that step still cost a
+// fresh pod a question to the registry about every deployment it has — 10.8
+// of the 11.2 seconds a cold build was measured to take.
+//
+// So the step is shared too, and a replica that never saw the tag can still
+// reach the metadata.
+func TestTheTagToDigestStepSurvivesARestart(t *testing.T) {
+	ctx := context.Background()
+	shared := &cache.Memory{}
+	const image = "registry.example.com/acme/order-api"
+	const tag = "20260923110703-0c2dd7a7-0122"
+	const digest = "sha256:aa9a1d768a978f66f4b83b9a849fc5c21ad93772dd9c6ced874ec76b7ecc19d8"
+
+	// What a process that resolved this tag leaves behind.
+	shared.Set(ctx, tagKey(image, tag), []byte(digest), tagTTL)
+
+	// A pod that has just started: nothing in memory, everything to do.
+	fresh := &Hub{Shared: shared}
+	if got := fresh.digestFromShared(ctx, image, tag); got != digest {
+		t.Fatalf("a new process could not resolve the tag: %q", got)
+	}
+
+	// Without a shared tier there is simply nothing, and the caller reads the
+	// registry — which is the behaviour this replaces, not one it breaks.
+	if got := (&Hub{}).digestFromShared(ctx, image, tag); got != "" {
+		t.Errorf("no shared cache must mean no answer, got %q", got)
+	}
+
+	// Anything that is not a digest is refused rather than passed on: a
+	// truncated or overwritten value would otherwise be looked up as one and
+	// come back empty, which reads as "this image has no metadata".
+	shared.Set(ctx, tagKey(image, "junk"), []byte("not-a-digest"), tagTTL)
+	if got := fresh.digestFromShared(ctx, image, "junk"); got != "" {
+		t.Errorf("a value that is not a digest must be ignored, got %q", got)
+	}
+
+	// Two tags of the same image do not collide.
+	const other = "sha256:bb9a1d768a978f66f4b83b9a849fc5c21ad93772dd9c6ced874ec76b7ecc19d9"
+	shared.Set(ctx, tagKey(image, "20260923110704-0c2dd7a8-0123"), []byte(other), tagTTL)
+	if got := fresh.digestFromShared(ctx, image, tag); got != digest {
+		t.Errorf("tags collided: %q", got)
+	}
+}
