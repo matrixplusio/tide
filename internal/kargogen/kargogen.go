@@ -199,15 +199,31 @@ func generateDomain(domain string, services []catalog.Service, order []string, o
 			continue
 		}
 		c.services++
-		warehouses = append(warehouses, warehouseYAML(svc.Name, domain, deployed[0].Image, opts))
-		c.warehouses++
-		for i, d := range deployed {
-			from := ""
-			if i > 0 {
-				from = stageName(svc.Name, deployed[i-1].Env)
+		// Split the environments into artifact lines: consecutive ones that
+		// pull from the same image repository. A promotion moves a tag, and
+		// the tag has to exist in the repository the next environment pulls
+		// from, so a change of repository is a wall — everything on the far
+		// side of it can only take its own builds, from a warehouse of its
+		// own. A project that builds once and promotes onward has exactly one
+		// line and comes out of this unchanged.
+		for _, ln := range lines(deployed) {
+			// The first line keeps the service's own name so that pipelines
+			// generated before there was more than one line are not renamed
+			// out from under a cluster that is already running them.
+			name := svc.Name
+			if ln.first > 0 {
+				name = svc.Name + "-" + ln.envs[0].Env
 			}
-			stages = append(stages, stageYAML(svc.Name, domain, d, from, opts))
-			c.stages++
+			warehouses = append(warehouses, warehouseYAML(name, domain, ln.envs[0].Image, opts))
+			c.warehouses++
+			for i, d := range ln.envs {
+				from := ""
+				if i > 0 {
+					from = stageName(svc.Name, ln.envs[i-1].Env)
+				}
+				stages = append(stages, stageYAML(svc.Name, name, domain, d, from, opts))
+				c.stages++
+			}
 		}
 	}
 	if c.services == 0 {
@@ -224,6 +240,27 @@ func generateDomain(domain string, services []catalog.Service, order []string, o
 }
 
 func stageName(service, env string) string { return service + "-" + env }
+
+// line is one artifact line: the environments that pull from a single image
+// repository, in promotion order. first is the index the line starts at, so
+// the first line can be told from the rest.
+type line struct {
+	first int
+	envs  []*catalog.Deployment
+}
+
+// lines splits deployments, already in promotion order, wherever the image
+// repository changes.
+func lines(deployed []*catalog.Deployment) []line {
+	var out []line
+	for i, d := range deployed {
+		if i == 0 || d.Image != deployed[i-1].Image {
+			out = append(out, line{first: i})
+		}
+		out[len(out)-1].envs = append(out[len(out)-1].envs, d)
+	}
+	return out
+}
 
 func projectYAML(domain string) string {
 	return "apiVersion: kargo.akuity.io/v1alpha1\nkind: Project\nmetadata:\n  name: " + domain + "\n"
@@ -310,7 +347,7 @@ spec:
 // empty means it takes freight straight from the warehouse, which is what the
 // environment a pipeline pushes to must do — a stage fed by another stage can
 // never receive a freshly built image.
-func stageYAML(service, domain string, d *catalog.Deployment, from string, opts Options) string {
+func stageYAML(service, warehouse, domain string, d *catalog.Deployment, from string, opts Options) string {
 	sources := "        direct: true"
 	if from != "" {
 		sources = "        stages:\n          - " + from
@@ -352,7 +389,7 @@ spec:
               value: %s
 `, stageName(service, d.Env), domain,
 		opts.ServiceLabel, service, opts.EnvLabel, d.Env,
-		service, sources, opts.TaskName,
+		warehouse, sources, opts.TaskName,
 		d.Repo, branch, d.Image, d.RepoPath, d.App)
 }
 
