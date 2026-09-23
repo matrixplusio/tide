@@ -1027,16 +1027,27 @@ const imageTTL = 24 * time.Hour
 
 func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*registry.Image, error) {
 	digest := ref
-	if !strings.HasPrefix(ref, "sha256:") {
+	byTag := !strings.HasPrefix(ref, "sha256:")
+	if byTag {
 		// A tag. Resolve it to a digest first, or the cache below — keyed by
 		// digest, and correct forever — can never be reached.
-		if d, err, ok := h.tagged(image, ref); ok {
-			if err != nil {
-				return nil, err
-			}
+		switch d, err, ok := h.tagged(image, ref); {
+		case ok && err != nil:
+			return nil, err
+		case ok:
 			digest = d
-		} else {
-			digest = ""
+		default:
+			// Nothing in this process. The digest behind the tag may still be
+			// in the tier the replicas share, and that is what makes a
+			// restart cheap: every image's metadata is already there, keyed
+			// by digest, and only the tag → digest step was lost with the
+			// process. Without it a fresh pod asks the registry about every
+			// deployment again — measured at 10.8 of the 11.2 seconds a cold
+			// build takes.
+			digest = h.digestFromShared(ctx, image, ref)
+			if digest != "" {
+				h.rememberTag(image, ref, digest, nil)
+			}
 		}
 	}
 	if digest != "" {
@@ -1062,6 +1073,12 @@ func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*regi
 	if h.Shared != nil {
 		if b, err := json.Marshal(img); err == nil {
 			h.Shared.Set(ctx, imageKey(img.Digest), b, imageTTL)
+		}
+		// Only what resolved, and only for a tag. A failure stays in this
+		// process: sharing it would hand every replica one replica's bad
+		// minute, and the failures worth remembering are cheap to rediscover.
+		if byTag {
+			h.Shared.Set(ctx, tagKey(image, ref), []byte(img.Digest), tagTTL)
 		}
 	}
 	return img, nil
@@ -1101,6 +1118,22 @@ func (h *Hub) remember(img *registry.Image) {
 	}
 	h.images[img.Digest] = img
 	h.imgMu.Unlock()
+}
+
+// tagKey is stamped with neither a generation nor a digest: it is the one
+// mapping here that can change, which is why it expires with tagTTL rather
+// than living as long as the metadata it points at.
+func tagKey(image, tag string) string { return "tide:catalog:tag:" + image + ":" + tag }
+
+func (h *Hub) digestFromShared(ctx context.Context, image, tag string) string {
+	if h.Shared == nil {
+		return ""
+	}
+	b, ok := h.Shared.Get(ctx, tagKey(image, tag))
+	if !ok || !strings.HasPrefix(string(b), "sha256:") {
+		return ""
+	}
+	return string(b)
 }
 
 func (h *Hub) imageFromShared(ctx context.Context, digest string) *registry.Image {
