@@ -221,3 +221,89 @@ func TestWarehousesStateHowImagesAreChosen(t *testing.T) {
 		t.Errorf("configured selection was not used:\n%s", custom)
 	}
 }
+
+// depIn is dep with the image repository spelled out: which repository an
+// environment pulls from is what decides whether it can be promoted into.
+func depIn(env, image string) *catalog.Deployment {
+	d := dep(env)
+	d.Image = image
+	return d
+}
+
+// A promotion moves a digest, not a build: Kargo writes the same tag into the
+// next environment's manifests, and that tag has to exist in the repository
+// that environment pulls from. So an environment whose image comes from a
+// different repository than the one before it cannot be promoted into at all
+// — it can only take its own builds, straight from a warehouse of its own.
+//
+// Which is not a corner case: a project that builds once per environment (one
+// artifact line per branch) has a different repository for every one of them,
+// and chaining those stages produces a pipeline that passes every validation
+// and then fails at the first promotion, looking for a tag that was never
+// pushed there.
+func TestEachArtifactLineGetsItsOwnWarehouse(t *testing.T) {
+	const reg = "registry.example.com/"
+	snap := &catalog.Snapshot{Services: []catalog.Service{
+		svc("order-api", "trade",
+			depIn("dev", reg+"acme-dev/order-api"),
+			depIn("qa", reg+"acme-qa/order-api"),
+			depIn("uat", reg+"acme/order-api"),
+			depIn("prod", reg+"acme/order-api"), // the same line as uat
+		),
+	}}
+	r := Generate(snap, envs("dev", "qa", "uat", "prod"), Options{})
+
+	stages := find(t, r, "trade/stages.yaml")
+	// Three lines, so three stages take freight directly; only prod, which
+	// pulls from the repository uat was verified in, is promoted.
+	if n := strings.Count(stages, "direct: true"); n != 3 {
+		t.Errorf("%d stages take freight directly, want 3\n%s", n, stages)
+	}
+	if !strings.Contains(stages, "- order-api-uat") {
+		t.Error("prod shares uat's repository and must be promoted from it")
+	}
+	for _, chained := range []string{"- order-api-dev", "- order-api-qa"} {
+		if strings.Contains(stages, chained) {
+			t.Errorf("promoted from %q across a repository boundary", chained)
+		}
+	}
+
+	wh := find(t, r, "trade/warehouses.yaml")
+	for _, want := range []string{reg + "acme-dev/order-api", reg + "acme-qa/order-api", reg + "acme/order-api"} {
+		if !strings.Contains(wh, want) {
+			t.Errorf("no warehouse subscribes to %q", want)
+		}
+	}
+	if r.Warehouses != 3 {
+		t.Errorf("warehouses: %d, want 3", r.Warehouses)
+	}
+	// Every stage must name a warehouse that was actually written.
+	for _, name := range []string{"order-api", "order-api-qa", "order-api-uat"} {
+		if !strings.Contains(wh, "name: "+name+"\n") {
+			t.Errorf("warehouse %q is referenced but never written\n%s", name, wh)
+		}
+	}
+}
+
+// The single-line project — build once, promote the same digest onward — is
+// the shape the generator was written for, and it must not change.
+func TestOneArtifactLineStillChains(t *testing.T) {
+	const img = "registry.example.com/acme/order-api"
+	snap := &catalog.Snapshot{Services: []catalog.Service{
+		svc("order-api", "trade", depIn("dev", img), depIn("qa", img), depIn("prod", img)),
+	}}
+	r := Generate(snap, envs("dev", "qa", "prod"), Options{})
+
+	if r.Warehouses != 1 {
+		t.Errorf("warehouses: %d, want 1", r.Warehouses)
+	}
+	stages := find(t, r, "trade/stages.yaml")
+	if n := strings.Count(stages, "direct: true"); n != 1 {
+		t.Errorf("%d stages take freight directly, want 1", n)
+	}
+	for _, want := range []string{"- order-api-dev", "- order-api-qa"} {
+		if !strings.Contains(stages, want) {
+			t.Errorf("stages do not contain %q", want)
+		}
+	}
+}

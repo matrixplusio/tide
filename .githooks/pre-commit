@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# Enable with: git config core.hooksPath .githooks  (or `make hooks`)
+exec hack/check-no-internal-data.sh --staged
