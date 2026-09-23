@@ -480,12 +480,34 @@ func (h *Hub) rebuild(ctx context.Context, gen int64, fresh bool) (*Snapshot, er
 		ch := make(chan struct{})
 		h.building = ch
 		h.mu.Unlock()
+		// Deferred, so a panic anywhere in the build still releases the
+		// readers waiting on this channel. Without it one panic wedges the
+		// catalog for the life of the process: h.building stays set, nobody
+		// ever closes ch, and every reader that needs a snapshot blocks for
+		// ever — a crash would at least have restarted.
+		done := func() {
+			h.mu.Lock()
+			h.building = nil
+			close(ch)
+			h.mu.Unlock()
+		}
+		defer done()
 
 		// Another replica may have built this generation already. Reading its
 		// bytes costs a round trip instead of a walk over every Application,
 		// and both replicas then answer from the same snapshot.
+		//
+		// Not when the caller asked for fresh, though: that snapshot can be
+		// minutes old, and the only caller who asks is a person who pressed
+		// a button because they are waiting for something the generation
+		// counter cannot know about — an Application edited by hand, a
+		// service just onboarded. Handing them another replica's copy of the
+		// same stale answer is exactly the thing the button is for avoiding.
 		var err error
-		s := h.fromShared(ctx, gen)
+		var s *Snapshot
+		if !fresh {
+			s = h.fromShared(ctx, gen)
+		}
 		if s == nil {
 			// Detached from the request on purpose: other waiters are blocked
 			// on this build, so the first caller navigating away must not
@@ -506,8 +528,6 @@ func (h *Hub) rebuild(ctx context.Context, gen int64, fresh bool) (*Snapshot, er
 		if err == nil {
 			h.snap, h.gen = s, gen
 		}
-		h.building = nil
-		close(ch)
 		h.mu.Unlock()
 		return s, err
 	}

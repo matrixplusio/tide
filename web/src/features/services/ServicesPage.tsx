@@ -9,7 +9,7 @@ import { dimensionOptions, dimensionValueName, matchesSearch } from '../../lib/c
 import { fmtTime } from '../../lib/format'
 import type { Service } from '../../lib/types'
 import { Button, EmptyState, ErrorState, GroupHeader, Input, Loading, Note, Page, Pill, Segmented, Select, Toolbar } from '../../components/ui'
-import { DeployDot, NoUpstreamsBanner, VersionLabel } from '../../components/domain'
+import { DeployDot, NoUpstreamsBanner, RefreshNow, VersionLabel } from '../../components/domain'
 import { useServices } from './queries'
 
 // A dimension with at most this many values renders as a segmented control
@@ -73,7 +73,16 @@ export function ServicesPage() {
 
   return (
     <>
-      <Toolbar title={t('services.title')} sub={data.data ? t('services.sub', { count: total, at: fmtTime(data.data.at, true) }) : undefined} />
+      <Toolbar
+        title={t('services.title')}
+        sub={
+          data.data ? (
+            <>
+              {t('services.sub', { count: total, at: fmtTime(data.data.at, true) })} <RefreshNow query="services" path="/api/v1/services" />
+            </>
+          ) : undefined
+        }
+      />
       <Page wide>
         <div className="btnrow filters" role="search" aria-label={t('services.filterLabel')} style={{ marginTop: 0, marginBottom: 4 }}>
           {projects.length > 0 && (

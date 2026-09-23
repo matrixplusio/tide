@@ -186,3 +186,87 @@ func TestTheTagToDigestStepSurvivesARestart(t *testing.T) {
 		t.Errorf("tags collided: %q", got)
 	}
 }
+
+// counting wraps a cache and records what was read from it.
+type counting struct {
+	cache.Cache
+	gets int
+}
+
+func (c *counting) Get(ctx context.Context, key string) ([]byte, bool) {
+	c.gets++
+	return c.Cache.Get(ctx, key)
+}
+
+// Asking for a fresh snapshot has to reach the upstreams. It used to stop one
+// step short: it skipped this replica's copy and then took another replica's,
+// which is the same answer with somebody else's name on it and can be minutes
+// old. The only caller who asks is a person who pressed a button because they
+// are waiting for something the generation counter cannot know about — an
+// Application edited by hand, a service just onboarded — so a cached answer
+// is precisely what must not come back.
+func TestAskingForFreshSkipsTheSharedCopyToo(t *testing.T) {
+	ctx := context.Background()
+	shared := &counting{Cache: &cache.Memory{}}
+	hub := &Hub{Shared: shared}
+	hub.toShared(ctx, 3, &Snapshot{At: time.Now().Add(-9 * time.Minute)})
+
+	// Without settings a real build cannot finish, and that is the point:
+	// reaching the build at all is the evidence that the shared copy was not
+	// taken instead. What is asserted is the read, not the outcome.
+	shared.gets = 0
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = hub.rebuild(ctx, 3, true)
+	}()
+	if shared.gets != 0 {
+		t.Errorf("fresh read the shared copy %d times; it must go to the upstreams", shared.gets)
+	}
+
+	// Not fresh: taking another replica's snapshot is exactly what should
+	// happen, and it costs one read instead of a walk over every Application.
+	shared.gets = 0
+	got, err := hub.rebuild(ctx, 3, false)
+	if err != nil || got == nil {
+		t.Fatalf("a generation another replica already built should need no build: %v", err)
+	}
+	if shared.gets == 0 {
+		t.Error("the shared copy was not consulted at all")
+	}
+}
+
+// A build that panics used to wedge the catalog for the life of the process:
+// h.building stayed set, the channel every other reader waits on was never
+// closed, and each of them blocked for ever. A crash would at least have
+// restarted; this was a pod that answered its health check and served
+// nothing. So the release has to survive the panic.
+func TestAPanickingBuildDoesNotWedgeEveryReaderAfterIt(t *testing.T) {
+	ctx := context.Background()
+	hub := &Hub{} // no settings: the build cannot finish
+
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = hub.rebuild(ctx, 1, true)
+	}()
+
+	hub.mu.Lock()
+	building := hub.building
+	hub.mu.Unlock()
+	if building != nil {
+		t.Fatal("the build slot was left occupied, so every later reader waits for ever")
+	}
+
+	// And a reader that arrives now gets as far as trying, rather than
+	// blocking. Bounded, because the failure this guards against is a hang.
+	done := make(chan struct{})
+	go func() {
+		defer func() { _ = recover() }()
+		defer close(done)
+		_, _ = hub.rebuild(ctx, 1, true)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a reader after the panic is still blocked")
+	}
+}

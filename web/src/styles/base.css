@@ -234,6 +234,11 @@ a.row:focus-visible, .row.tap:focus-visible { outline-offset: -2px; }
 .audit-item:not(:last-child)::after { content: ""; position: absolute; left: 12px; right: 0; bottom: 0; height: .5px; background: var(--sep2); }
 .audit-item .row::after { display: none; }
 .linklike { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+/* Sits inside a subtitle, so it borrows that line's size and only the colour
+   says it can be pressed. */
+.refresh { color: var(--blue); }
+.refresh:hover:not(:disabled) { text-decoration: underline; }
+.refresh:disabled { color: var(--ink2); cursor: default; }
 .linklike:hover { color: var(--blue); }
 
 /* status */
