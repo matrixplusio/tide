@@ -1,8 +1,14 @@
 package settings
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"tide/internal/audit"
+	"tide/internal/crypto"
+	"tide/internal/store/pg"
+	"tide/internal/testdb"
 )
 
 func TestExpiringReportsOnlyWhatIsNearAndKnown(t *testing.T) {
@@ -63,5 +69,49 @@ func TestExpiringSkipsUnparseableDates(t *testing.T) {
 	got := d.Expiring("onprem", now, ExpiryWarnDays)
 	if len(got) != 1 || got[0].Kind != "argocd" {
 		t.Fatalf("a bad date must be silent, not fatal: %+v", got)
+	}
+}
+
+// A form sends back the mask for a secret it never saw. Anything that wants
+// to use that secret before it is saved — checking the credentials work, for
+// instance — has to resolve the mask first, or every other field on the form
+// becomes unchangeable without re-typing the secret.
+func TestUnmaskFillsInWhatTheCallerDidNotSee(t *testing.T) {
+	s, _ := testdb.Setup(t)
+	box, err := crypto.New("ZGV2LW9ubHktZW5jcnlwdGlvbi1rZXktMzItYnl0ZXM=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{PG: s, Box: box}
+	ctx := context.Background()
+
+	saved := &PipelineRepo{Provider: ProviderGitea, BaseURL: "https://git.example.com",
+		Project: "acme/pipelines", Token: "s3cret"}
+	if err := s.Tx(ctx, func(tx *pg.Store) error {
+		return store.Save(ctx, tx, audit.Actor{Sub: "test", Name: "test"}, SectionPipelineRepo, saved)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// What a form sends back after changing one unrelated field.
+	edited := &PipelineRepo{Provider: ProviderGitea, BaseURL: "https://git.example.com",
+		Project: "acme/pipelines", Branch: "review", Token: Masked}
+	if err := store.Unmask(ctx, SectionPipelineRepo, edited); err != nil {
+		t.Fatal(err)
+	}
+	if edited.Token != "s3cret" {
+		t.Fatalf("token after unmasking: %q", edited.Token)
+	}
+	if edited.Branch != "review" {
+		t.Fatalf("unmasking overwrote an edited field: %q", edited.Branch)
+	}
+
+	// A token the caller really did type must win over the stored one.
+	typed := &PipelineRepo{Token: "brand-new"}
+	if err := store.Unmask(ctx, SectionPipelineRepo, typed); err != nil {
+		t.Fatal(err)
+	}
+	if typed.Token != "brand-new" {
+		t.Fatalf("unmasking replaced a supplied secret: %q", typed.Token)
 	}
 }

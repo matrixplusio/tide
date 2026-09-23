@@ -659,6 +659,26 @@ func walkSecrets(v reflect.Value, fn func(string) (string, error)) error {
 	return nil
 }
 
+// Unmask fills in the secrets a caller left masked or empty, from what is
+// already stored.
+//
+// Save does this too, but a caller that wants to *use* a secret before saving
+// — to check the credentials actually work, say — needs it earlier: the mask
+// is not a password, and checking with it fails as surely as a wrong one.
+func (s *Store) Unmask(ctx context.Context, section string, next any) error {
+	prev := reflect.New(reflect.TypeOf(next).Elem()).Interface()
+	if err := s.Load(ctx, section, prev); err != nil {
+		// Nothing stored yet: there is nothing to fill in, and whatever the
+		// caller supplied is all there is.
+		if errors.Is(err, ErrNotConfigured) {
+			return nil
+		}
+		return err
+	}
+	keepSecrets(reflect.ValueOf(next), reflect.ValueOf(prev))
+	return nil
+}
+
 // keepSecrets copies secrets from prev where next has Masked or "". Slices are
 // matched by a Name field when present, otherwise by index.
 func keepSecrets(next, prev reflect.Value) {

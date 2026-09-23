@@ -145,6 +145,13 @@ func (a *API) putSettings(c *gin.Context) {
 	// whether it works, and the next thing it is asked to do is write to
 	// somebody's repository.
 	if cfg, ok := next.(*settings.PipelineRepo); ok {
+		// The browser sends back the mask for a secret it never saw. Checking
+		// the credentials with that fails every time, which would make every
+		// other field on this form unchangeable without re-typing the token.
+		if err := a.Settings.Unmask(ctx, section, cfg); err != nil {
+			respond.Fail(c, err)
+			return
+		}
 		tctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
 		id, err := pushTo(*cfg).Whoami(tctx)
 		cancel()
