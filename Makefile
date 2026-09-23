@@ -25,7 +25,7 @@ STAGE_REDIS_URL   ?=
 # Throwaway: 32 bytes, base64. Never reuse outside a laptop.
 STAGE_SECRETS_KEY ?= c3RhZ2Utb25seS1lbmNyeXB0aW9uLWtleS0zMmJ5dGU=
 
-.PHONY: dev-up dev-sso dev-sso-down dev-down dev-logs dev-web-logs test test-db lint web-check check build web stage-up stage-down stage-logs
+.PHONY: dev-up dev-sso dev-sso-down dev-down dev-logs dev-web-logs test test-db lint web-check check build web hooks stage-up stage-down stage-logs
 
 ## Bring up the dev environment (hostPath source, air + vite hot reload).
 dev-up:
@@ -80,6 +80,13 @@ test-db:
 lint:
 	go vet ./...
 	golangci-lint run
+
+## Point git at .githooks: pre-commit keeps real data out of a commit,
+## pre-push keeps every branch but main off the internet. Both live outside
+## the repository, so a fresh clone starts without them — run this first.
+hooks:
+	git config core.hooksPath .githooks
+	@echo "hooks: $$(git config core.hooksPath)"
 
 web-check:
 	cd web && pnpm typecheck && pnpm lint && pnpm test && pnpm build

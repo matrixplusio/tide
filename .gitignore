@@ -30,7 +30,12 @@ node_modules/
 # is CONVENTIONS.md and that is what ships.
 /CLAUDE.md
 
-# Local tooling.
-/hack/*.sh
-/hack/*.txt
-/.githooks/
+# The gates themselves ship: they were kept out once, and a fresh clone then
+# starts with no pre-commit and no pre-push and says nothing about it — the
+# one moment they matter most. The scripts and the generic rules are about
+# shapes (a token, a private key, a kubeconfig), not about anybody's
+# environment.
+#
+# What stays out is the list of this environment's own names: a list of the
+# things you are hiding is itself worth hiding.
+/hack/*.local.txt

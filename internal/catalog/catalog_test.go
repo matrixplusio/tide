@@ -293,3 +293,58 @@ func TestRecentAnswersFromCacheOrNotAtAll(t *testing.T) {
 		t.Fatalf("past the bound the caller must go and ask properly: %+v", got)
 	}
 }
+
+// Twenty people releasing twenty different services invalidate the catalog
+// twenty times, because the counter that invalidates it is one counter for
+// the whole catalog. If a reader waits for the rebuild each of those causes,
+// one person's release becomes everybody's slow page — and during a busy hour
+// the rebuild never catches up, because the counter moves faster than a
+// fan-out across every upstream completes.
+//
+// So a reader waits only when there is nothing to hand it.
+func TestReadersWaitOnlyWhenThereIsNothingToHandThem(t *testing.T) {
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *Snapshot { return &Snapshot{At: now.Add(-d)} }
+
+	for name, tc := range map[string]struct {
+		snap         *Snapshot
+		snapGen, gen int64
+		want         decision
+	}{
+		"nothing built yet":             {nil, 0, 0, mustBuild},
+		"fresh and nobody changed it":   {at(time.Second), 7, 7, serveCached},
+		"somebody released":             {at(time.Second), 7, 8, serveStale},
+		"past its time to live":         {at(2 * cacheTTL), 7, 7, serveStale},
+		"released and past its time":    {at(2 * cacheTTL), 7, 9, serveStale},
+		"stale enough to be misleading": {at(staleLimit + time.Second), 7, 7, mustBuild},
+		"so is a changed one that old":  {at(staleLimit + time.Second), 7, 8, mustBuild},
+	} {
+		if got := decide(tc.snap, tc.snapGen, tc.gen, now); got != tc.want {
+			t.Errorf("%s: got %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// The interval is the other half: without it a burst of releases is a burst
+// of fan-outs, which is the load the serve-stale path was supposed to avoid
+// putting on the upstreams.
+func TestBackgroundRefreshIsRateLimited(t *testing.T) {
+	h := &Hub{}
+	if !h.claimRefresh() {
+		t.Fatal("the first refresh must start")
+	}
+	if h.claimRefresh() {
+		t.Error("a second refresh started inside the interval")
+	}
+	for range 20 {
+		if h.claimRefresh() {
+			t.Fatal("a burst of readers started more than one refresh")
+		}
+	}
+
+	// A build already running is the same answer, by a different route.
+	h2 := &Hub{building: make(chan struct{})}
+	if h2.claimRefresh() {
+		t.Error("started a refresh while one was already building")
+	}
+}
