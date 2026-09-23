@@ -171,9 +171,12 @@ func (r *CI) Waiting(ctx context.Context, limit int) ([]CIIntake, error) {
 
 // ListIntakes returns one page of intakes, newest first, and the total.
 func (r *CI) ListIntakes(ctx context.Context, status string, page, pageSize int) ([]CIIntake, int64, error) {
+	// "?" throughout, because the paging parameters below use it and GORM
+	// binds the two styles independently: a "$1" here would leave the first
+	// "?" to swallow the status, and LIMIT would be handed a string.
 	where, args := "1=1", []any{}
 	if status != "" {
-		where, args = "status = $1", []any{status}
+		where, args = "status = ?", []any{status}
 	}
 	var total int64
 	if err := r.db.WithContext(ctx).Raw(`SELECT count(*) FROM ci_intake WHERE `+where, args...).Scan(&total).Error; err != nil {

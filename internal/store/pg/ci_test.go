@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -339,4 +340,58 @@ func actions(list []audit.Entry) []string {
 		out[i] = e.Action
 	}
 	return out
+}
+
+// The status filter is a different query from the unfiltered one: it adds a
+// bound parameter before the paging ones. Getting the placeholder style wrong
+// there does not fail the build, does not fail an unfiltered listing, and
+// answers 500 the moment anybody picks a status on the page.
+func TestListIntakesFiltersByStatus(t *testing.T) {
+	s, _ := testdb.Setup(t)
+	ctx := context.Background()
+	tok, _ := token(t, s, "filter")
+
+	for i, st := range []string{"waiting", "waiting", "failed"} {
+		in := pg.CIIntake{Key: fmt.Sprintf("sha256:%064d", i), Service: "svc", Env: "dev",
+			Digest: fmt.Sprintf("sha256:%064d", i), TokenID: tok.ID}
+		got, _, err := s.CI.Accept(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st != "waiting" {
+			if err := s.CI.Resolve(ctx, got.ID, st, "", "nope"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	all, total, err := s.CI.ListIntakes(ctx, "", 1, 20)
+	if err != nil {
+		t.Fatalf("unfiltered: %v", err)
+	}
+	if len(all) != 3 || total != 3 {
+		t.Fatalf("unfiltered: %d rows, total %d", len(all), total)
+	}
+
+	waiting, total, err := s.CI.ListIntakes(ctx, "waiting", 1, 20)
+	if err != nil {
+		t.Fatalf("filtered: %v", err)
+	}
+	if len(waiting) != 2 || total != 2 {
+		t.Fatalf("filtered: %d rows, total %d", len(waiting), total)
+	}
+	for _, x := range waiting {
+		if x.Status != "waiting" {
+			t.Fatalf("filter let a %q through", x.Status)
+		}
+	}
+
+	// Paging on top of the filter: the same two parameters, one page smaller.
+	page, total, err := s.CI.ListIntakes(ctx, "waiting", 2, 1)
+	if err != nil {
+		t.Fatalf("filtered page 2: %v", err)
+	}
+	if len(page) != 1 || total != 2 {
+		t.Fatalf("filtered page 2: %d rows, total %d", len(page), total)
+	}
 }
