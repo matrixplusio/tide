@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMe } from '../../app/session'
 import type { Item, Release } from '../../lib/types'
 import { changeSummary, itemDigest } from '../../lib/release'
+import { anomalyText } from '../../lib/anomaly'
 import { ConfigChanges } from './ConfigChanges'
 import { fmtTime, shortTag } from '../../lib/format'
 import { useCancelRelease, useConfirmRelease } from '../../features/releases/queries'
@@ -34,13 +35,27 @@ export function ConfirmSheet({ release, onClose, onDone }: { release: Release; o
   const busy = confirmM.isPending || cancelM.isPending
   const err = confirmM.error ?? cancelM.error
 
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now() + skew), 200)
-    return () => clearInterval(t)
-  }, [skew])
-
   const remaining = Math.max(0, Math.ceil((confirmableAt - now) / 1000))
   const expired = expiresAt > 0 && now > expiresAt
+
+  // Only two things on this sheet move, and neither needs a clock running
+  // between them. The countdown does, while it lasts; after that the sheet is
+  // static until the release expires, which is a single known moment. Polling
+  // through it rebuilt the whole sheet — every manifest row and every config
+  // diff on it — five times a second for as long as it stayed open, which is
+  // what made the confirm button feel like it stuck when it was pressed.
+  const counting = remaining > 0
+  useEffect(() => {
+    if (!counting) return
+    const t = setInterval(() => setNow(Date.now() + skew), 200)
+    return () => clearInterval(t)
+  }, [skew, counting])
+
+  useEffect(() => {
+    if (counting || expiresAt === 0 || expired) return
+    const t = setTimeout(() => setNow(Date.now() + skew), Math.max(0, expiresAt - Date.now() - skew) + 500)
+    return () => clearTimeout(t)
+  }, [counting, expiresAt, expired, skew])
   const items = release.items ?? []
   const anomalies = items.flatMap((it) => (it.kind === 'image' ? (it.payload.anomalies ?? []) : []).map((a) => ({ ...a, service: it.payload.service })))
   const restartOnly = items.length > 0 && items.every((it) => it.kind === 'restart')
@@ -82,8 +97,12 @@ export function ConfirmSheet({ release, onClose, onDone }: { release: Release; o
             {anomalies.map((a, i) => (
               <div key={i} className={`anomaly ${a.code}`}>
                 <b aria-hidden="true">▲</b>
-                <div className="t">
-                  <b className="inherit">{a.service}</b> · {a.message}
+                {/* Shown in the reader's language where the release stored
+                    the facts apart from the wording; its own text otherwise,
+                    and as the tooltip either way — that text is what whoever
+                    confirmed actually read. */}
+                <div className="t" title={a.message}>
+                  <b className="inherit">{a.service}</b> · {anomalyText(a)}
                 </div>
               </div>
             ))}

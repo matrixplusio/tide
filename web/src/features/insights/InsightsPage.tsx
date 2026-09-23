@@ -124,7 +124,10 @@ function Report({ data }: { data: Insights }) {
           caption={t('insights.ofFinished', { ok: totals.succeeded, n: finished })}
           tone={finished === 0 ? undefined : totals.failed / finished > 0.1 ? 'bad' : 'ok'}
         />
-        <Stat label={t('insights.failed')} value={totals.failed} tone={totals.failed > 0 ? 'bad' : undefined} />
+        {/* Every card on this row carries a line under its number; without
+            one this card's bottom edge is empty and the row reads as though
+            something failed to load. */}
+        <Stat label={t('insights.failed')} value={totals.failed} caption={t('insights.failedHint')} tone={totals.failed > 0 ? 'bad' : undefined} />
         <Stat
           label={t('insights.abandoned')}
           value={totals.cancelled + totals.rejected}
@@ -197,7 +200,7 @@ function Report({ data }: { data: Insights }) {
         </Group>
       ) : (
         <div className="cards">
-          <Stat label={t('insights.approvalsRequested')} value={pr.approvals.requested} />
+          <Stat label={t('insights.approvalsRequested')} value={pr.approvals.requested} caption={t('insights.approvalsRequestedHint')} />
           <Stat
             label={t('insights.approvalRejectRate')}
             value={pct(pr.approvals.rejected, pr.approvals.approved + pr.approvals.rejected)}

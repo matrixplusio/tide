@@ -36,7 +36,7 @@ const routes: [RegExp, unknown][] = [
   [/\/api\/v1\/me\/sessions$/, { items: [{ id: 'a'.repeat(64), current: true, createdAt: now, expiresAt: now, clientIp: '10.0.0.1', userAgent: 'Safari' }] }],
   [/\/api\/v1\/me\/bindings$/, { items: [{ ...binding, via: 'user' }] }],
   [/\/api\/v1\/me\/activity$/, { items: [], total: 0, page: 1, page_size: 20 }],
-  [/\/api\/v1\/overview/, { upstreams: [], upstreamError: { code: 4001, msg: '还没有配置上游' }, envOrder: ['qa', 'uat'], envStats: {}, unexpected: [], serviceCount: 0, domainCount: 0, inFlight: [], myInFlight: 0, recentFailed: [], recent: [release], today: { total: 0, succeeded: 0 } }],
+  [/\/api\/v1\/overview/, { upstreams: [], upstreamError: { code: 4001, msg: '还没有配置上游' }, envOrder: ['qa', 'uat'], envStats: {}, unhealthy: [], drifted: 0, serviceCount: 0, domainCount: 0, inFlight: [], myInFlight: 0, recentFailed: [], recent: [release], today: { total: 0, succeeded: 0 } }],
   [/\/api\/v1\/services\/[^/]+\/envs\/[^/]+\/candidates/, { deployment: dep, upstreamStages: ['qa'], items: [], availableCount: 0, totalCount: 0 }],
   [/\/api\/v1\/services\/[^/]+\/envs\/[^/]+$/, { deployment: dep, live, canOperate: true, releases: [], promotions: [] }],
   [/\/api\/v1\/services\/[^/?]+$/, { service: { name: 'web-portal', domain: 'acme-user', envs: { uat: dep } }, releases: [] }],

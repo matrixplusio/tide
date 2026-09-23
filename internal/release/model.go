@@ -205,12 +205,34 @@ type SourceVerification struct {
 	VerifiedAt *time.Time `json:"verifiedAt,omitempty"`
 }
 
-// AnomalyConfigDrift: an upgrade would also apply unsynced git changes.
-const AnomalyConfigDrift = "config_drift"
+// Anomaly codes. Each one stands for exactly one sentence, which is what
+// lets a reader be shown that sentence in their own language: two variants
+// sharing a code would collapse into whichever the catalogue happened to
+// hold.
+const (
+	// AnomalyConfigDrift: an upgrade would also apply unsynced git changes.
+	AnomalyConfigDrift = "config_drift"
+	// AnomalyFirstDeploy: Kargo has never put anything in this environment.
+	AnomalyFirstDeploy = "first_deploy"
+	// AnomalyFirstDeployPerKargo: the same, except Tide has deployed here
+	// before — worth saying, because it means the two disagree.
+	AnomalyFirstDeployPerKargo = "first_deploy_per_kargo"
+)
 
 type Anomaly struct {
-	Code    string `json:"code"` // rollback / first_deploy / multi_version_jump / short_soak
+	Code string `json:"code"` // rollback / first_deploy / multi_version_jump / short_soak
+	// Message is the sentence as it was put to whoever confirmed the release,
+	// in the language they were working in. It stays exactly as written: it
+	// is what they read before deciding, which is the point of recording it.
 	Message string `json:"message"`
+	// Args are the same sentence's facts, kept apart from its wording so a
+	// reader in another language can be shown it in theirs. Without them the
+	// audit record is the only text there is, and a fleet whose people do not
+	// share one language gets a release list written half in each.
+	//
+	// Empty on releases created before this existed; Message is then the only
+	// thing to show, which is what it was always for.
+	Args []string `json:"args,omitempty"`
 }
 
 const (

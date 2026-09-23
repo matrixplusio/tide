@@ -165,7 +165,10 @@ function PromoteFormInner({ d, busy }: { d: Deployment; busy: boolean }) {
         <>
           <GroupHeader>{t('forms.driftHeader', { summary: changeSummary(driftChanges) })}</GroupHeader>
           <Banner tone="warn">
-            {t('forms.driftBody')}
+            {/* Two sentences from the catalogue, so the space between them has
+                to be here: neither string can end with one without it being
+                trimmed or looking wrong on its own. */}
+            {t('forms.driftBody')}{' '}
             {driftEnforced ? t('forms.driftEnforced', { env: d.env }) : t('forms.driftOptional')}{' '}
             <Link to={{ search: '?change=sync' }}>{t('forms.goSync')}</Link>
           </Banner>

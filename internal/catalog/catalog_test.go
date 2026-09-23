@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+	"time"
 
 	"tide/internal/settings"
 	"tide/internal/upstream/argocd"
@@ -235,9 +236,60 @@ func TestClassifyExplainsWhyEverythingWasDropped(t *testing.T) {
 
 	// The same Applications with the label Tide was actually told to read.
 	cat.EnvLabel = ""
-	apps[0] = app(t, `{"metadata":{"name":"order-api-dev"},"spec":{"destination":{"namespace":"acme-dev"}}}`)
+	apps[0] = app(t, `{"metadata":{"name":"order-api-dev"},"spec":{"destination":{"namespace":"acme-dev"}},
+		"status":{"resources":[{"kind":"Deployment","name":"order-api"}]}}`)
 	deps, _, stats = classify(apps, c, cat)
 	if len(deps) != 1 || stats.Kept != 1 || stats.Applications != 3 {
 		t.Fatalf("expected one of three to be kept: %d deps, %+v", len(deps), stats)
+	}
+}
+
+// The Application that only creates a namespace is labelled exactly like the
+// services beside it and is not one: it has no image, so it can never be
+// promoted, and every column the service list shows about it is blank. It is
+// dropped, and counted, so that "the list got shorter" has an answer.
+func TestClassifyDropsApplicationsThatRunNothing(t *testing.T) {
+	c := &Clients{Name: "local", Envs: []string{"dev"}}
+	cat := settings.DefaultCatalog()
+
+	apps := []argocd.Application{
+		app(t, `{"metadata":{"name":"order-api-dev"},"spec":{"destination":{"namespace":"acme-dev"}},
+			"status":{"resources":[{"kind":"Deployment","name":"order-api"}]}}`),
+		// Namespace, quota and RBAC only — the shape a "-ns" layer has.
+		app(t, `{"metadata":{"name":"acme-dev-ns","labels":{"tide.io/env":"dev"}},"spec":{"destination":{"namespace":"acme-dev"}},
+			"status":{"resources":[{"kind":"Namespace","name":"acme-dev"},{"kind":"ResourceQuota","name":"acme-dev"},{"kind":"RoleBinding","name":"devs"}]}}`),
+	}
+
+	deps, _, stats := classify(apps, c, cat)
+	if len(deps) != 1 || deps[0].Service != "order-api" {
+		t.Fatalf("expected only the workload: %+v", deps)
+	}
+	if stats.Kept != 1 || stats.NoWorkload != 1 || stats.Applications != 2 {
+		t.Fatalf("stats must account for the dropped layer: %+v", stats)
+	}
+	// Not one of the existing buckets: it resolved to an environment this
+	// upstream serves, so blaming the labels would send a reader to the wrong
+	// setting.
+	if stats.NoEnv != 0 || stats.OtherEnv != 0 {
+		t.Fatalf("dropped for the wrong reason: %+v", stats)
+	}
+}
+
+// Recent exists so a question about a service that does not change — which
+// project it is in — cannot end up waiting on a fan-out across every
+// upstream. It must therefore never build, and must refuse to answer at all
+// rather than answer from something too old.
+func TestRecentAnswersFromCacheOrNotAtAll(t *testing.T) {
+	h := &Hub{}
+	if got := h.Recent(time.Hour); got != nil {
+		t.Fatalf("nothing built yet, so there is nothing to return: %+v", got)
+	}
+
+	h.snap = &Snapshot{At: time.Now().Add(-time.Minute)}
+	if got := h.Recent(5 * time.Minute); got != h.snap {
+		t.Fatalf("a snapshot inside the bound is the answer: %+v", got)
+	}
+	if got := h.Recent(30 * time.Second); got != nil {
+		t.Fatalf("past the bound the caller must go and ask properly: %+v", got)
 	}
 }

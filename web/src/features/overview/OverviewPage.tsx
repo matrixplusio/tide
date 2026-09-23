@@ -25,7 +25,7 @@ export function OverviewPage() {
   const inFlight = d?.inFlight ?? []
   const recentFailed = d?.recentFailed ?? []
   const recent = d?.recent ?? []
-  const unexpected = d?.unexpected ?? []
+  const unhealthy = d?.unhealthy ?? []
   const envOrder = d?.envOrder ?? []
 
   return (
@@ -90,8 +90,11 @@ export function OverviewPage() {
                 </div>
               </div>
               <div className="card">
-                <div className="k">{t('overview.unexpected')}</div>
-                <div className={`n ${unexpected.length ? 'orange' : ''}`}>{unexpected.length}</div>
+                <div className="k">{t('overview.unhealthy')}</div>
+                <div className={`n ${unhealthy.length ? 'orange' : ''}`}>
+                  {unhealthy.length}
+                  <small>{t('overview.drifted', { count: d.drifted })}</small>
+                </div>
               </div>
               <div className="card">
                 <div className="k">{t('overview.services')}</div>
@@ -112,7 +115,18 @@ export function OverviewPage() {
                       <Row key={e}>
                         <div className="grow t">{e}</div>
                         <span className="v">{t('overview.envServices', { count: s?.services ?? 0 })}</span>
-                        {s?.unexpected ? <Pill tone="orange">{t('overview.envUnexpected', { count: s.unexpected })}</Pill> : <Pill>{t('overview.envOk')}</Pill>}
+                        {/* An environment with nothing in it is not healthy,
+                            it is empty: a green "All good" over zero services
+                            claims a clean bill of health nobody checked. */}
+                        {!s?.services ? (
+                          <Pill>{t('overview.envEmpty')}</Pill>
+                        ) : s.unhealthy ? (
+                          <Pill tone="orange">{t('overview.envUnhealthy', { count: s.unhealthy })}</Pill>
+                        ) : s.drifted ? (
+                          <Pill>{t('overview.envDrifted', { count: s.drifted })}</Pill>
+                        ) : (
+                          <Pill tone="green">{t('overview.envOk')}</Pill>
+                        )}
                       </Row>
                     )
                   })}
@@ -131,11 +145,11 @@ export function OverviewPage() {
               </>
             )}
 
-            {unexpected.length > 0 && (
+            {unhealthy.length > 0 && (
               <>
-                <GroupHeader>{t('overview.unexpected')}</GroupHeader>
+                <GroupHeader>{t('overview.unhealthy')}</GroupHeader>
                 <Group>
-                  {unexpected.slice(0, 20).map((x) => (
+                  {unhealthy.slice(0, 20).map((x) => (
                     <Row key={x.app} to={`/services/${encodeURIComponent(x.service)}/envs/${encodeURIComponent(x.env)}`}>
                       <DeployDot d={x} />
                       <div className="grow">

@@ -2,6 +2,7 @@ package plan
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"tide/internal/catalog"
@@ -51,8 +52,9 @@ func AttachConfigDrift(ctx context.Context, hub *catalog.Hub, d *catalog.Deploym
 	for _, ch := range diff.Changes {
 		names = append(names, ch.Kind+"/"+ch.Name)
 	}
+	count, what := strconv.Itoa(len(diff.Changes)), strings.Join(names, ", ")
 	ip.Anomalies = append(ip.Anomalies, release.Anomaly{Code: release.AnomalyConfigDrift,
-		Message: at("r.configDrift", len(diff.Changes), strings.Join(names, ", "))})
+		Message: at("r.configDrift", len(diff.Changes), what), Args: []string{count, what}})
 	return nil
 }
 

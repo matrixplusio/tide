@@ -8,6 +8,7 @@ import { itemStatusText } from '../../lib/status'
 import type { Item, ItemKind, ItemLive, Live, Release } from '../../lib/types'
 import { summarizeRollout } from '../../lib/rollout'
 import { changeSummary } from '../../lib/release'
+import { anomalyText } from '../../lib/anomaly'
 import { useCancelRelease, useDecideRelease, useRelease } from './queries'
 import { subjectLabel } from '../../lib/permissions'
 import {
@@ -350,7 +351,7 @@ function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; liv
                 {(it.payload.anomalies ?? []).map((a, i) => (
                   <div key={i} className={`anomaly ${a.code}`}>
                     <b aria-hidden="true">▲</b>
-                    <span>{a.message}</span>
+                    <span title={a.message}>{anomalyText(a)}</span>
                   </div>
                 ))}
               </>

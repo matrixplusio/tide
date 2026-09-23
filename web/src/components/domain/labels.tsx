@@ -3,7 +3,7 @@ import type { Deployment, ItemStatus, ReleaseStatus } from '../../lib/types'
 import { shortTag } from '../../lib/format'
 import { Pill, StatusDot, type Tone } from '../ui'
 
-export function VersionLabel({ a, full }: { a?: { version?: string; tag?: string } | null; full?: boolean }) {
+export function VersionLabel({ a, full }: { a?: { version?: string; tag?: string; imageUnknown?: boolean } | null; full?: boolean }) {
   if (!a || (!a.tag && !a.version)) return <span className="faint">{i18n.t('domain.notDeployed')}</span>
   const short = shortTag(a.tag)
   return (
@@ -15,6 +15,18 @@ export function VersionLabel({ a, full }: { a?: { version?: string; tag?: string
       <span className={[a.version ? 'mono muted tag' : 'mono', full || short === a.tag ? '' : 'abbr'].filter(Boolean).join(' ')} title={full ? undefined : a.tag}>
         {full ? a.tag : short}
       </span>
+      {/* A tag the registry has never heard of still deploys, and the pod
+          then sits pulling something that does not exist. Saying so here is
+          the difference between "this service has a strange version" and
+          "this service was never built". */}
+      {a.imageUnknown && (
+        <>
+          {' '}
+          <span className="faint" title={i18n.t('domain.imageUnknownHint')}>
+            {i18n.t('domain.imageUnknown')}
+          </span>
+        </>
+      )}
     </span>
   )
 }
