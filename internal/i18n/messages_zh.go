@@ -182,6 +182,7 @@ var zhCNSettings = map[Key]string{ //nolint:gosec // G101: message templates, no
 	"s.unknownProvider":      "不支持的代码托管：%[1]s",
 	"s.projectRequired":      "请填写仓库路径",
 	"s.projectPath":          "仓库路径要写成 owner/repo，例如 devops/k8s-pipelines",
+	"s.repoReadOnly":         "令牌属于 %[1]s，但没有 %[2]s 的写入权限，推送会失败",
 	"label.token":            "访问令牌",
 	"s.expiryFormat":         "请填写 YYYY-MM-DD 格式的到期日，且不能超过十年",
 	"s.valueDup":             "取值 %s 重复",

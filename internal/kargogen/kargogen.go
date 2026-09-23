@@ -68,6 +68,12 @@ func (r Result) Files() []File {
 type Options struct {
 	// Domain limits generation to one business domain; empty does all of them.
 	Domain string
+	// ProjectPrefix goes in front of the domain to make the Kargo project's
+	// name. A Kargo project is a cluster-scoped namespace, so a bare domain
+	// like "base" collides the moment a second business line has one too;
+	// prefixing with the line ("acme-base") matches how the deployment
+	// namespaces are already named.
+	ProjectPrefix bool
 	// TaskName is the shared promotion task's name within each project.
 	TaskName string
 	// Labels put on every generated Stage, so promotion policies can select
@@ -75,6 +81,15 @@ type Options struct {
 	// elsewhere.
 	ServiceLabel string
 	EnvLabel     string
+}
+
+// projectName is what the Kargo project is called: the domain, optionally
+// behind the business line it belongs to.
+func projectName(svc catalog.Service, prefix bool) string {
+	if prefix && svc.Project != "" {
+		return svc.Project + "-" + svc.Domain
+	}
+	return svc.Domain
 }
 
 func (o Options) withDefaults() Options {
@@ -106,15 +121,17 @@ func Generate(snap *catalog.Snapshot, envs settings.Environments, opts Options) 
 	// is the unit everything else is written into.
 	byDomain := map[string][]catalog.Service{}
 	for _, svc := range snap.Services {
-		domain := svc.Domain
-		if domain == "" {
+		if svc.Domain == "" {
 			res.Skipped = append(res.Skipped, Skipped{Service: svc.Name, Reason: "no business domain"})
 			continue
 		}
-		if opts.Domain != "" && domain != opts.Domain {
+		// Filter on the domain as the catalog spells it, not on the prefixed
+		// project name: the picker offers domains.
+		if opts.Domain != "" && svc.Domain != opts.Domain {
 			continue
 		}
-		byDomain[domain] = append(byDomain[domain], svc)
+		name := projectName(svc, opts.ProjectPrefix)
+		byDomain[name] = append(byDomain[name], svc)
 	}
 
 	for _, name := range sortedKeys(byDomain) {

@@ -376,6 +376,11 @@ const en: Messages = {
     fAction: 'Action',
   },
   kargogen: {
+    projectNaming: 'Project naming',
+    bareDomain: 'Use the domain alone (base), without the project prefix',
+    bareDomainHint: 'Default is project-and-domain (acme-base). A Kargo project is a cluster-scoped namespace, so two business lines each having a \u201cbase\u201d domain would collide without the prefix',
+    identity: 'The token belongs to {{user}} and can write {{project}}. Commits will be authored by that account.',
+    identityUnknown: 'Could not ask who the token belongs to: {{msg}}',
     expandAll: 'Expand all',
     collapseAll: 'Collapse all',
     countFiles: 'files',

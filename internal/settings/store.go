@@ -139,6 +139,12 @@ type PipelineRepo struct {
 	PathPrefix string `json:"pathPrefix,omitempty"`
 	// Token needs api scope: writing a commit is not a read.
 	Token string `json:"token" secret:"true"`
+	// BareDomain names Kargo projects after the business domain alone
+	// ("base") instead of after the line and the domain ("acme-base"). A
+	// Kargo project is a cluster-scoped namespace, so the prefixed form is
+	// the safe default: two business lines both having a "base" domain is
+	// ordinary, and the second one to be generated would collide.
+	BareDomain bool `json:"bareDomain,omitempty"`
 }
 
 // Repository providers Tide can push to.

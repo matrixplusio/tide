@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -377,4 +378,62 @@ func (a *Application) RunsWorkloads() bool {
 		}
 	}
 	return false
+}
+
+// ImagesFromManifests reads the container images out of what git says this
+// Application should be running.
+//
+// status.summary.images, which is cheaper and used everywhere else, reports
+// the images of containers that are actually running. A service scaled to
+// zero replicas has none, so it looks like an Application with no images at
+// all — and a pipeline generated from that would silently leave the service
+// out. The desired state has the image whether or not anything is running it.
+func (c *Client) ImagesFromManifests(ctx context.Context, app string) ([]string, error) {
+	res, err := c.ManagedResources(ctx, app)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, r := range res {
+		if !workloadKinds[r.Kind] || r.TargetState == "" {
+			continue
+		}
+		var m struct {
+			Spec struct {
+				Template struct {
+					Spec struct {
+						Containers []struct {
+							Image string `json:"image"`
+						} `json:"containers"`
+					} `json:"spec"`
+				} `json:"template"`
+				// CronJob buries the pod one level deeper.
+				JobTemplate struct {
+					Spec struct {
+						Template struct {
+							Spec struct {
+								Containers []struct {
+									Image string `json:"image"`
+								} `json:"containers"`
+							} `json:"spec"`
+						} `json:"template"`
+					} `json:"spec"`
+				} `json:"jobTemplate"`
+			} `json:"spec"`
+		}
+		if err := json.Unmarshal([]byte(r.TargetState), &m); err != nil {
+			continue // one unreadable manifest is not worth failing the rest
+		}
+		for _, cn := range m.Spec.Template.Spec.Containers {
+			if cn.Image != "" && !slices.Contains(out, cn.Image) {
+				out = append(out, cn.Image)
+			}
+		}
+		for _, cn := range m.Spec.JobTemplate.Spec.Template.Spec.Containers {
+			if cn.Image != "" && !slices.Contains(out, cn.Image) {
+				out = append(out, cn.Image)
+			}
+		}
+	}
+	return out, nil
 }

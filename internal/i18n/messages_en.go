@@ -177,6 +177,7 @@ var enSettings = map[Key]string{ //nolint:gosec // G101: message templates, not 
 	"s.unknownProvider":      "Unsupported host: %[1]s",
 	"s.projectRequired":      "Enter the project path",
 	"s.projectPath":          "Write the project as owner/repo, e.g. devops/k8s-pipelines",
+	"s.repoReadOnly":         "The token belongs to %[1]s, which cannot write %[2]s; a push would fail",
 	"label.token":            "access token",
 	"s.expiryFormat":         "Use an expiry date as YYYY-MM-DD, within the next ten years",
 	"s.valueDup":             "Duplicate value %s",

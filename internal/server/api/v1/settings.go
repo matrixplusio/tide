@@ -140,6 +140,24 @@ func (a *API) putSettings(c *gin.Context) {
 		respond.Fail(c, err)
 		return
 	}
+	// Same rule as upstreams just below: credentials are checked against the
+	// host before they are stored. A token that was merely saved tells nobody
+	// whether it works, and the next thing it is asked to do is write to
+	// somebody's repository.
+	if cfg, ok := next.(*settings.PipelineRepo); ok {
+		tctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
+		id, err := pushTo(*cfg).Whoami(tctx)
+		cancel()
+		switch {
+		case err != nil:
+			respond.Fail(c, errcode.New(errcode.UpstreamCheckFailed, "").
+				WithData(gin.H{"error": shorten(err.Error())}))
+			return
+		case !id.CanWrite:
+			respond.Fail(c, errcode.NewKey(errcode.UpstreamCheckFailed, "s.repoReadOnly", id.Username, cfg.Project))
+			return
+		}
+	}
 	if ups, ok := next.(*settings.Upstreams); ok {
 		tctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
 		results := testAll(tctx, *ups)

@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../../lib/api'
 import type { CheckResult, Paged, RoleBinding } from '../../lib/types'
-import type { Channel, CIIntake, CISnippet, CIToken, DiscoveredLabel, GroupRow, KargoPlan, KargoPushed, RbacCatalog, Role, SettingsData, SettingsSection, Upstream, UserDetail, UserRow } from './types'
+import type { Channel, CIIntake, CISnippet, CIToken, DiscoveredLabel, GroupRow, KargoPlan, KargoPushed, RbacCatalog, RepoIdentity, Role, SettingsData, SettingsSection, Upstream, UserDetail, UserRow } from './types'
 
 const enc = encodeURIComponent
 
@@ -228,5 +228,16 @@ export function usePushKargo() {
   return useMutation({
     mutationFn: (body: { domain: string; message?: string }) =>
       apiFetch<KargoPushed>('/api/v1/kargo/push', { method: 'POST', body }),
+  })
+}
+
+/** Who the configured token is. Refetched after saving the settings, because
+ *  that is exactly when the answer changes. */
+export function useRepoIdentity(enabled: boolean) {
+  return useQuery({
+    queryKey: ['kargo-identity'],
+    queryFn: ({ signal }) => apiFetch<RepoIdentity | null>('/api/v1/kargo/identity', { signal }),
+    enabled,
+    refetchOnWindowFocus: false,
   })
 }

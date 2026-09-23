@@ -201,6 +201,7 @@ func Register(r *gin.Engine, d Deps) {
 	h("GET", "/kargo/generate", need(rbac.EnvironmentsManage), a.generateKargo)
 	h("GET", "/kargo/generate.zip", need(rbac.EnvironmentsManage), a.downloadKargo)
 	h("POST", "/kargo/push", need(rbac.EnvironmentsManage), a.pushKargo)
+	h("GET", "/kargo/identity", need(rbac.EnvironmentsManage), a.kargoRepoIdentity)
 }
 
 // auditMeta puts request id and client IP into the request context so every

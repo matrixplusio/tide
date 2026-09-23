@@ -233,6 +233,7 @@ export const pipelineRepoSchema = z.object({
   branch: zOptionalText(256),
   pathPrefix: zOptionalText(256),
   token: secret(i18n.t('kargogen.token'), true),
+  bareDomain: z.boolean(),
 })
 export type PipelineRepoValues = z.infer<typeof pipelineRepoSchema>
 
