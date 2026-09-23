@@ -27,7 +27,20 @@ import (
 	"tide/internal/upstream/registry"
 )
 
-const cacheTTL = 30 * time.Second
+// cacheTTL is how long a snapshot is served without anybody going back to the
+// upstreams. It bounds how stale a change made outside Tide — somebody
+// editing an Application, Argo CD syncing on its own — can be; changes made
+// through Tide do not wait for it, because they move the generation counter
+// and that invalidates the snapshot at once.
+const cacheTTL = time.Minute
+
+// staleLimit is how far past cacheTTL a snapshot may still be served while a
+// rebuild runs behind it. Readers never wait inside this window; past it they
+// do.
+const staleLimit = 10 * time.Minute
+
+// refreshEvery bounds how often a background rebuild may start.
+const refreshEvery = 5 * time.Second
 
 // sharedTTL only bounds how long a superseded snapshot lingers; a live one
 // is replaced by a new key, not by expiry.
@@ -182,6 +195,8 @@ type Hub struct {
 	envOrder []string
 	catalog  settings.Catalog
 	snap     *Snapshot
+	// refreshed is when a background rebuild last started; see refreshEvery.
+	refreshed time.Time
 	// clientGen is the generation the clients were built at; gen the one the
 	// snapshot was built at. They move together but are cached separately.
 	clientGen int64
@@ -336,11 +351,114 @@ func (h *Hub) Recent(age time.Duration) *Snapshot {
 	return h.snap
 }
 
+// Snapshot answers from the cache whenever it can, and never makes a reader
+// wait for a rebuild it did not have to wait for.
+//
+// A reader that finds the snapshot out of date is handed the one there is and
+// a rebuild starts behind it. That matters because the cache is invalidated
+// by a counter every release bumps, and the counter is one counter for the
+// whole catalog: twenty people releasing twenty different services invalidate
+// it twenty times, each time for everybody. Making readers wait on that turns
+// one person's release into everybody's slow page — and, because rebuilding
+// takes longer than the gaps between releases during a busy hour, into a
+// rebuild that never finishes catching up while every read queues behind it.
+//
+// fresh asks for a snapshot built now and waits for it, for the few callers
+// that must see their own write. A snapshot older than staleLimit is not
+// served at all: past that it is no longer "slightly behind", and a caller is
+// better off waiting than being misled.
 func (h *Hub) Snapshot(ctx context.Context, fresh bool) (*Snapshot, error) {
 	gen, err := h.generation(ctx)
 	if err != nil {
 		return nil, err
 	}
+	if !fresh {
+		h.mu.Lock()
+		s, snapGen := h.snap, h.gen
+		h.mu.Unlock()
+		switch decide(s, snapGen, gen, time.Now()) {
+		case serveCached:
+			return s, nil
+		case serveStale:
+			// No context on purpose: the rebuild outlives the request that
+			// noticed the staleness, and the reader is not waiting for it.
+			h.refresh() //nolint:contextcheck // detached by design; see refresh
+			return s, nil
+		}
+	}
+	return h.rebuild(ctx, gen, fresh)
+}
+
+// What a reader gets.
+type decision int
+
+const (
+	// serveCached: up to date, nobody rebuilds.
+	serveCached decision = iota
+	// serveStale: out of date but close enough to hand over while a rebuild
+	// runs behind it.
+	serveStale
+	// mustBuild: nothing usable; the reader waits for a build.
+	mustBuild
+)
+
+// decide is the whole staleness policy, kept in one place and out of the
+// locking so it can be read and tested on its own.
+func decide(s *Snapshot, snapGen, gen int64, now time.Time) decision {
+	if s == nil {
+		return mustBuild
+	}
+	age := now.Sub(s.At)
+	switch {
+	case snapGen == gen && age < cacheTTL:
+		return serveCached
+	case age < staleLimit:
+		return serveStale
+	default:
+		return mustBuild
+	}
+}
+
+// refresh starts a rebuild behind the readers being served stale data, at
+// most one at a time and not more often than refreshEvery.
+//
+// The interval is what keeps a burst of releases from becoming a burst of
+// fan-outs across every upstream: the counter may move forty times in a
+// minute, and this still reads them once every few seconds.
+func (h *Hub) refresh() {
+	if !h.claimRefresh() {
+		return
+	}
+	go func() {
+		// Detached: this outlives the request that noticed the staleness.
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		gen, err := h.generation(ctx)
+		if err != nil {
+			zap.L().Warn("catalog: background refresh could not read the generation", zap.Error(err))
+			return
+		}
+		if _, err := h.rebuild(ctx, gen, false); err != nil {
+			zap.L().Warn("catalog: background refresh failed", zap.Error(err))
+		}
+	}()
+}
+
+// claimRefresh answers whether this caller is the one that starts the next
+// background rebuild: not while one is already running, and not more often
+// than refreshEvery. Separate from refresh so the rule can be tested without
+// starting anything.
+func (h *Hub) claimRefresh() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.building != nil || time.Since(h.refreshed) < refreshEvery {
+		return false
+	}
+	h.refreshed = time.Now()
+	return true
+}
+
+func (h *Hub) rebuild(ctx context.Context, gen int64, fresh bool) (*Snapshot, error) {
 	for {
 		h.mu.Lock()
 		if h.snap != nil && !fresh && h.gen == gen && time.Since(h.snap.At) < cacheTTL {
@@ -577,6 +695,11 @@ func (h *Hub) buildUpstream(ctx context.Context, c *Clients, cat settings.Catalo
 	}
 	var apps []argocd.Application
 	var stages = map[string]map[string]*kargo.Stage{} // project → stage → Stage
+	// Timed in three parts, because "the catalog is slow" is not something
+	// anybody can act on: listing Applications, walking the Kargo projects
+	// and reading image metadata have completely different fixes, and which
+	// one dominates decides which fix is worth writing.
+	tListed := time.Now()
 	parallel(2, func() {
 		var err error
 		if apps, err = c.ArgoCD.ListApplications(ctx); err != nil {
@@ -596,6 +719,7 @@ func (h *Hub) buildUpstream(ctx context.Context, c *Clients, cat settings.Catalo
 		st.KargoOK, st.KargoVersion = true, v
 	})
 
+	dListed := time.Since(tListed)
 	deps, projects, stats := classify(apps, c, cat)
 	st.Catalog = stats
 	// Saying this once per build costs nothing and is the difference between
@@ -609,6 +733,7 @@ func (h *Hub) buildUpstream(ctx context.Context, c *Clients, cat settings.Catalo
 			zap.Int("no_env", st.Catalog.NoEnv), zap.Int("other_env", st.Catalog.OtherEnv),
 			zap.String("env_label", cat.EnvLabel), zap.Strings("envs", c.Envs))
 	}
+	tStages := time.Now()
 	if st.KargoOK {
 		var mu sync.Mutex
 		var tasks []func()
@@ -630,13 +755,22 @@ func (h *Hub) buildUpstream(ctx context.Context, c *Clients, cat settings.Catalo
 		}
 		parallel(8, tasks...)
 	}
+	dStages := time.Since(tStages)
 	for i := range deps {
 		d := &deps[i]
 		if s := stages[d.KargoProject][d.KargoStage]; s != nil {
 			applyStage(&d.Deployment, s)
 		}
 	}
+	tImages := time.Now()
 	st.RegistryFailed, st.RegistryError, st.RegistryAuth = h.fillVersions(ctx, c, deps)
+	dImages := time.Since(tImages)
+	zap.L().Info("catalog: upstream read",
+		zap.String("upstream", c.Name),
+		zap.Duration("applications", dListed), zap.Int("application_count", st.Catalog.Applications),
+		zap.Duration("stages", dStages), zap.Int("project_count", len(projects)),
+		zap.Duration("images", dImages), zap.Int("deployment_count", len(deps)),
+		zap.Duration("total", time.Since(tListed)))
 	if st.RegistryFailed > 0 {
 		zap.L().Warn("catalog: image metadata unavailable",
 			zap.String("upstream", c.Name), zap.Int("failed", st.RegistryFailed),

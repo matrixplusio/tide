@@ -400,3 +400,67 @@ func TestCountTodayRespectsScope(t *testing.T) {
 		}
 	}
 }
+
+// The counter that invalidates the service catalog is one counter for the
+// whole catalog: moving it makes every replica throw its snapshot away and
+// read every upstream again. So it must move only when what is deployed
+// actually changed.
+//
+// Submitting, cancelling and approving change the releases table and nothing
+// else — the catalog does not carry release state, it carries what is running
+// — and bumping for them turned twenty people releasing twenty different
+// services into twenty fan-outs across every upstream, for information the
+// snapshot never held.
+func TestOnlyADeployedChangeInvalidatesTheCatalog(t *testing.T) {
+	s, _ := testdb.Setup(t)
+	ctx := context.Background()
+	gen := func() int64 {
+		n, err := s.Cache.Generation(ctx, pg.ScopeCatalog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	r, err := s.Releases.Create(ctx, alice, input("svc-quiet", "uat"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	before := gen()
+	if _, err := s.Releases.Submit(ctx, alice, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := gen(); got != before {
+		t.Errorf("submitting moved the catalog counter: %d → %d", before, got)
+	}
+
+	if _, err := s.Releases.Cancel(ctx, alice, r.ID, "changed my mind"); err != nil {
+		t.Fatal(err)
+	}
+	if got := gen(); got != before {
+		t.Errorf("cancelling moved the catalog counter: %d → %d", before, got)
+	}
+
+	// Finishing is the one that did change what is running.
+	r2, err := s.Releases.Create(ctx, alice, input("svc-loud", "uat"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Releases.Submit(ctx, alice, r2.ID); err != nil {
+		t.Fatal(err)
+	}
+	before = gen()
+	if _, err := s.Releases.Confirm(ctx, alice, r2.ID, 0, 10*time.Minute, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := gen(); got != before {
+		t.Errorf("confirming moved the catalog counter: %d → %d", before, got)
+	}
+	if err := s.Releases.Finish(ctx, r2.ID, release.Succeeded); err != nil {
+		t.Fatal(err)
+	}
+	if got := gen(); got <= before {
+		t.Errorf("finishing a release must invalidate the catalog: %d → %d", before, got)
+	}
+}
