@@ -110,7 +110,7 @@ const maxPages = 50
 
 // Push implements repo.Pusher: work out whether the branch and each file
 // already exist, then write them all in one commit.
-func (c *Client) Push(ctx context.Context, branch, message string, files []repo.File) (*repo.Commit, error) {
+func (c *Client) Push(ctx context.Context, branch, message string, files []repo.File, prune []string) (*repo.Commit, error) {
 	if len(files) == 0 {
 		return nil, errors.New("nothing to commit")
 	}
@@ -152,6 +152,11 @@ func (c *Client) Push(ctx context.Context, branch, message string, files []repo.
 			action = "update"
 		}
 		actions = append(actions, Action{Action: action, FilePath: f.Path, Content: f.Content})
+	}
+	// In the same commit as the writes: the repository never describes both
+	// the old shape and the new one, so Argo CD can never apply a mixture.
+	for _, path := range repo.Stale(existing, files, prune) {
+		actions = append(actions, Action{Action: "delete", FilePath: path})
 	}
 	commit, err := c.commit(ctx, c.Project, branch, start, message, actions)
 	if err != nil {
