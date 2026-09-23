@@ -120,9 +120,15 @@ func (r *Releases) detail(ctx context.Context, rel *release.Release, extra map[s
 	return d
 }
 
-// bumpCatalog tells every replica its service snapshot is out of date. It is
-// called from inside the release transaction, so the new state and the notice
-// that it changed become visible together.
+// bumpCatalog tells every replica its service snapshot is out of date: throw
+// it away and read every upstream again. It is called from inside the release
+// transaction, so the new state and the notice that it changed become visible
+// together.
+//
+// One counter covers the whole catalog, so this is expensive for everybody and
+// belongs only where what is deployed actually changed — which of a release's
+// steps is just the last one. Submitting, cancelling, approving and rejecting
+// move a row in this table and nothing the snapshot holds.
 func (r *Releases) bumpCatalog(ctx context.Context) error {
 	return (&Cache{db: r.db}).Bump(ctx, ScopeCatalog)
 }
@@ -150,8 +156,11 @@ func (r *Releases) Submit(ctx context.Context, actor audit.Actor, id string) (*r
 		if err := tx.audit.Write(ctx, actor, "release.submit", id, cur.JiraTicket, tx.detail(ctx, cur, nil)); err != nil {
 			return err
 		}
-		// The targets are claimed now; every replica's service view is stale.
-		return tx.bumpCatalog(ctx)
+		// Deliberately not bumping the catalog: it carries what is running,
+		// not where a release has got to, and "in flight" is read from this
+		// table. Invalidating it here made one person's release a fan-out
+		// across every upstream for everybody — see bumpCatalog.
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -282,7 +291,11 @@ func (r *Releases) Cancel(ctx context.Context, actor audit.Actor, id, why string
 		if err := tx.audit.Write(ctx, actor, "release.cancel", id, cur.JiraTicket, tx.detail(ctx, cur, map[string]any{"from": cur.Status, "why": why})); err != nil {
 			return err
 		}
-		return tx.bumpCatalog(ctx)
+		// Deliberately not bumping the catalog: it carries what is running,
+		// not where a release has got to, and "in flight" is read from this
+		// table. Invalidating it here made one person's release a fan-out
+		// across every upstream for everybody — see bumpCatalog.
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -338,7 +351,8 @@ func (r *Releases) Decide(ctx context.Context, actor audit.Actor, id string, gro
 			if err := tx.audit.Write(ctx, actor, "release.reject", id, cur.JiraTicket, tx.detail(ctx, cur, map[string]any{"note": note})); err != nil {
 				return err
 			}
-			return tx.bumpCatalog(ctx)
+			// Nothing was deployed; see the note in Submit.
+			return nil
 		}
 		var approved []string
 		if err := tx.db.Raw(`SELECT sub FROM release_approvals WHERE release_id = $1 AND decision = 'approve'`, id).Scan(&approved).Error; err != nil {
