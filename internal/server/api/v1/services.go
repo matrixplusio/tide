@@ -25,6 +25,16 @@ const upstreamTimeout = 20 * time.Second
 func (a *API) overview(c *gin.Context) {
 	ctx := c.Request.Context()
 	u := currentUser(c)
+	// fresh is how somebody who changed the cluster without going through
+	// Tide gets to see it now rather than within the cache's lifetime. The
+	// page never asks for it on its own: it is one button, pressed by a
+	// person who knows they are waiting for something.
+	p := newParams(c)
+	fresh := p.boolean("fresh")
+	if err := p.err(); err != nil {
+		respond.Fail(c, err)
+		return
+	}
 	out := gin.H{}
 	vis, err := a.visibility(c, rbac.ServicesView)
 	if err != nil {
@@ -36,7 +46,7 @@ func (a *API) overview(c *gin.Context) {
 		respond.Fail(c, err)
 		return
 	}
-	snap, err := a.Hub.Snapshot(ctx, false)
+	snap, err := a.Hub.Snapshot(ctx, fresh)
 	if err != nil {
 		e := errcode.From(err)
 		out["upstreamError"] = gin.H{"code": e.Code, "msg": e.Text(i18n.From(ctx))}

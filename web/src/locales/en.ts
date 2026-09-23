@@ -52,6 +52,10 @@ const en: Messages = {
   common: {
     required: ' (required)',
     loading: 'Loading…',
+    refresh: 'Refresh',
+    refreshing: 'Reading…',
+    refreshHint: 'Read the upstreams now. Anything done through Tide already shows; this is for a change made around it — an Application edited by hand, a service just onboarded.',
+    refreshFailed: 'Could not reach the upstreams; still showing the last answer',
     retry: 'Try again',
     cancel: 'Cancel',
     confirm: 'OK',

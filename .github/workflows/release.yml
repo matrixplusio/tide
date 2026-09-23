@@ -90,7 +90,7 @@ jobs:
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
       - id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -134,12 +134,12 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: web/package.json
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -186,7 +186,7 @@ jobs:
         with:
           subject-path: dist/tide_*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binaries
           path: dist/
@@ -204,7 +204,7 @@ jobs:
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 } # the changelog needs the history
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with: { name: binaries, path: dist }
 
       - id: notes
@@ -240,7 +240,7 @@ jobs:
           } > notes.md
           cat notes.md
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           body_path: notes.md

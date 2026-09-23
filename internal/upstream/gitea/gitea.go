@@ -62,7 +62,7 @@ type changeFile struct {
 }
 
 // Push implements repo.Pusher.
-func (c *Client) Push(ctx context.Context, branch, message string, files []repo.File) (*repo.Commit, error) {
+func (c *Client) Push(ctx context.Context, branch, message string, files []repo.File, prune []string) (*repo.Commit, error) {
 	if len(files) == 0 {
 		return nil, errors.New("nothing to commit")
 	}
@@ -105,6 +105,11 @@ func (c *Client) Push(ctx context.Context, branch, message string, files []repo.
 			ch.Operation, ch.SHA = "update", sha
 		}
 		changes = append(changes, ch)
+	}
+	// Same commit as the writes; see the note in the gitlab client. Gitea
+	// wants the blob id for a delete as much as for an update.
+	for _, path := range repo.Stale(shas2set(shas), files, prune) {
+		changes = append(changes, changeFile{Operation: "delete", Path: path, SHA: shas[path]})
 	}
 
 	body := map[string]any{"branch": base, "message": message, "files": changes}
@@ -165,6 +170,15 @@ func (c *Client) blobs(ctx context.Context, ref string) (map[string]string, erro
 		}
 	}
 	return out, nil
+}
+
+// shas2set drops the blob ids: repo.Stale only needs to know what is there.
+func shas2set(shas map[string]string) map[string]bool {
+	out := make(map[string]bool, len(shas))
+	for p := range shas {
+		out[p] = true
+	}
+	return out
 }
 
 // maxPages bounds the tree walk; see the same constant in the gitlab package.

@@ -54,6 +54,10 @@ const zhCN = {
   common: {
     required: '（必填）',
     loading: '加载中…',
+    refresh: '刷新',
+    refreshing: '读取中…',
+    refreshHint: '立刻去读上游。在 Tide 里做的改动本来就立刻可见，这个按钮是给绕过 Tide 的改动用的——比如有人手改了 Application、或者刚接入一个服务',
+    refreshFailed: '读不到上游，仍显示上一次的结果',
     retry: '重试',
     cancel: '取消',
     confirm: '确定',

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -480,12 +481,34 @@ func (h *Hub) rebuild(ctx context.Context, gen int64, fresh bool) (*Snapshot, er
 		ch := make(chan struct{})
 		h.building = ch
 		h.mu.Unlock()
+		// Deferred, so a panic anywhere in the build still releases the
+		// readers waiting on this channel. Without it one panic wedges the
+		// catalog for the life of the process: h.building stays set, nobody
+		// ever closes ch, and every reader that needs a snapshot blocks for
+		// ever — a crash would at least have restarted.
+		done := func() {
+			h.mu.Lock()
+			h.building = nil
+			close(ch)
+			h.mu.Unlock()
+		}
+		defer done()
 
 		// Another replica may have built this generation already. Reading its
 		// bytes costs a round trip instead of a walk over every Application,
 		// and both replicas then answer from the same snapshot.
+		//
+		// Not when the caller asked for fresh, though: that snapshot can be
+		// minutes old, and the only caller who asks is a person who pressed
+		// a button because they are waiting for something the generation
+		// counter cannot know about — an Application edited by hand, a
+		// service just onboarded. Handing them another replica's copy of the
+		// same stale answer is exactly the thing the button is for avoiding.
 		var err error
-		s := h.fromShared(ctx, gen)
+		var s *Snapshot
+		if !fresh {
+			s = h.fromShared(ctx, gen)
+		}
 		if s == nil {
 			// Detached from the request on purpose: other waiters are blocked
 			// on this build, so the first caller navigating away must not
@@ -506,8 +529,6 @@ func (h *Hub) rebuild(ctx context.Context, gen int64, fresh bool) (*Snapshot, er
 		if err == nil {
 			h.snap, h.gen = s, gen
 		}
-		h.building = nil
-		close(ch)
 		h.mu.Unlock()
 		return s, err
 	}
@@ -973,11 +994,22 @@ func applyStage(d *Deployment, s *kargo.Stage) {
 // anywhere, just emptier rows — which is the hardest kind of problem to go
 // looking for.
 func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment) (failed int, message string, auth bool) {
+	built := h.buildTag(ctx)
 	var mu sync.Mutex
 	var tasks []func()
 	for i := range deps {
 		d := &deps[i]
 		if d.Image == "" || (d.Digest == "" && d.Tag == "") {
+			continue
+		}
+		// A tag that cannot have come out of a build will not be in the
+		// registry, and asking anyway costs a round trip to another site per
+		// deployment on every rebuild. The placeholders left in a repository
+		// for services nobody has built yet are the whole of this case: 27 of
+		// them here, 27 refusals a rebuild, none of them a problem with the
+		// registry or with anybody's credentials.
+		if d.Digest == "" && built != nil && !built.MatchString(d.Tag) {
+			d.ImageUnknown = true
 			continue
 		}
 		tasks = append(tasks, func() {
@@ -1007,6 +1039,31 @@ func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment
 	return failed, message, auth
 }
 
+// buildTag compiles what this installation said its build tags look like, or
+// nil when it has not said.
+//
+// Nil on purpose rather than a default: the default pattern exists for Kargo,
+// where getting it wrong means a warehouse discovers nothing and somebody
+// notices. Getting it wrong here would blank every version and build time on
+// every page with no error anywhere, so an installation that has not stated
+// its convention is asked, not guessed at.
+func (h *Hub) buildTag(ctx context.Context) *regexp.Regexp {
+	if h.Settings == nil {
+		return nil
+	}
+	var cfg settings.PipelineRepo
+	if err := h.Settings.Load(ctx, settings.SectionPipelineRepo, &cfg); err != nil || cfg.TagPattern == "" {
+		return nil
+	}
+	re, err := regexp.Compile(cfg.TagPattern)
+	if err != nil {
+		zap.L().Warn("catalog: the configured tag pattern does not compile",
+			zap.String("pattern", cfg.TagPattern), zap.Error(err))
+		return nil
+	}
+	return re
+}
+
 // truncateError keeps the upstream's own words but not all of them: registry
 // bodies can be long, and this one ends up on a page.
 func truncateError(s string) string {
@@ -1027,16 +1084,27 @@ const imageTTL = 24 * time.Hour
 
 func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*registry.Image, error) {
 	digest := ref
-	if !strings.HasPrefix(ref, "sha256:") {
+	byTag := !strings.HasPrefix(ref, "sha256:")
+	if byTag {
 		// A tag. Resolve it to a digest first, or the cache below — keyed by
 		// digest, and correct forever — can never be reached.
-		if d, err, ok := h.tagged(image, ref); ok {
-			if err != nil {
-				return nil, err
-			}
+		switch d, err, ok := h.tagged(image, ref); {
+		case ok && err != nil:
+			return nil, err
+		case ok:
 			digest = d
-		} else {
-			digest = ""
+		default:
+			// Nothing in this process. The digest behind the tag may still be
+			// in the tier the replicas share, and that is what makes a
+			// restart cheap: every image's metadata is already there, keyed
+			// by digest, and only the tag → digest step was lost with the
+			// process. Without it a fresh pod asks the registry about every
+			// deployment again — measured at 10.8 of the 11.2 seconds a cold
+			// build takes.
+			digest = h.digestFromShared(ctx, image, ref)
+			if digest != "" {
+				h.rememberTag(image, ref, digest, nil)
+			}
 		}
 	}
 	if digest != "" {
@@ -1062,6 +1130,12 @@ func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*regi
 	if h.Shared != nil {
 		if b, err := json.Marshal(img); err == nil {
 			h.Shared.Set(ctx, imageKey(img.Digest), b, imageTTL)
+		}
+		// Only what resolved, and only for a tag. A failure stays in this
+		// process: sharing it would hand every replica one replica's bad
+		// minute, and the failures worth remembering are cheap to rediscover.
+		if byTag {
+			h.Shared.Set(ctx, tagKey(image, ref), []byte(img.Digest), tagTTL)
 		}
 	}
 	return img, nil
@@ -1101,6 +1175,22 @@ func (h *Hub) remember(img *registry.Image) {
 	}
 	h.images[img.Digest] = img
 	h.imgMu.Unlock()
+}
+
+// tagKey is stamped with neither a generation nor a digest: it is the one
+// mapping here that can change, which is why it expires with tagTTL rather
+// than living as long as the metadata it points at.
+func tagKey(image, tag string) string { return "tide:catalog:tag:" + image + ":" + tag }
+
+func (h *Hub) digestFromShared(ctx context.Context, image, tag string) string {
+	if h.Shared == nil {
+		return ""
+	}
+	b, ok := h.Shared.Get(ctx, tagKey(image, tag))
+	if !ok || !strings.HasPrefix(string(b), "sha256:") {
+		return ""
+	}
+	return string(b)
 }
 
 func (h *Hub) imageFromShared(ctx context.Context, digest string) *registry.Image {
