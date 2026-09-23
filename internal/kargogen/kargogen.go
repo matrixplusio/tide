@@ -90,10 +90,19 @@ type Options struct {
 // projectName is what the Kargo project is called: the domain, optionally
 // behind the business line it belongs to.
 func projectName(svc catalog.Service, prefix bool) string {
-	if prefix && svc.Project != "" {
-		return svc.Project + "-" + svc.Domain
+	if !prefix || svc.Project == "" {
+		return svc.Domain
 	}
-	return svc.Domain
+	// An Application with no project label falls back to the Kargo project
+	// named in its authorized-stage annotation, and that name already has the
+	// domain in it. Appending the domain again invents a project nobody
+	// asked for — "acme-shop-shop" — writes a directory for it and asks Kargo
+	// to create it. The services would land somewhere plausible-looking and
+	// entirely separate from the siblings they belong with.
+	if svc.Project == svc.Domain || strings.HasSuffix(svc.Project, "-"+svc.Domain) {
+		return svc.Project
+	}
+	return svc.Project + "-" + svc.Domain
 }
 
 func (o Options) withDefaults() Options {
