@@ -441,6 +441,7 @@ var enCI = map[Key]string{
 	"ci.envUnknown":                 "No such environment",
 	"kargogen.nothingToGenerate":    "Nothing to generate: no service in this scope can have a pipeline",
 	"kargogen.repoNotConfigured":    "No pipeline repository is configured yet; set one under Manage → Generate Kargo pipeline",
+	"kargogen.upstreamDown":         "Not pushing: %s did not answer, so the catalog is incomplete and pushing it would delete pipelines that are fine",
 	"kargogen.commitAll":            "all domains",
 	"kargogen.commitMessage":        "chore(kargo): update pipeline for %[1]s (%[2]d warehouses, %[3]d stages)",
 	"ci.notDirect":                  "This environment's Kargo stage takes freight from an upstream stage, not from the warehouse, so a newly built image cannot reach it. CI can only push to an environment wired directly to a warehouse",
