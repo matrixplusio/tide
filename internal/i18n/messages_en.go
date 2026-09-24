@@ -176,6 +176,7 @@ var enSettings = map[Key]string{ //nolint:gosec // G101: message templates, not 
 	"s.upstreamNameRequired": "Enter the upstream's name",
 	"s.unknownProvider":      "Unsupported host: %[1]s",
 	"s.projectRequired":      "Enter the project path",
+	"s.projectPrefixFormat":  "Lower-case letters, digits and hyphens, starting with a letter and ending with a hyphen, as in \"kargo-\"",
 	"s.projectPath":          "Write the project as owner/repo, e.g. devops/k8s-pipelines",
 	"s.unknownStrategy":      "Unsupported image selection strategy: %[1]s",
 	"s.badTagPattern":        "The tag filter is not a valid regular expression",

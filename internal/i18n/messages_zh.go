@@ -181,6 +181,7 @@ var zhCNSettings = map[Key]string{ //nolint:gosec // G101: message templates, no
 	"s.upstreamNameRequired": "请填写上游名称",
 	"s.unknownProvider":      "不支持的代码托管：%[1]s",
 	"s.projectRequired":      "请填写仓库路径",
+	"s.projectPrefixFormat":  "小写字母、数字和连字符，字母开头、连字符结尾，例如 kargo-",
 	"s.projectPath":          "仓库路径要写成 owner/repo，例如 devops/k8s-pipelines",
 	"s.unknownStrategy":      "不支持的镜像选择策略：%[1]s",
 	"s.badTagPattern":        "tag 过滤不是合法的正则",
