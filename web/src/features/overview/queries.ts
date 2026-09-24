@@ -10,7 +10,9 @@ export interface OverviewData {
   /** Not serving. Drift is counted separately: it is the resting state of
    *  most Applications where nothing prunes, so mixing the two buries it. */
   unhealthy: Deployment[] | null
-  drifted: number
+  /** Disagreeing with git. Capped by the server; driftedCount is the whole. */
+  drifted: Deployment[] | null
+  driftedCount: number
   serviceCount: number
   domainCount: number
   inFlight: Release[] | null

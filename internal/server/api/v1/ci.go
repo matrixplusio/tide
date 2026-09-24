@@ -143,18 +143,22 @@ func (a *API) ciRelease(c *gin.Context) {
 		return
 	}
 	if accepted {
-		// Nudge first, then look. Kargo needs a moment to turn a refreshed
-		// warehouse into freight, so a pass made before the nudge can only
-		// find nothing — but the freight is often already there when a
-		// warehouse happened to look just now, so the pass still runs
-		// immediately rather than waiting for the next tick.
+		// Nudge only. Turning the intake into a release is the worker's job,
+		// and the worker runs on one replica because a lock says so.
+		//
+		// This used to make the pass here as well, to save waiting for the
+		// next tick. But this runs on whichever replica the pipeline happened
+		// to reach, which is not the replica holding that lock: both then
+		// walked the same waiting intake and each created a release for it.
+		// Only one can claim the target, so the other was left as a draft
+		// beside a real release for the same service a second earlier.
+		//
+		// What is lost is a few seconds. The pipeline is not waiting for any
+		// of this — it has its answer already.
 		ctx := withoutRequest(c)
 		// A copy, because the goroutine outlives this handler.
 		waiting := *intake
-		go func() {
-			a.CI.Nudge(ctx, waiting)
-			a.CI.Process(ctx)
-		}()
+		go a.CI.Nudge(ctx, waiting)
 	}
 	respond.OK(c, ciIntakeView{CIIntake: intake, Accepted: accepted})
 }

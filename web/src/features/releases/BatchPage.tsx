@@ -7,7 +7,7 @@ import { useFieldArray, useForm, type UseFormReturn } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMe } from '../../app/session'
 import { apiFetch, isApiError } from '../../lib/api'
-import { dimensionOptions } from '../../lib/catalog'
+import { dimensionOptions, matchesSearch } from '../../lib/catalog'
 import { approvalFor, approvalText, enforcedThresholds } from '../../lib/release'
 import { ErrCode } from '../../lib/errcode'
 import { applyServerError } from '../../lib/forms'
@@ -96,6 +96,23 @@ export function BatchPage() {
   const effectiveType = typeOptions.some(([v]) => v === type) ? type : (typeOptions[0]?.[0] ?? '')
 
   const list = useMemo(() => batchCandidates(all, env, effectiveProject, dim, effectiveType), [all, env, effectiveProject, dim, effectiveType])
+
+  // Narrowing the list on screen, not the batch. A hundred services in one
+  // project is a long way to scroll for the four you meant, but a filter that
+  // also unpicked what you had already chosen would make choosing across two
+  // domains impossible. So these hide rows; they never clear them.
+  const [domain, setDomain] = useState('')
+  const [query, setQuery] = useState('')
+  const domains = useMemo(() => [...new Set(list.map((s) => s.domain).filter(Boolean))].sort(), [list])
+  const shown = useMemo(() => {
+    const byName = new Map(list.map((s) => [s.name, s]))
+    return (service: string) => {
+      const svc = byName.get(service)
+      if (!svc) return false
+      if (domain && svc.domain !== domain) return false
+      return matchesSearch(svc.name, query)
+    }
+  }, [list, domain, query])
   const req = requiredFields(me.app, env)
   const [formError, setFormError] = useState<unknown>(null)
   const [confirming, setConfirming] = useState<Release | null>(null)
@@ -255,6 +272,29 @@ export function BatchPage() {
             </Group>
 
             <GroupHeader right={selectedCount > 0 ? <span className="muted">{effectiveKind === 'image' ? t('batch.targetAndOrder') : t('batch.orderOnly')}</span> : undefined}>{t('batch.servicesSelected', { count: selectedCount })}</GroupHeader>
+            {list.length > 0 && (
+              <div className="btnrow filters" role="search" aria-label={t('batch.filterLabel')} style={{ marginTop: 0, marginBottom: 4 }}>
+                {domains.length > 1 && (
+                  <Select
+                    appearance="filled"
+                    aria-label={t('services.domain')}
+                    value={domain}
+                    options={[['', t('services.allDomains')], ...domains.map((x): [string, string] => [x, x])]}
+                    onChange={(e) => setDomain(e.target.value)}
+                  />
+                )}
+                <Input
+                  className="filter-text"
+                  type="search"
+                  appearance="filled"
+                  aria-label={t('services.searchLabel')}
+                  placeholder={t('services.searchPlaceholder')}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
+            )}
             {list.length === 0 ? (
               <Group>
                 <EmptyState>{t('batch.noMatchingServices')}</EmptyState>
@@ -262,6 +302,7 @@ export function BatchPage() {
             ) : (
               <Group>
                 {rows.fields.map((f, i) => {
+                  if (!shown(f.service)) return null
                   const svc = list.find((s) => s.name === f.service)
                   const dep = svc?.envs[env]
                   const busy = !!inFlight[`${f.service}/${env}`] || !!dep?.promoting
