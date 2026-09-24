@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# The commit message is as public as the code, and pre-commit only ever
+# looked at files. A real service name written into a message therefore
+# reached the remote with nothing in its way — which is how one did.
+#
+# Enable with: git config core.hooksPath .githooks  (or `make hooks`)
+exec hack/check-no-internal-data.sh --message "$1"

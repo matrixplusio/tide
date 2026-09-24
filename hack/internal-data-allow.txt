@@ -1,0 +1,35 @@
+# 门禁规则故意放得很宽：宁可误报，不可漏报。这里列出确认无害的词，
+# 命中这些的行会被放过。
+#
+# 一个词一行，小写，'#' 开头是注释。加词之前想清楚：它是通用英文、
+# 是本仓库自己编的假样例，还是真实环境里的东西？只有前两种能加。
+
+# 本仓库文档和测试里用的假名字（acme = 虚构公司）
+acme-base
+acme-backend
+acme-frontend
+pc-frontend
+order-api
+portal-api
+media-api
+task-worker
+
+# 通用英文 / 技术名词，不是业务名
+go-live
+resource-tree
+base-uri
+base64
+pre-push
+force-push
+git-push
+push-to-registry
+server-side
+server-rendered
+pg-admin
+admin-console
+client-side
+base-image
+managed-resources
+my-activity
+order-backend
+gateway-backend
