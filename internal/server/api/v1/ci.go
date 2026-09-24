@@ -26,23 +26,53 @@ var (
 	reIdemKey    = regexp.MustCompile(`^[A-Za-z0-9._:@/-]{1,200}$`)
 	reTokenID    = regexp.MustCompile(`^[0-9a-f-]{36}$`)
 	ciActorRe    = regexp.MustCompile(`^[^\x00-\x1f]{0,100}$`)
-	intakeStates = []string{pg.IntakeWaiting, pg.IntakeReleased, pg.IntakeFailed, pg.IntakeExpired}
+	intakeStates = []string{pg.IntakeWaiting, pg.IntakeReleased, pg.IntakeFailed, pg.IntakeExpired, pg.IntakeBuildFailed}
 )
 
 type ciReleaseReq struct {
-	Service    string `json:"service" binding:"required,max=253" label:"service"`
-	Env        string `json:"env" binding:"required,max=32" label:"env"`
-	Digest     string `json:"digest" binding:"required" label:"digest"`
-	Image      string `json:"image" binding:"max=253" label:"image"`
-	Commit     string `json:"commit" binding:"max=64" label:"commit"`
+	// Status is "succeeded" or "failed". Absent means succeeded: a pipeline
+	// written before this field existed only ever reported the one outcome,
+	// and must keep working unchanged.
+	Status  string `json:"status" binding:"max=16" label:"status"`
+	Service string `json:"service" binding:"required,max=253" label:"service"`
+	Env     string `json:"env" binding:"required,max=32" label:"env"`
+	// Digest is required for a build that succeeded and meaningless for one
+	// that did not, so the rule is in Check rather than in a binding tag.
+	Digest string `json:"digest" binding:"max=200" label:"digest"`
+	Image  string `json:"image" binding:"max=253" label:"image"`
+	Commit string `json:"commit" binding:"max=64" label:"commit"`
+	// Stage is which job this is about: compile / package / notify.
+	Stage      string `json:"stage" binding:"max=32" label:"stage"`
 	Pipeline   string `json:"pipeline" binding:"max=500" label:"pipeline"`
 	Actor      string `json:"actor" binding:"max=100" label:"ciActor"`
 	JiraTicket string `json:"jiraTicket" binding:"max=64" label:"jira"`
 	Reason     string `json:"reason" binding:"max=2000" label:"reason"`
+	// Error is the failing job's last lines. Kept short enough to read in a
+	// chat message; a pipeline with more to say has a link.
+	Error string `json:"error" binding:"max=4000" label:"error"`
+	// Warning is a build that worked and could not hand over: no token, no
+	// digest. It still counts as succeeded.
+	Warning string `json:"warning" binding:"max=1000" label:"warning"`
 }
 
+// CI statuses. Anything else is refused rather than guessed at: a typo that
+// silently meant "succeeded" would start a deployment nobody asked for.
+const (
+	ciSucceeded = "succeeded"
+	ciFailed    = "failed"
+)
+
+var ciStageRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+
+func (r *ciReleaseReq) failed() bool { return r.Status == ciFailed }
+
 func (r *ciReleaseReq) Normalize() {
-	trim(&r.Service, &r.Env, &r.Digest, &r.Image, &r.Commit, &r.Pipeline, &r.Actor, &r.JiraTicket, &r.Reason)
+	trim(&r.Service, &r.Env, &r.Digest, &r.Image, &r.Commit, &r.Stage, &r.Pipeline, &r.Actor,
+		&r.JiraTicket, &r.Reason, &r.Error, &r.Warning)
+	r.Status, r.Stage = strings.ToLower(r.Status), strings.ToLower(r.Stage)
+	if r.Status == "" {
+		r.Status = ciSucceeded
+	}
 	r.JiraTicket = strings.ToUpper(r.JiraTicket)
 	// A pipeline usually has the repository and tag to hand but not always
 	// the digest on its own; "repo@sha256:..." is accepted and split here.
@@ -60,8 +90,21 @@ func (r *ciReleaseReq) Check() error {
 	if !reEnv.MatchString(r.Env) {
 		errs = append(errs, validate.FieldKey("env", "r.envFormat"))
 	}
-	if !reDigest.MatchString(r.Digest) {
+	if r.Status != ciSucceeded && r.Status != ciFailed {
+		errs = append(errs, validate.FieldKey("status", "ci.statusFormat"))
+	}
+	// A failed build has nothing to report an image for. Demanding one would
+	// make the common case — the build died before the push — unreportable.
+	switch {
+	case r.failed():
+		if r.Digest != "" && !reDigest.MatchString(r.Digest) {
+			errs = append(errs, validate.FieldKey("digest", "r.digestFormat"))
+		}
+	case !reDigest.MatchString(r.Digest):
 		errs = append(errs, validate.FieldKey("digest", "r.digestFormat"))
+	}
+	if r.Stage != "" && !ciStageRe.MatchString(r.Stage) {
+		errs = append(errs, validate.FieldKey("stage", "ci.stageFormat"))
 	}
 	if r.Image != "" && !reImageRef.MatchString(r.Image) {
 		errs = append(errs, validate.FieldKey("image", "ci.imageFormat"))
@@ -136,13 +179,16 @@ func (a *API) ciRelease(c *gin.Context) {
 	token := ciTokenOf(c)
 	intake, accepted, err := a.CI.Accept(c.Request.Context(), token, ci.Request{
 		Service: req.Service, Env: req.Env, Image: req.Image, Digest: req.Digest, Commit: req.Commit,
-		Pipeline: req.Pipeline, Actor: req.Actor, JiraTicket: req.JiraTicket, Reason: req.Reason, Key: key,
+		Stage: req.Stage, Pipeline: req.Pipeline, Actor: req.Actor, JiraTicket: req.JiraTicket,
+		Reason: req.Reason, Key: key, Failed: req.failed(), Detail: req.Error, Warning: req.Warning,
 	})
 	if err != nil {
 		respond.Fail(c, err)
 		return
 	}
-	if accepted {
+	// A failed build is already over: there is no freight to look for and no
+	// release to make. It was recorded and announced inside Accept.
+	if accepted && !req.failed() {
 		// Nudge only. Turning the intake into a release is the worker's job,
 		// and the worker runs on one replica because a lock says so.
 		//

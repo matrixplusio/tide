@@ -65,15 +65,28 @@ func (s *Service) tick() time.Duration {
 
 // Request is one notification from a pipeline.
 type Request struct {
-	Service    string
-	Env        string
-	Image      string
-	Digest     string
-	Commit     string
+	Service string
+	Env     string
+	Image   string
+	Digest  string
+	Commit  string
+	// Stage is the job that produced this: compile / package / notify.
+	// Useful mostly when it failed, because it says where.
+	Stage      string
 	Pipeline   string
 	Actor      string
 	JiraTicket string
 	Reason     string
+	// Failed says the build produced nothing. Image and Digest are then
+	// empty, no release is created, and Detail carries the failing job's
+	// output.
+	Failed bool
+	Detail string
+	// Warning is a build that succeeded but could not finish handing over —
+	// no Tide token, no digest. The pipeline goes green and the image is
+	// pushed, so without this nobody learns of it until they ask why it
+	// never deployed.
+	Warning string
 	// Key makes a retry the same request; empty falls back to the digest,
 	// which is what makes re-running a pipeline safe by default.
 	Key string
@@ -94,6 +107,17 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 	}
 	if env.CIMode() == settings.CIOff {
 		return nil, false, fmt.Errorf("%w: %s", ErrCIDisabled, req.Env)
+	}
+	// A build that failed is recorded and announced, and that is all. None
+	// of the checks below apply to it: they all ask whether an image could
+	// be released here, and there is no image.
+	//
+	// In particular it is not refused for a service Tide does not know or an
+	// environment fed by promotion. A pipeline failing is news either way,
+	// and swallowing it because the deployment side is not set up yet is how
+	// a failure goes unnoticed.
+	if req.Failed {
+		return s.acceptFailure(ctx, token, req)
 	}
 	// Whatever has been built, however old, and never a build: a pipeline is
 	// waiting on this reply. A mistyped service name is worth catching here
@@ -121,8 +145,8 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 	}
 	in := pg.CIIntake{
 		Key: key, Service: req.Service, Env: req.Env, Image: req.Image, Digest: req.Digest,
-		Commit: req.Commit, Pipeline: req.Pipeline, Actor: req.Actor,
-		JiraTicket: req.JiraTicket, Reason: req.Reason, TokenID: token.ID,
+		Commit: req.Commit, Stage: req.Stage, Pipeline: req.Pipeline, Actor: req.Actor,
+		JiraTicket: req.JiraTicket, Reason: req.Reason, Warning: req.Warning, TokenID: token.ID,
 	}
 	got, accepted, err := s.PG.CI.Accept(ctx, in)
 	if err != nil {
@@ -133,8 +157,51 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 			"env": req.Env, "image": req.Image, "digest": req.Digest, "commit": req.Commit,
 			"pipeline": req.Pipeline, "ciActor": req.Actor, "key": key,
 		})
+		if req.Warning != "" {
+			s.announce(ctx, req, notify.EventBuildWarning, req.Warning)
+		}
 	}
 	return got, accepted, nil
+}
+
+// acceptFailure records a build that produced nothing and announces it. The
+// intake is terminal from the moment it is written: there is no freight to
+// wait for, so the worker must never pick it up.
+func (s *Service) acceptFailure(ctx context.Context, token *pg.CIToken, req Request) (*pg.CIIntake, bool, error) {
+	key := req.Key
+	if key == "" {
+		// Without a digest to fall back on, a failure with no key of its own
+		// would collide with every other failure. Anything unique will do.
+		key = fmt.Sprintf("build-failed:%s:%s:%d", req.Service, req.Env, time.Now().UnixNano())
+	}
+	got, accepted, err := s.PG.CI.Accept(ctx, pg.CIIntake{
+		Key: key, Service: req.Service, Env: req.Env, Commit: req.Commit, Stage: req.Stage,
+		Pipeline: req.Pipeline, Actor: req.Actor, JiraTicket: req.JiraTicket, Reason: req.Reason,
+		TokenID: token.ID, Status: pg.IntakeBuildFailed, Error: req.Detail,
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if accepted {
+		_ = s.PG.Audit.Write(ctx, Actor(token), "ci.buildFailed", req.Service, req.JiraTicket, map[string]any{
+			"env": req.Env, "stage": req.Stage, "commit": req.Commit,
+			"pipeline": req.Pipeline, "ciActor": req.Actor, "key": key,
+		})
+		s.announce(ctx, req, notify.EventBuildFailed, req.Detail)
+	}
+	return got, accepted, nil
+}
+
+// announce sends a build outcome to the channels, if there are any. A retry
+// of the same pipeline job is the same intake and says nothing twice.
+func (s *Service) announce(ctx context.Context, req Request, event, detail string) {
+	if s.Notifier == nil {
+		return
+	}
+	s.Notifier.BuildEvent(ctx, notify.Build{
+		Service: req.Service, Env: req.Env, Stage: req.Stage, Commit: req.Commit,
+		Pipeline: req.Pipeline, Actor: req.Actor, Reason: req.Reason, Detail: detail,
+	}, event)
 }
 
 // Actor is how a token appears in the audit log: the token, not the person

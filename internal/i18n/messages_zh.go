@@ -372,6 +372,8 @@ var zhCNNotify = map[Key]string{
 	"n.eventPending":      "等待确认",
 	"n.eventCancelled":    "已取消",
 	"n.eventFailed":       "失败",
+	"n.eventBuildFailed":  "构建失败",
+	"n.eventBuildWarning": "构建没能通知到 Tide",
 	"n.eventRejected":     "被拒绝",
 	"n.eventStarted":      "开始执行",
 	"n.eventSucceeded":    "成功",
@@ -379,6 +381,7 @@ var zhCNNotify = map[Key]string{
 	"n.fieldCreator":      "**发起人**\n",
 	"n.fieldEnv":          "**环境**\n",
 	"n.fieldReason":       "**原因**\n",
+	"n.fieldStage":        "**阶段**\n",
 	"n.fieldRelease":      "**发布单**\n",
 	"n.firstTime":         "(首次)",
 	"n.goApprove":         "去审批",
@@ -391,6 +394,7 @@ var zhCNNotify = map[Key]string{
 	"n.plainHeader":       "[%s] %s %s %s\nJira: %s · 发起人: %s\n",
 	"n.test":              "[%s] 通知测试：渠道「%s」配置正确。",
 	"n.viewRelease":       "查看发布单",
+	"n.viewPipeline":      "查看流水线",
 	"n.goConfirm":         "去确认",
 }
 
@@ -454,6 +458,8 @@ var zhCNCI = map[Key]string{
 	"ci.imageFormat":                "镜像地址格式不正确",
 	"ci.commitFormat":               "commit 格式不正确，应为 7-64 位十六进制",
 	"ci.actorFormat":                "触发人格式不正确",
+	"ci.statusFormat":               "status 只能是 succeeded 或 failed",
+	"ci.stageFormat":                "stage 格式不正确",
 	"ci.keyFormat":                  "Idempotency-Key 格式不正确",
 	"ci.freightNeverArrived":        "等了 %[2]s 仍未在 Kargo 中找到镜像 %[1]s，已放弃。检查 Warehouse 是否在监听这个仓库",
 	"ci.freightNeverArrivedBecause": "等了 %[2]s 仍未在 Kargo 中找到镜像 %[1]s，已放弃。Kargo 的制品发现失败：%[3]s",

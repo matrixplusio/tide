@@ -10,6 +10,14 @@ import (
 	"tide/internal/settings"
 )
 
+func names(cs []settings.Channel) []string {
+	out := []string{}
+	for _, c := range cs {
+		out = append(out, c.Name)
+	}
+	return out
+}
+
 func TestTargets(t *testing.T) {
 	cfg := settings.Notify{
 		Channels: []settings.Channel{
@@ -23,13 +31,6 @@ func TestTargets(t *testing.T) {
 			{Name: "disabled", Enabled: false, Envs: []string{"*"}, Events: Events, Channels: []string{"dev"}},
 		},
 	}
-	names := func(cs []settings.Channel) []string {
-		out := []string{}
-		for _, c := range cs {
-			out = append(out, c.Name)
-		}
-		return out
-	}
 	tests := []struct {
 		env, tier, event string
 		want             []string
@@ -40,7 +41,7 @@ func TestTargets(t *testing.T) {
 		{"dev", "development", EventFailed, []string{"ops", "dev"}},
 	}
 	for _, tt := range tests {
-		got := names(Targets(cfg, tt.env, tt.tier, tt.event))
+		got := names(Targets(cfg, tt.env, tt.tier, tt.event, "cart"))
 		if len(got) != len(tt.want) {
 			t.Fatalf("%s/%s: got %v, want %v", tt.env, tt.event, got, tt.want)
 		}
@@ -159,4 +160,88 @@ func buttonLabel(card map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// A rule scoped to some services must not pick up the others, and a rule
+// that names none must keep meaning "all of them" — every rule written
+// before the selector existed says nothing about services.
+func TestAServiceSelectorNarrowsARuleWithoutNarrowingTheOnesThatHaveNone(t *testing.T) {
+	cfg := settings.Notify{
+		Channels: []settings.Channel{
+			{Name: "everyone", Kind: "lark", URL: "https://example.com/a", Enabled: true},
+			{Name: "cart-team", Kind: "lark", URL: "https://example.com/b", Enabled: true},
+		},
+		Rules: []settings.NotifyRule{
+			{Name: "all", Enabled: true, Envs: []string{"*"}, Events: []string{EventBuildFailed}, Channels: []string{"everyone"}},
+			{Name: "cart", Enabled: true, Envs: []string{"*"}, Events: []string{EventBuildFailed},
+				Channels: []string{"cart-team"}, Services: []string{"cart-*"}},
+		},
+	}
+	for service, want := range map[string][]string{
+		"cart-api":    {"everyone", "cart-team"},
+		"portal-api":  {"everyone"},
+		"cart-worker": {"everyone", "cart-team"},
+	} {
+		got := names(Targets(cfg, "uat", "", EventBuildFailed, service))
+		if len(got) != len(want) {
+			t.Errorf("%s: got %v, want %v", service, got, want)
+		}
+	}
+}
+
+func TestServiceMatches(t *testing.T) {
+	for _, tc := range []struct {
+		selectors []string
+		service   string
+		want      bool
+	}{
+		{nil, "anything", true},
+		{[]string{"*"}, "anything", true},
+		{[]string{"cart-api"}, "cart-api", true},
+		{[]string{"cart-api"}, "cart-apix", false},
+		{[]string{"cart-*"}, "cart-api", true},
+		{[]string{"cart-*"}, "portal-api", false},
+		{[]string{"a-*", "b-*"}, "b-one", true},
+		// A rule that names services cannot match a release that is about
+		// several of them, which arrives here as no service at all.
+		{[]string{"cart-*"}, "", false},
+	} {
+		if got := ServiceMatches(tc.selectors, tc.service); got != tc.want {
+			t.Errorf("ServiceMatches(%v, %q) = %v", tc.selectors, tc.service, got)
+		}
+	}
+}
+
+// A build failure has no release to link to, so its card has to stand on its
+// own and send the reader to the pipeline instead.
+func TestABuildFailureCardPointsAtThePipeline(t *testing.T) {
+	msg := Message{
+		Event:  EventBuildFailed,
+		System: settings.System{SiteName: "Tide", BaseURL: "https://tide.example.com"},
+		Build: &Build{
+			Service: "cart-api", Env: "uat", Stage: "compile", Commit: "abc1234",
+			Pipeline: "https://git.example.com/pipelines/42", Actor: "someone",
+			Reason: "fix rounding", Detail: "undefined: total",
+		},
+	}
+	card := LarkCard(msg)
+	if card == nil {
+		t.Fatal("a build event must render as a card, not fall through to plain text")
+	}
+	blob, err := json.Marshal(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"cart-api", "compile", "undefined: total", "https://git.example.com/pipelines/42"} {
+		if !strings.Contains(string(blob), want) {
+			t.Errorf("card omits %q: %s", want, blob)
+		}
+	}
+	// The release card's link would be wrong here, and worse than no link.
+	if strings.Contains(string(blob), "tide.example.com/releases/") {
+		t.Error("there is no release to link to")
+	}
+	if txt := msg.text(); !strings.Contains(txt, "cart-api") || !strings.Contains(txt, "compile") {
+		t.Errorf("plain text must carry the same: %q", txt)
+	}
 }

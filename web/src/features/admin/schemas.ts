@@ -398,7 +398,22 @@ export type ReleasePolicyValues = z.infer<typeof releasePolicySchema>
 // ---- notify (§6) --------------------------------------------------------------
 
 export const CHANNEL_KINDS = ['lark', 'teams', 'webhook'] as const
-export const NOTIFY_EVENTS = ['release.approval_requested', 'release.started', 'release.succeeded', 'release.failed', 'release.rejected', 'release.cancelled'] as const
+export const NOTIFY_EVENTS = ['release.approval_requested', 'release.started', 'release.succeeded', 'release.failed', 'release.rejected', 'release.cancelled', 'build.failed', 'build.warning'] as const
+
+/**
+ * A rule's service filter is typed as one line, so the form holds a string
+ * and the wire holds a list. Blank means every service.
+ */
+export function parseServices(s: string): string[] {
+  return s.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean)
+}
+
+const SERVICE_PATTERN = /^[a-z0-9*?-][a-z0-9*?.-]*$/
+
+export function servicesIssue(s: string): string | null {
+  const bad = parseServices(s).filter((p) => !SERVICE_PATTERN.test(p))
+  return bad.length === 0 ? null : i18n.t('av.badServicePattern', { patterns: bad.join(', ') })
+}
 
 export const channelSchema = z.object({
   name: z.string(),
@@ -421,6 +436,7 @@ export const notifySchema = z
         enabled: z.boolean(),
         envs: zEnvSelectors(),
         events: z.array(z.string()).superRefine((v, ctx) => addIssue(ctx, [], v.length === 0 ? i18n.t('av.pickEvent') : null)),
+        services: z.string().superRefine((v, ctx) => addIssue(ctx, [], servicesIssue(v))),
         channels: z.array(z.string()),
       }),
     ),

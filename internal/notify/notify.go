@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,15 +41,23 @@ const (
 	// a person. Nobody is watching Tide for it, so the channel is how they
 	// find out there is something to confirm.
 	EventPending = "release.pending"
+	// EventBuildFailed and EventBuildWarning never become releases: the
+	// first built nothing, the second built something but could not hand it
+	// over. Both are green pipelines as far as GitLab is concerned, so a
+	// channel is the only place they can surface.
+	EventBuildFailed  = "build.failed"
+	EventBuildWarning = "build.warning"
 )
 
-var Events = []string{EventPending, EventApproval, EventStarted, EventSucceeded, EventFailed, EventRejected, EventCancelled}
+var Events = []string{EventPending, EventApproval, EventStarted, EventSucceeded, EventFailed, EventRejected, EventCancelled,
+	EventBuildFailed, EventBuildWarning}
 
 // A notification goes to a shared channel rather than to one person's session,
 // so there is no request to take a language from. Like audit records, these
 // render in the deployment's default language and read the same for everyone.
 var eventText = map[string]i18n.Key{EventPending: "n.eventPending", EventApproval: "n.eventApproval", EventStarted: "n.eventStarted",
-	EventSucceeded: "n.eventSucceeded", EventFailed: "n.eventFailed", EventRejected: "n.eventRejected", EventCancelled: "n.eventCancelled"}
+	EventSucceeded: "n.eventSucceeded", EventFailed: "n.eventFailed", EventRejected: "n.eventRejected", EventCancelled: "n.eventCancelled",
+	EventBuildFailed: "n.eventBuildFailed", EventBuildWarning: "n.eventBuildWarning"}
 
 // t renders a notification message in the deployment's language.
 func t(k i18n.Key, args ...any) string { return i18n.T(i18n.Default, k, args...) }
@@ -81,7 +90,7 @@ func (n *Notifier) ReleaseEvent(ctx context.Context, r *release.Release, event s
 	if Suppressed(r, event) {
 		return
 	}
-	targets := Targets(cfg, r.Env, tier, event)
+	targets := Targets(cfg, r.Env, tier, event, serviceOf(r))
 	if len(targets) == 0 {
 		return
 	}
@@ -101,10 +110,13 @@ func Suppressed(r *release.Release, event string) bool {
 }
 
 // Targets resolves the enabled channels for an event in env, each once.
-func Targets(cfg settings.Notify, env, tier, event string) []settings.Channel {
+// service narrows it further where a rule asks for that; an empty service
+// only matches rules that did not.
+func Targets(cfg settings.Notify, env, tier, event, service string) []settings.Channel {
 	var names []string
 	for _, rule := range cfg.Rules {
-		if rule.Enabled && slices.Contains(rule.Events, event) && rbac.EnvMatches(rule.Envs, env, tier) {
+		if rule.Enabled && slices.Contains(rule.Events, event) && rbac.EnvMatches(rule.Envs, env, tier) &&
+			ServiceMatches(rule.Services, service) {
 			for _, c := range rule.Channels {
 				if !slices.Contains(names, c) {
 					names = append(names, c)
@@ -121,6 +133,73 @@ func Targets(cfg settings.Notify, env, tier, event string) []settings.Channel {
 	return out
 }
 
+// ServiceMatches reports whether service is one a rule with these selectors
+// wants. No selectors means every service: rules written before the field
+// existed must keep behaving as they did.
+func ServiceMatches(selectors []string, service string) bool {
+	if len(selectors) == 0 {
+		return true
+	}
+	for _, sel := range selectors {
+		if sel == "*" {
+			return true
+		}
+		if ok, err := path.Match(sel, service); err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
+// serviceOf is the one service a release is about, or "" when it touches
+// several — a rule scoped to one service should not fire on a batch that
+// merely happens to include it.
+func serviceOf(r *release.Release) string {
+	name := ""
+	for _, it := range r.Items {
+		s := ""
+		if p, err := r.RestartPayload(it); err == nil {
+			s = p.Service
+		} else if p, err := r.ImagePayload(it); err == nil {
+			s = p.Service
+		}
+		if s == "" {
+			continue
+		}
+		if name != "" && name != s {
+			return ""
+		}
+		name = s
+	}
+	return name
+}
+
+// BuildEvent delivers a pipeline outcome that will never become a release.
+// Unlike ReleaseEvent there is nothing to suppress and nothing to look up:
+// the pipeline told Tide everything this message contains.
+func (n *Notifier) BuildEvent(ctx context.Context, b Build, event string) {
+	cfg, err := n.Settings.Notify(ctx)
+	if err != nil || len(cfg.Rules) == 0 {
+		return
+	}
+	envs, _ := n.Settings.Environments(ctx)
+	tier := ""
+	if e, ok := envs.Named(b.Env); ok {
+		tier = e.Tier
+	}
+	targets := Targets(cfg, b.Env, tier, event, b.Service)
+	if len(targets) == 0 {
+		return
+	}
+	sys, _ := n.Settings.System(ctx)
+	for _, ch := range targets {
+		if err := n.send(ctx, ch, Message{Build: &b, Event: event, System: sys}); err != nil {
+			zap.L().Warn("notification failed", zap.String("channel", ch.Name),
+				zap.String("service", b.Service), zap.Error(err))
+		}
+	}
+}
+
 // Test sends a test message through ch regardless of rules or enabled state.
 func (n *Notifier) Test(ctx context.Context, ch settings.Channel) error {
 	sys, _ := n.Settings.System(ctx)
@@ -131,16 +210,64 @@ func (n *Notifier) Test(ctx context.Context, ch settings.Channel) error {
 // kind) or plain text.
 type Message struct {
 	Release *release.Release
+	Build   *Build
 	Event   string
 	System  settings.System
 	Text    string
 }
 
+// Build is a pipeline outcome that produced no release: a failed build, or
+// one that succeeded and could not tell Tide about it.
+type Build struct {
+	Service  string
+	Env      string
+	Stage    string // which job: compile / package / notify
+	Commit   string
+	Pipeline string // link back to GitLab
+	Actor    string
+	Reason   string // the commit title
+	Detail   string // the failing job's last lines, or the warning
+}
+
 func (m Message) text() string {
-	if m.Release == nil {
-		return m.Text
+	switch {
+	case m.Build != nil:
+		return BuildText(m.Build, m.Event, m.System)
+	case m.Release != nil:
+		return Text(m.Release, m.Event, m.System)
 	}
-	return Text(m.Release, m.Event, m.System)
+	return m.Text
+}
+
+// BuildText renders a build outcome for the channels that take plain text.
+func BuildText(b *Build, event string, sys settings.System) string {
+	var w strings.Builder
+	fmt.Fprintf(&w, "[%s] %s → %s  %s\n", sys.SiteName, b.Service, b.Env, t(eventText[event]))
+	if b.Stage != "" {
+		fmt.Fprint(&w, t("n.fieldStage")+b.Stage+"\n")
+	}
+	if b.Actor != "" {
+		fmt.Fprint(&w, t("n.fieldCreator")+b.Actor+"\n")
+	}
+	if b.Reason != "" {
+		fmt.Fprint(&w, t("n.fieldReason")+b.Reason+"\n")
+	}
+	if b.Detail != "" {
+		fmt.Fprintf(&w, "%s\n", clip(b.Detail, 800))
+	}
+	if b.Pipeline != "" {
+		fmt.Fprint(&w, b.Pipeline)
+	}
+	return w.String()
+}
+
+// clip cuts to n runes, not bytes: a channel's limit is not a reason to send
+// half a character.
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
 }
 
 func (n *Notifier) send(ctx context.Context, ch settings.Channel, msg Message) error {
@@ -210,12 +337,16 @@ func payload(ch settings.Channel, msg Message, now time.Time) ([]byte, error) {
 var cardColor = map[string]string{
 	EventPending: "orange", EventApproval: "orange", EventStarted: "blue", EventSucceeded: "green",
 	EventFailed: "red", EventRejected: "red", EventCancelled: "grey",
+	EventBuildFailed: "red", EventBuildWarning: "orange",
 }
 
 // LarkCard renders a release event as a Lark interactive card with a button
 // back to Tide (approvers land straight on the release). Plain text messages
 // (the channel test) return nil and go out as text.
 func LarkCard(msg Message) map[string]any {
+	if msg.Build != nil {
+		return larkBuildCard(msg)
+	}
 	r := msg.Release
 	if r == nil {
 		return nil
@@ -270,6 +401,52 @@ func LarkCard(msg Message) map[string]any {
 			// t(), not the key: eventText holds catalog keys, and printing one
 			// straight into the title puts "n.eventPending" on the card.
 			"title": map[string]string{"tag": "plain_text", "content": fmt.Sprintf("%s · %s", subjectOf(r), t(eventText[msg.Event]))},
+		},
+		"elements": elements,
+	}
+}
+
+// larkBuildCard is the build outcome's card. The button goes to GitLab, not
+// to Tide: there is no release to look at, and the pipeline log is what the
+// person reading this needs.
+func larkBuildCard(msg Message) map[string]any {
+	b := msg.Build
+	color := cardColor[msg.Event]
+	if color == "" {
+		color = "red"
+	}
+	stage := b.Stage
+	if stage == "" {
+		stage = "—"
+	}
+	fields := []any{
+		larkField(t("n.fieldEnv") + b.Env),
+		larkField(t("n.fieldStage") + stage),
+	}
+	if b.Actor != "" {
+		fields = append(fields, larkField(t("n.fieldCreator")+b.Actor))
+	}
+	if b.Commit != "" {
+		fields = append(fields, larkField("**Commit**\n"+clip(b.Commit, 12)))
+	}
+	elements := []any{map[string]any{"tag": "div", "fields": fields}}
+	if b.Reason != "" {
+		elements = append(elements, map[string]any{"tag": "div", "text": larkText(t("n.fieldReason") + b.Reason)})
+	}
+	if b.Detail != "" {
+		elements = append(elements, map[string]any{"tag": "div", "text": larkText("```\n" + clip(b.Detail, 800) + "\n```")})
+	}
+	if b.Pipeline != "" {
+		elements = append(elements, map[string]any{"tag": "action", "actions": []any{map[string]any{
+			"tag": "button", "type": "primary", "url": b.Pipeline,
+			"text": map[string]string{"tag": "plain_text", "content": t("n.viewPipeline")},
+		}}})
+	}
+	return map[string]any{
+		"config": map[string]any{"wide_screen_mode": true},
+		"header": map[string]any{
+			"template": color,
+			"title":    map[string]string{"tag": "plain_text", "content": fmt.Sprintf("%s · %s", b.Service, t(eventText[msg.Event]))},
 		},
 		"elements": elements,
 	}

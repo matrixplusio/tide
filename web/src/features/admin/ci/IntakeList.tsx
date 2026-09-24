@@ -12,6 +12,7 @@ const FILTERS = [
   ['released', 'ci.filterReleased'],
   ['failed', 'ci.filterFailed'],
   ['expired', 'ci.filterExpired'],
+  ['build_failed', 'ci.filterBuildFailed'],
 ] as const
 
 // A waiting intake is not a problem: a warehouse discovers an image on its own
@@ -21,6 +22,15 @@ const DOT: Record<IntakeStatus, 'ok' | 'off' | 'warn' | 'bad'> = {
   released: 'ok',
   failed: 'bad',
   expired: 'bad',
+  build_failed: 'bad',
+}
+
+const STATUS_LABELS: Record<IntakeStatus, string> = {
+  waiting: 'ci.stWaiting',
+  released: 'ci.stReleased',
+  failed: 'ci.stFailed',
+  expired: 'ci.stExpired',
+  build_failed: 'ci.stBuildFailed',
 }
 
 export function IntakeList() {
@@ -30,8 +40,7 @@ export function IntakeList() {
   const intakes = useCIIntakes({ status: status || undefined, page })
   const list = intakes.data?.items ?? []
 
-  const statusLabel = (s: IntakeStatus) =>
-    s === 'waiting' ? t('ci.stWaiting') : s === 'released' ? t('ci.stReleased') : s === 'failed' ? t('ci.stFailed') : t('ci.stExpired')
+  const statusLabel = (s: IntakeStatus) => t(STATUS_LABELS[s])
 
   return (
     <>
@@ -57,6 +66,7 @@ export function IntakeList() {
               <div className="grow">
                 <div className="t ellipsis">
                   {x.service} <span className="muted">→ {x.env}</span>
+                  {x.stage && <span className="muted">{' · '}{x.stage}</span>}
                   {x.releaseId && (
                     <>
                       {' · '}
@@ -70,9 +80,10 @@ export function IntakeList() {
                   {x.actor ? t('ci.byActor', { actor: x.actor }) + ' · ' : ''}
                   {fmtTime(x.createdAt)}
                   {x.error ? ` · ${x.error}` : ''}
+                  {x.warning ? ` · ${x.warning}` : ''}
                 </div>
               </div>
-              <span className="v nowrap mono muted">{x.digest.slice(0, 19)}…</span>
+              <span className="v nowrap mono muted">{x.digest ? `${x.digest.slice(0, 19)}…` : '—'}</span>
             </Row>
           ))}
         </Group>

@@ -378,6 +378,10 @@ type NotifyRule struct {
 	Envs     []string `json:"envs"`   // env selectors: "*", "tier:<tier>", "<env>"
 	Events   []string `json:"events"` // release.started / succeeded / failed / cancelled
 	Channels []string `json:"channels"`
+	// Services narrows a rule to some of them, as exact names or "cart-*"
+	// globs. Empty means every service, which is what every rule written
+	// before this field existed meant.
+	Services []string `json:"services,omitempty"`
 }
 
 func DefaultNotify() Notify { return Notify{Channels: []Channel{}, Rules: []NotifyRule{}} }

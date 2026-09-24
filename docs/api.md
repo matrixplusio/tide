@@ -361,24 +361,49 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
 **不走会话**，用 `Authorization: Bearer <令牌>` 认证（令牌在设置 → CI 触发里创建）。
 这是令牌唯一能打的端点。
 
+构建**成功和失败都打这个端点**，用 `status` 区分。失败只做通知，不产生任何发布单。
+
+成功：
+
 ```json
-{ "service": "order-api", "env": "qa",
+{ "status": "succeeded", "service": "order-api", "env": "qa",
   "digest": "sha256:…", "image": "registry.example.com/acme/order-api:1.2.3",
   "commit": "0a1b2c3", "pipeline": "https://gitlab.example.com/…/pipelines/1",
   "actor": "someone", "jiraTicket": "OPS-1", "reason": "修复下单超时" }
 ```
 
-- 必填：`service`、`env`、`digest`。`digest` 也接受 `repo@sha256:…` 形式，服务端截出摘要。
-- `Idempotency-Key` 头可选，默认取 `digest`。**同一个键只会产生一张发布单**（数据库唯一索引），
-  重跑流水线是安全的。
+失败：
+
+```json
+{ "status": "failed", "service": "order-api", "env": "qa",
+  "stage": "compile", "commit": "0a1b2c3",
+  "pipeline": "https://gitlab.example.com/…/pipelines/1",
+  "actor": "someone", "reason": "修复下单超时",
+  "error": "portal/order.go:42: undefined: total" }
+```
+
+- 必填：`service`、`env`。`status` 省略等于 `succeeded`——**改这个接口之前写的流水线不用动**。
+- `status: "succeeded"` 时 `digest` 必填，也接受 `repo@sha256:…`，服务端截出摘要。
+  `status: "failed"` 时 `digest`、`image` 都不用给。
+- `stage` 是出问题的那个 job（`compile` / `package` / `notify`），小写，可选但失败时建议带上：
+  它能说清坏在哪一步，比「pipeline failed」有用。
+- `error` 是失败那步的末尾日志，≤ 4000 字符，进通知卡片时再截到 800。
+- `warning`（≤ 1000）是**构建成功但没能交接**：拿不到令牌、拿不到 digest。镜像推上去了、
+  流水线是绿的，不报就没人知道。它仍算 `succeeded`，正常走 CD，同时单独发一条通知。
+- `Idempotency-Key` 头可选。成功默认取 `digest`；**失败没有 digest，必须自己带**，
+  建议 `<pipeline-id>-<job-name>`。同一个键只处理一次，重跑流水线是安全的。
 - → `{ …intake, "accepted": bool }`。`accepted=false` 表示这是一次重复通知，返回的是原来那条。
-- 立刻返回，**不等制品**：Kargo 的 Warehouse 还没扫到时 intake 停在 `waiting`，
-  后台每 20 秒重试，30 分钟没等到标记 `expired`。
-- 之后按环境的 `ci`：`approve` 建单等人确认，`auto` 直接发布（该环境若配了审批规则仍走审批）。
-- 错误：1002（没带令牌）、2030（令牌无效或已撤销）、1004（环境不存在）、3020（环境未开启）、4006（服务未部署到该环境）、1007。
+- 成功时立刻返回，**不等制品**：Kargo 的 Warehouse 还没扫到时 intake 停在 `waiting`，
+  后台每 20 秒重试，30 分钟没等到标记 `expired`。之后按环境的 `ci`：`approve` 建单等人确认，
+  `auto` 直接发布（该环境若配了审批规则仍走审批）。
+- 失败时 intake 直接落在终态 `build_failed`，不进后台队列。**失败不校验服务有没有部署、
+  环境是不是直连**——那些检查问的都是「这个镜像能不能发到这里」，而失败根本没有镜像；
+  因为部署侧还没配好就把构建失败吞掉，等于让它无声无息。
+- 错误：1002（没带令牌）、2030（令牌无效或已撤销）、1004（环境不存在）、3020（环境未开启，失败不适用）、4006（服务未部署到该环境，失败不适用）、1007。
 
 ### `GET /api/v1/ci/intakes?status=&page=&page_size=`
-收到的通知与结果（`releases.view`）。`status` ∈ `waiting` / `released` / `failed` / `expired`。
+收到的通知与结果（`releases.view`）。`status` ∈ `waiting` / `released` / `failed` / `expired` / `build_failed`。
+`failed` 是 Tide 拿到镜像却没能发出去，`build_failed` 是根本没构建出东西，两者不同。
 
 ### `GET /api/v1/ci/tokens` · `POST /api/v1/ci/tokens` · `DELETE /api/v1/ci/tokens/:token`
 令牌管理（`settings.manage`）。POST `{ name }` → `{ token, secret }`，**`secret` 只在这里出现一次**，
