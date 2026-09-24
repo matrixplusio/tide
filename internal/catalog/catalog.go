@@ -368,6 +368,23 @@ func (h *Hub) Recent(age time.Duration) *Snapshot {
 // that must see their own write. A snapshot older than staleLimit is not
 // served at all: past that it is no longer "slightly behind", and a caller is
 // better off waiting than being misled.
+// Cached returns the last snapshot built, however old, and nil when nothing
+// has been built yet. It never reads an upstream.
+//
+// For the one caller that must not wait under any circumstance: the endpoint
+// a build pipeline calls. Everything it wants the catalog for — does this
+// service exist, does this environment take images straight from a warehouse
+// — is checked again by the worker afterwards, and the endpoint is written to
+// accept the notification when it cannot tell. Making a pipeline wait out a
+// fan-out across every upstream to learn something that is rechecked anyway
+// is how a ten-second timeout in somebody's CI turns into a build that
+// reports failure for a release that in fact happened.
+func (h *Hub) Cached() *Snapshot {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.snap
+}
+
 func (h *Hub) Snapshot(ctx context.Context, fresh bool) (*Snapshot, error) {
 	gen, err := h.generation(ctx)
 	if err != nil {
