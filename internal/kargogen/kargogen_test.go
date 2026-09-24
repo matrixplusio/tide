@@ -359,14 +359,49 @@ func TestAProjectThatAlreadyNamesTheDomainIsNotDoubled(t *testing.T) {
 		"project and domain are one":         {"shop", "shop", "shop"},
 		"a domain that merely ends the same": {"acme-workshop", "shop", "acme-workshop-shop"},
 	} {
-		got := projectName(catalog.Service{Project: tc.project, Domain: tc.domain}, true)
+		got := projectName(catalog.Service{Project: tc.project, Domain: tc.domain}, Options{ProjectPrefix: true})
 		if got != tc.want {
 			t.Errorf("%s: got %q, want %q", name, got, tc.want)
 		}
 	}
 
 	// Without the prefix the domain stands alone, whatever the project says.
-	if got := projectName(catalog.Service{Project: "acme", Domain: "shop"}, false); got != "shop" {
+	if got := projectName(catalog.Service{Project: "acme", Domain: "shop"}, Options{}); got != "shop" {
 		t.Errorf("bare domain: got %q", got)
+	}
+}
+
+// A Kargo project creates a cluster-scoped namespace of its own name, so the
+// names it takes are names nothing else can have. Left to the domain alone
+// they are exactly the names the workloads themselves want — "base", "shop" —
+// and an environment that later asks for one finds it held by a project with
+// no workloads in it. The prefix keeps the two apart.
+func TestAProjectNamePrefixKeepsKargoOutOfTheWorkloadNames(t *testing.T) {
+	snap := &catalog.Snapshot{Services: []catalog.Service{
+		svcIn("cart", "acme", "shop", depIn("dev", "registry.example.com/acme-dev/cart")),
+	}}
+
+	// Configured: in front of the whole name, business line and all.
+	r := Generate(snap, envs("dev"), Options{ProjectPrefix: true, NamePrefix: "kargo-"})
+	if len(r.Domains) != 1 || r.Domains[0].Name != "kargo-acme-shop" {
+		t.Fatalf("prefix missing from the project name: %+v", r.Domains)
+	}
+	find(t, r, "kargo-acme-shop/project.yaml")
+	if !strings.Contains(find(t, r, "kargo-acme-shop/stages.yaml"), "namespace: kargo-acme-shop") {
+		t.Error("the stage was written into a different namespace than the project")
+	}
+
+	// Not configured: exactly as before, so an installation that has not
+	// asked for this sees nothing change.
+	r = Generate(snap, envs("dev"), Options{ProjectPrefix: true})
+	if r.Domains[0].Name != "acme-shop" {
+		t.Errorf("unconfigured must be unchanged, got %q", r.Domains[0].Name)
+	}
+
+	// It goes in front of the bare domain too, which is the case that needs
+	// it most: "shop" is a name a workload namespace would want.
+	r = Generate(snap, envs("dev"), Options{NamePrefix: "kargo-"})
+	if r.Domains[0].Name != "kargo-shop" {
+		t.Errorf("bare domain with a prefix: got %q", r.Domains[0].Name)
 	}
 }

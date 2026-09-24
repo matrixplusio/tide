@@ -403,6 +403,8 @@ const zhCN = {
     tagPattern: 'tag 过滤',
     tagPatternHint: '只有匹配的 tag 参与选择。默认 ^[0-9]，把 latest、cache、分支名排除在外——字典序下它们会排在所有数字前面',
     projectNaming: 'Project 命名',
+    namePrefix: '名称前缀',
+    namePrefixHint: '加在每个 Kargo Project 名前面。Kargo Project 会建一个同名的集群级 namespace，不加前缀时它占的正是业务负载要用的名字（base、orders），以后某个环境要用就发现被占了。一般填 kargo-。改动会让所有 Project 改名：必须先把 Application 的 authorized-stage 注解改过去，否则 Kargo 会拒绝每一次晋级，而且不说原因',
     bareDomain: '只用业务域（base），不带项目前缀',
     bareDomainHint: '默认是「项目-业务域」（acme-base）。Kargo Project 就是集群级的 namespace，不带前缀时两条业务线各有一个同名业务域就会撞',
     identity: '令牌属于 {{user}}，对 {{project}} 有写入权限。推送产生的提交会记在这个账号名下。',

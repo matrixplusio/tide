@@ -401,6 +401,8 @@ const en: Messages = {
     tagPattern: 'Tag filter',
     tagPatternHint: 'Only matching tags are considered. Default ^[0-9] leaves out latest, cache and branch names, which would otherwise sort above every digit',
     projectNaming: 'Project naming',
+    namePrefix: 'Name prefix',
+    namePrefixHint: 'Goes in front of every Kargo project name. A Kargo project creates a cluster-scoped namespace of the same name, so without one it takes the names the workloads themselves want — \u201cbase\u201d, \u201corders\u201d — and an environment that later asks for one finds it held. \u201ckargo-\u201d is the obvious choice. Changing it renames every project: move the Applications\u2019 authorized-stage annotations first, or Kargo refuses every promotion without saying why.',
     bareDomain: 'Use the domain alone (base), without the project prefix',
     bareDomainHint: 'Default is project-and-domain (acme-base). A Kargo project is a cluster-scoped namespace, so two business lines each having a \u201cbase\u201d domain would collide without the prefix',
     identity: 'The token belongs to {{user}} and can write {{project}}. Commits will be authored by that account.',
