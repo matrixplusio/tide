@@ -395,3 +395,66 @@ func TestListIntakesFiltersByStatus(t *testing.T) {
 		t.Fatalf("filtered page 2: %d rows, total %d", len(page), total)
 	}
 }
+
+// A build that failed is written in its terminal state and must never reach
+// the worker: there is no freight coming, so an intake that sat in `waiting`
+// would be retried for half an hour and then reported as a timeout, which is
+// not what happened.
+func TestABuildFailureIsBornFinished(t *testing.T) {
+	s, _ := testdb.Setup(t)
+	ctx := context.Background()
+	tok, _ := token(t, s, "d")
+	key := "pipeline-42-compile"
+	in, accepted, err := s.CI.Accept(ctx, pg.CIIntake{
+		Key: key, Service: "svc", Env: "dev", Stage: "compile", TokenID: tok.ID,
+		Status: pg.IntakeBuildFailed, Error: "undefined: total",
+	})
+	if err != nil || !accepted {
+		t.Fatalf("accept: %v %v", accepted, err)
+	}
+	if in.Status != pg.IntakeBuildFailed || in.Stage != "compile" || in.Error != "undefined: total" {
+		t.Fatalf("stored wrong: %+v", in)
+	}
+	// No digest at all, where the column used to be NOT NULL with no default.
+	if in.Digest != "" {
+		t.Errorf("a failed build has no digest, got %q", in.Digest)
+	}
+	if list, err := s.CI.Waiting(ctx, 10); err != nil || len(list) != 0 {
+		t.Fatalf("a failed build must not be waiting for freight: %d %v", len(list), err)
+	}
+	// And the expiry sweep must leave it alone however old it gets.
+	if list, err := s.CI.Expired(ctx, 0); err != nil || len(list) != 0 {
+		t.Fatalf("a failed build cannot time out: %d %v", len(list), err)
+	}
+	// Retrying the same job is the same intake, not a second announcement.
+	_, again, err := s.CI.Accept(ctx, pg.CIIntake{Key: key, Service: "svc", Env: "dev", TokenID: tok.ID, Status: pg.IntakeBuildFailed})
+	if err != nil || again {
+		t.Fatalf("a re-run announced itself twice: %v %v", again, err)
+	}
+	if got, _, err := s.CI.ListIntakes(ctx, pg.IntakeBuildFailed, 1, 10); err != nil || len(got) != 1 {
+		t.Fatalf("build_failed must be filterable: %d %v", len(got), err)
+	}
+}
+
+// A build that pushed its image but could not hand it over still goes through
+// the ordinary waiting path — there is something to release — and carries the
+// warning so it can be announced and seen later.
+func TestAWarningRidesAlongWithAnOrdinaryIntake(t *testing.T) {
+	s, _ := testdb.Setup(t)
+	ctx := context.Background()
+	tok, _ := token(t, s, "e")
+	digest := "sha256:" + strings.Repeat("e", 64)
+	in, _, err := s.CI.Accept(ctx, pg.CIIntake{
+		Key: digest, Service: "svc", Env: "dev", Digest: digest, TokenID: tok.ID,
+		Warning: "no digest from the registry",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.Status != pg.IntakeWaiting || in.Warning != "no digest from the registry" {
+		t.Fatalf("a warning must not change what happens to the release: %+v", in)
+	}
+	if list, err := s.CI.Waiting(ctx, 10); err != nil || len(list) != 1 {
+		t.Fatalf("it still waits for its freight: %d %v", len(list), err)
+	}
+}
