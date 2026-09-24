@@ -78,6 +78,9 @@ type Options struct {
 	// prefixing with the line ("acme-base") matches how the deployment
 	// namespaces are already named.
 	ProjectPrefix bool
+	// NamePrefix goes in front of the whole project name; see
+	// settings.PipelineRepo.ProjectNamePrefix.
+	NamePrefix string
 	// TaskName is the shared promotion task's name within each project.
 	TaskName string
 	// Labels put on every generated Stage, so promotion policies can select
@@ -89,7 +92,11 @@ type Options struct {
 
 // projectName is what the Kargo project is called: the domain, optionally
 // behind the business line it belongs to.
-func projectName(svc catalog.Service, prefix bool) string {
+func projectName(svc catalog.Service, opts Options) string {
+	return opts.NamePrefix + domainProject(svc, opts.ProjectPrefix)
+}
+
+func domainProject(svc catalog.Service, prefix bool) string {
 	if !prefix || svc.Project == "" {
 		return svc.Domain
 	}
@@ -149,7 +156,7 @@ func Generate(snap *catalog.Snapshot, envs settings.Environments, opts Options) 
 		if opts.Domain != "" && svc.Domain != opts.Domain {
 			continue
 		}
-		name := projectName(svc, opts.ProjectPrefix)
+		name := projectName(svc, opts)
 		byDomain[name] = append(byDomain[name], svc)
 	}
 

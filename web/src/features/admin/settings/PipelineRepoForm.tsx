@@ -18,6 +18,7 @@ function toValues(r: PipelineRepo | null | undefined): PipelineRepoValues {
     pathPrefix: r?.pathPrefix ?? '',
     token: r?.token ?? '',
     bareDomain: r?.bareDomain ?? false,
+    projectNamePrefix: r?.projectNamePrefix ?? '',
     imageStrategy: (r?.imageStrategy as PipelineRepoValues['imageStrategy']) || 'Lexical',
     tagPattern: r?.tagPattern ?? '',
   }
@@ -47,6 +48,7 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
         pathPrefix: (v.pathPrefix ?? '').trim(),
         token: v.token,
         bareDomain: v.bareDomain,
+        projectNamePrefix: v.projectNamePrefix.trim(),
         imageStrategy: v.imageStrategy,
         tagPattern: (v.tagPattern ?? '').trim(),
       })
@@ -105,6 +107,9 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
         </FormField>
         <FormField label={t('kargogen.tagPattern')} error={e.tagPattern?.message} hint={t('kargogen.tagPatternHint')}>
           {(p) => <Input {...p} {...form.register('tagPattern')} mono placeholder="^[0-9]" autoComplete="off" spellCheck={false} />}
+        </FormField>
+        <FormField label={t('kargogen.namePrefix')} error={form.formState.errors.projectNamePrefix?.message} hint={t('kargogen.namePrefixHint')}>
+          {(p) => <Input {...p} {...form.register('projectNamePrefix')} placeholder="kargo-" />}
         </FormField>
         <FormField label={t('kargogen.projectNaming')} plainLabel hint={t('kargogen.bareDomainHint')}>
           {(p) => <Checkbox id={p.id} {...form.register('bareDomain')} label={t('kargogen.bareDomain')} />}
