@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import type { Deployment } from '../../lib/types'
 import { Link } from 'react-router-dom'
 import { useMe } from '../../app/session'
 import { can } from '../../lib/permissions'
@@ -6,6 +7,37 @@ import { ErrCode } from '../../lib/errcode'
 import { Banner, Chev, EmptyState, ErrorState, Group, GroupHeader, Loading, Note, Page, Pill, Row, StatusDot, Toolbar } from '../../components/ui'
 import { DeployDot, NoUpstreamsBanner, RefreshNow, ReleaseRow } from '../../components/domain'
 import { useOverview } from './queries'
+
+/** One list of deployments worth looking at, with an anchor the card above
+ *  can point at. The server caps what it sends; the footer says what is not
+ *  shown rather than letting the list imply it is everything. */
+function DeploymentList({ id, heading, items, total }: { id: string; heading: string; items: Deployment[]; total: number }) {
+  const { t } = useTranslation()
+  if (items.length === 0) return null
+  return (
+    <>
+      <GroupHeader id={id}>{heading}</GroupHeader>
+      <Group>
+        {items.map((x) => (
+          <Row key={x.app} to={`/services/${encodeURIComponent(x.service)}/envs/${encodeURIComponent(x.env)}`}>
+            <DeployDot d={x} />
+            <div className="grow">
+              <div className="t">
+                {x.service} · {x.env}
+              </div>
+              <div className="d">
+                {x.sync} · {x.health}
+                {x.healthMessage ? ` · ${x.healthMessage}` : ''}
+              </div>
+            </div>
+            <Chev />
+          </Row>
+        ))}
+      </Group>
+      {total > items.length && <Note>{t('overview.andMore', { count: total - items.length })}</Note>}
+    </>
+  )
+}
 
 export function OverviewPage() {
   const { t } = useTranslation()
@@ -26,6 +58,7 @@ export function OverviewPage() {
   const recentFailed = d?.recentFailed ?? []
   const recent = d?.recent ?? []
   const unhealthy = d?.unhealthy ?? []
+  const drifted = d?.drifted ?? []
   const envOrder = d?.envOrder ?? []
 
   return (
@@ -98,9 +131,18 @@ export function OverviewPage() {
               </div>
               <div className="card">
                 <div className="k">{t('overview.unhealthy')}</div>
+                {/* Both numbers lead somewhere. A count with nowhere to go
+                    tells somebody thirty-five services disagree with git and
+                    leaves them to find out which on their own. */}
                 <div className={`n ${unhealthy.length ? 'orange' : ''}`}>
-                  {unhealthy.length}
-                  <small>{t('overview.drifted', { count: d.drifted })}</small>
+                  {unhealthy.length > 0 ? <a href="#unhealthy" className="inherit">{unhealthy.length}</a> : 0}
+                  <small>
+                    {d.driftedCount > 0 ? (
+                      <a href="#drifted">{t('overview.drifted', { count: d.driftedCount })}</a>
+                    ) : (
+                      t('overview.drifted', { count: 0 })
+                    )}
+                  </small>
                 </div>
               </div>
               <div className="card">
@@ -152,28 +194,8 @@ export function OverviewPage() {
               </>
             )}
 
-            {unhealthy.length > 0 && (
-              <>
-                <GroupHeader>{t('overview.unhealthy')}</GroupHeader>
-                <Group>
-                  {unhealthy.slice(0, 20).map((x) => (
-                    <Row key={x.app} to={`/services/${encodeURIComponent(x.service)}/envs/${encodeURIComponent(x.env)}`}>
-                      <DeployDot d={x} />
-                      <div className="grow">
-                        <div className="t">
-                          {x.service} · {x.env}
-                        </div>
-                        <div className="d">
-                          {x.sync} · {x.health}
-                          {x.healthMessage ? ` · ${x.healthMessage}` : ''}
-                        </div>
-                      </div>
-                      <Chev />
-                    </Row>
-                  ))}
-                </Group>
-              </>
-            )}
+            <DeploymentList id="unhealthy" heading={t('overview.unhealthy')} items={unhealthy} total={unhealthy.length} />
+            <DeploymentList id="drifted" heading={t('overview.driftedHeading')} items={drifted} total={d.driftedCount} />
 
             <GroupHeader right={<Link to="/releases">{t('overview.all')}</Link>}>{t('overview.recent')}</GroupHeader>
             <Group>

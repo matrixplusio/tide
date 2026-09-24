@@ -54,7 +54,12 @@ func (a *API) overview(c *gin.Context) {
 		seen := vis.services(snap.Services)
 		stats, unhealthy, drifted, domains := fleetState(seen)
 		out["upstreams"], out["envOrder"], out["envStats"] = snap.Upstreams, snap.EnvOrder, stats
-		out["unhealthy"], out["drifted"] = unhealthy, drifted
+		// The count alone was a number with nowhere to go: it said thirty-five
+		// services disagree with git and offered no way to learn which. Both
+		// lists are capped — drift is the resting state of a fleet nobody
+		// prunes, and a list of almost everything is not a list.
+		out["unhealthy"], out["drifted"] = capped(unhealthy), capped(drifted)
+		out["driftedCount"] = len(drifted)
 		out["serviceCount"], out["domainCount"] = len(seen), domains
 	}
 	// Releases are listed within the same scope as the services they touch.
@@ -575,6 +580,18 @@ func promotionView(p *kargo.Promotion) PromotionView {
 	return v
 }
 
+// overviewListMax bounds each list on the overview. Past it the page says how
+// many more there are and sends the reader to the services page, which is
+// built for looking through hundreds of rows.
+const overviewListMax = 20
+
+func capped(ds []*catalog.Deployment) []*catalog.Deployment {
+	if len(ds) > overviewListMax {
+		return ds[:overviewListMax]
+	}
+	return ds
+}
+
 // envStat is one environment's line on the overview.
 type envStat struct {
 	Services  int `json:"services"`
@@ -593,13 +610,12 @@ type envStat struct {
 // monitoring rather than as a fleet that mostly works. Only the unhealthy
 // ones are listed; drift is a count, because a list of almost everything is
 // not a list.
-func fleetState(svcs []catalog.Service) (map[string]*envStat, []*catalog.Deployment, int, int) {
-	stats := map[string]*envStat{}
-	unhealthy := []*catalog.Deployment{}
-	drifted := 0
-	domains := map[string]bool{}
+func fleetState(svcs []catalog.Service) (stats map[string]*envStat, unhealthy, drifted []*catalog.Deployment, domains int) {
+	stats = map[string]*envStat{}
+	unhealthy, drifted = []*catalog.Deployment{}, []*catalog.Deployment{}
+	seen := map[string]bool{}
 	for _, svc := range svcs {
-		domains[svc.Domain] = true
+		seen[svc.Domain] = true
 		for env, d := range svc.Envs {
 			if stats[env] == nil {
 				stats[env] = &envStat{}
@@ -611,9 +627,9 @@ func fleetState(svcs []catalog.Service) (map[string]*envStat, []*catalog.Deploym
 			}
 			if d.Sync != "Synced" {
 				stats[env].Drifted++
-				drifted++
+				drifted = append(drifted, d)
 			}
 		}
 	}
-	return stats, unhealthy, drifted, len(domains)
+	return stats, unhealthy, drifted, len(seen)
 }
