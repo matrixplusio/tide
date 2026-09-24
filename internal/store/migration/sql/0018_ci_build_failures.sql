@@ -16,6 +16,21 @@ ALTER TABLE ci_intake ADD COLUMN warning TEXT NOT NULL DEFAULT '';
 
 -- 'build_failed' is a terminal state of its own. It is not 'failed', which
 -- means Tide had an image and could not release it.
-ALTER TABLE ci_intake DROP CONSTRAINT ci_intake_status_check;
+--
+-- The old constraint was declared inline on the column, so its name was
+-- chosen by Postgres. Looking it up beats guessing it: a guess that is wrong
+-- fails the migration, and a migration that fails is a deployment that does
+-- not start.
+DO $$
+DECLARE c TEXT;
+BEGIN
+    SELECT conname INTO c FROM pg_constraint
+     WHERE conrelid = 'ci_intake'::regclass AND contype = 'c'
+       AND pg_get_constraintdef(oid) LIKE '%status%';
+    IF c IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE ci_intake DROP CONSTRAINT %I', c);
+    END IF;
+END $$;
+
 ALTER TABLE ci_intake ADD CONSTRAINT ci_intake_status_check
     CHECK (status IN ('waiting','released','failed','expired','build_failed'));
