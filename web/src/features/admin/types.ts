@@ -89,7 +89,7 @@ export const CI_MODES = ['off', 'approve', 'auto'] as const
 export type CIMode = (typeof CI_MODES)[number]
 
 export type ChannelKind = 'lark' | 'teams' | 'webhook'
-export type NotifyEvent = 'release.pending' | 'release.approval_requested' | 'release.started' | 'release.succeeded' | 'release.failed' | 'release.rejected' | 'release.cancelled'
+export type NotifyEvent = 'release.pending' | 'release.approval_requested' | 'release.started' | 'release.succeeded' | 'release.failed' | 'release.rejected' | 'release.cancelled' | 'build.failed' | 'build.warning'
 
 export interface Channel {
   name: string
@@ -105,6 +105,8 @@ export interface NotifyRule {
   envs: string[]
   events: NotifyEvent[]
   channels: string[]
+  /** Exact names or globs ("cart-*"). Empty means every service. */
+  services?: string[]
 }
 
 export interface Notify {
@@ -231,7 +233,7 @@ export interface CIToken {
   revokedAt?: string | null
 }
 
-export type IntakeStatus = 'waiting' | 'released' | 'failed' | 'expired'
+export type IntakeStatus = 'waiting' | 'released' | 'failed' | 'expired' | 'build_failed'
 
 /** One notification from a pipeline and what became of it. */
 export interface CIIntake {
@@ -242,12 +244,14 @@ export interface CIIntake {
   image: string
   digest: string
   commit?: string
+  stage?: string
   pipeline?: string
   actor?: string
   jiraTicket?: string
   status: IntakeStatus
   releaseId?: string
   error?: string
+  warning?: string
   attempts: number
   createdAt: string
   updatedAt: string

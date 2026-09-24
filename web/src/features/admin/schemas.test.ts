@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bindingSchema, bindingSubject, environmentsSchema, envSelectorsIssue, mapListField, notifySchema, releasePolicySchema, securitySchema } from './schemas'
+import { bindingSchema, bindingSubject, environmentsSchema, envSelectorsIssue, mapListField, notifySchema, parseServices, releasePolicySchema, securitySchema, servicesIssue } from './schemas'
 
 const security = {
   sessionTtlMinutes: '60',
@@ -53,9 +53,19 @@ describe('notify', () => {
   it('rules must point at existing channels and pick events', () => {
     const r = notifySchema.safeParse({
       channels: [{ name: 'ops', kind: 'lark', url: 'https://example.com/hook', secret: '', enabled: true }],
-      rules: [{ name: 'prod', enabled: true, envs: ['*'], events: [], channels: ['dev'] }],
+      rules: [{ name: 'prod', enabled: true, envs: ['*'], events: [], services: '', channels: ['dev'] }],
     })
     expect(issues(r)).toEqual({ 'rules.0.events': '请至少选择一个事件', 'rules.0.channels': '渠道 dev 不存在' })
+  })
+
+  // The filter is typed as one line and sent as a list, so blank has to keep
+  // meaning "every service" rather than "a service with no name".
+  it('service patterns are optional, and checked when given', () => {
+    expect(parseServices('')).toEqual([])
+    expect(parseServices(' cart-*,  portal-api ')).toEqual(['cart-*', 'portal-api'])
+    expect(servicesIssue('')).toBeNull()
+    expect(servicesIssue('cart-*, portal-api')).toBeNull()
+    expect(servicesIssue('Cart API')).not.toBeNull()
   })
 })
 

@@ -367,6 +367,8 @@ var enNotify = map[Key]string{
 	"n.eventPending":      "Awaiting confirmation",
 	"n.eventCancelled":    "Cancelled",
 	"n.eventFailed":       "Failed",
+	"n.eventBuildFailed":  "Build failed",
+	"n.eventBuildWarning": "Build could not reach Tide",
 	"n.eventRejected":     "Rejected",
 	"n.eventStarted":      "Started",
 	"n.eventSucceeded":    "Succeeded",
@@ -374,6 +376,7 @@ var enNotify = map[Key]string{
 	"n.fieldCreator":      "**Started by**\n",
 	"n.fieldEnv":          "**Environment**\n",
 	"n.fieldReason":       "**Reason**\n",
+	"n.fieldStage":        "**Stage**\n",
 	"n.fieldRelease":      "**Release**\n",
 	"n.firstTime":         "(first time)",
 	"n.goApprove":         "Review it",
@@ -387,6 +390,7 @@ var enNotify = map[Key]string{
 	"n.plainHeader":       "[%s] %s %s %s\nJira: %s · started by: %s\n",
 	"n.test":              "[%s] Notification test: channel \"%s\" is configured correctly.",
 	"n.viewRelease":       "Open the release",
+	"n.viewPipeline":      "Open the pipeline",
 }
 
 // Auth, routing and catalog messages, mirroring zhCNMisc.
@@ -448,6 +452,8 @@ var enCI = map[Key]string{
 	"ci.imageFormat":                "Malformed image reference",
 	"ci.commitFormat":               "Malformed commit: expected 7-64 hexadecimal characters",
 	"ci.actorFormat":                "Malformed actor",
+	"ci.statusFormat":               "status must be succeeded or failed",
+	"ci.stageFormat":                "Malformed stage",
 	"ci.keyFormat":                  "Malformed Idempotency-Key",
 	"ci.freightNeverArrived":        "Gave up after %[2]s: Kargo never offered image %[1]s. Check that a warehouse watches this repository",
 	"ci.freightNeverArrivedBecause": "Gave up after %[2]s: Kargo never offered image %[1]s. Its artifact discovery is failing: %[3]s",

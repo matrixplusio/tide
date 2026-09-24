@@ -7,7 +7,7 @@ import { applyServerError } from '../../../lib/forms'
 import { Button, ButtonRow, Checkbox, CheckboxGroup, EmptyState, Form, FormErrorBanner, FormField, Group, GroupHeader, Input, Note, PasswordInput, Select, useToast } from '../../../components/ui'
 import { EnvSelector } from '../../../components/domain'
 import { useSaveSettings, useTestChannel } from '../queries'
-import { channelSchema, mapListField, notifySchema, NOTIFY_EVENTS, type NotifyValues } from '../schemas'
+import { channelSchema, mapListField, notifySchema, parseServices, NOTIFY_EVENTS, type NotifyValues } from '../schemas'
 import { MASK, type Channel, type Notify, type NotifyEvent } from '../types'
 
 const kinds = [
@@ -24,6 +24,8 @@ const EVENT_LABELS: Record<NotifyEvent, string> = {
   'release.failed': 'notifyForm.evtFailed',
   'release.rejected': 'notifyForm.evtRejected',
   'release.cancelled': 'notifyForm.evtCancelled',
+  'build.failed': 'notifyForm.evtBuildFailed',
+  'build.warning': 'notifyForm.evtBuildWarning',
 }
 
 type ChannelValues = NotifyValues['channels'][number]
@@ -41,7 +43,14 @@ function toChannel(c: ChannelValues): Channel {
 function toValues(n: Notify | null | undefined): NotifyValues {
   return {
     channels: (n?.channels ?? []).map((c) => ({ name: c.name, kind: c.kind, url: c.url, secret: c.secret ?? '', enabled: c.enabled })),
-    rules: (n?.rules ?? []).map((r) => ({ name: r.name, enabled: r.enabled, envs: r.envs ?? [], events: r.events ?? [], channels: r.channels ?? [] })),
+    rules: (n?.rules ?? []).map((r) => ({
+      name: r.name,
+      enabled: r.enabled,
+      envs: r.envs ?? [],
+      events: r.events ?? [],
+      services: (r.services ?? []).join(', '),
+      channels: r.channels ?? [],
+    })),
   }
 }
 
@@ -68,7 +77,14 @@ export function NotifyForm({ initial }: { initial: Notify | null | undefined }) 
     try {
       await save.mutateAsync({
         channels: v.channels.map(toChannel),
-        rules: v.rules.map((r) => ({ name: r.name.trim(), enabled: r.enabled, envs: r.envs, events: r.events as NotifyEvent[], channels: r.channels })),
+        rules: v.rules.map((r) => ({
+          name: r.name.trim(),
+          enabled: r.enabled,
+          envs: r.envs,
+          events: r.events as NotifyEvent[],
+          services: parseServices(r.services),
+          channels: r.channels,
+        })),
       })
       form.reset(v)
       toast.success(t('notifyForm.saved'))
@@ -206,6 +222,9 @@ export function NotifyForm({ initial }: { initial: Notify | null | undefined }) 
                   />
                 )}
               </FormField>
+              <FormField label={t('notifyForm.services')} error={e?.services?.message} hint={t('notifyForm.servicesHint')}>
+                {(p) => <Input {...p} {...register(`rules.${i}.services`)} placeholder={t('notifyForm.servicesPlaceholder')} autoComplete="off" />}
+              </FormField>
               <FormField label={t('notifyForm.channelsField')} error={e?.channels?.message} required plainLabel hint={channelNames.length === 0 ? t('notifyForm.addChannelFirst') : undefined}>
                 {(p) => (
                   <Controller
@@ -234,7 +253,7 @@ export function NotifyForm({ initial }: { initial: Notify | null | undefined }) 
 
       <FormErrorBanner error={formError} />
       <ButtonRow>
-        <Button variant="quiet" onClick={() => rules.append({ name: '', enabled: true, envs: ['*'], events: ['release.started', 'release.succeeded', 'release.failed'], channels: [] })}>
+        <Button variant="quiet" onClick={() => rules.append({ name: '', enabled: true, envs: ['*'], events: ['release.started', 'release.succeeded', 'release.failed'], services: '', channels: [] })}>
           {t('notifyForm.addRule')}
         </Button>
         <Button type="submit" loading={formState.isSubmitting} loadingText={t('admin.saving')}>

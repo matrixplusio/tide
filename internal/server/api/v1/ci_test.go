@@ -135,3 +135,59 @@ func TestOwnershipOfAReleaseDependsOnItsSource(t *testing.T) {
 		t.Fatal("a CI release is owned by nobody, so anyone with the permission acts on it")
 	}
 }
+
+// A build that failed has no image and no digest to report; demanding one
+// would make the ordinary case — the build died before it ever pushed —
+// impossible to report at all.
+func TestAFailedBuildNeedsNoDigest(t *testing.T) {
+	r := validCIReq()
+	r.Status, r.Digest, r.Image = "failed", "", ""
+	r.Stage, r.Error = "compile", "undefined: total"
+	r.Normalize()
+	if err := r.Check(); err != nil {
+		t.Fatalf("a failed build must be reportable without an image: %v", err)
+	}
+	if !r.failed() {
+		t.Error("failed() must follow the status")
+	}
+}
+
+// The field is new, so every pipeline in existence omits it — and every one
+// of those is reporting a success.
+func TestAnAbsentStatusMeansTheBuildSucceeded(t *testing.T) {
+	r := validCIReq()
+	r.Status = ""
+	r.Normalize()
+	if err := r.Check(); err != nil {
+		t.Fatalf("the request that worked yesterday must still work: %v", err)
+	}
+	if r.Status != ciSucceeded || r.failed() {
+		t.Errorf("absent status became %q", r.Status)
+	}
+	// And a success still has to carry one: without it there is nothing to
+	// release, and the old contract already said so.
+	r2 := validCIReq()
+	r2.Status, r2.Digest = "", ""
+	r2.Normalize()
+	if err := r2.Check(); err == nil {
+		t.Error("a success with no digest must still be refused")
+	}
+}
+
+func TestCIRejectsAnUnknownStatus(t *testing.T) {
+	for _, bad := range []string{"success", "ok", "FAILURE", "cancelled"} {
+		r := validCIReq()
+		r.Status = bad
+		r.Normalize()
+		if err := r.Check(); err == nil {
+			t.Errorf("status %q must be refused, not guessed at", bad)
+		}
+	}
+	// Case is not the typo: a pipeline shouting is still understood.
+	r := validCIReq()
+	r.Status = "FAILED"
+	r.Normalize()
+	if err := r.Check(); err != nil || !r.failed() {
+		t.Errorf("FAILED must normalize to failed: %v", err)
+	}
+}

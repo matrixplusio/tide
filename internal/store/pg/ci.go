@@ -33,6 +33,10 @@ const (
 	IntakeReleased = "released"
 	IntakeFailed   = "failed"
 	IntakeExpired  = "expired"
+	// IntakeBuildFailed is the build itself failing, which is not
+	// IntakeFailed: that one means Tide had an image and could not release
+	// it. Nothing was ever built here, so nothing is waited for.
+	IntakeBuildFailed = "build_failed"
 )
 
 // CIIntake is one notification from a pipeline, kept until Tide can turn it
@@ -46,6 +50,7 @@ type CIIntake struct {
 	Image      string    `json:"image"`
 	Digest     string    `json:"digest"`
 	Commit     string    `json:"commit,omitempty"`
+	Stage      string    `json:"stage,omitempty"`
 	Pipeline   string    `json:"pipeline,omitempty"`
 	Actor      string    `json:"actor,omitempty"`
 	JiraTicket string    `json:"jiraTicket,omitempty"`
@@ -54,6 +59,7 @@ type CIIntake struct {
 	Status     string    `json:"status"`
 	ReleaseID  string    `json:"releaseId,omitempty"`
 	Error      string    `json:"error,omitempty"`
+	Warning    string    `json:"warning,omitempty"`
 	Attempts   int       `json:"attempts"`
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`
@@ -120,20 +126,27 @@ func (r *CI) RevokeToken(ctx context.Context, id string) error {
 	return nil
 }
 
-const ciIntakeCols = `id, idempotency_key, service, env, image, digest, commit_sha, pipeline, ci_actor,
-	jira_ticket, reason, token_id, status, COALESCE(release_id, ''), error, attempts, created_at, updated_at`
+const ciIntakeCols = `id, idempotency_key, service, env, image, digest, commit_sha, stage, pipeline, ci_actor,
+	jira_ticket, reason, token_id, status, COALESCE(release_id, ''), error, warning, attempts, created_at, updated_at`
 
 // Accept records one notification from a pipeline. The idempotency key is
 // unique in the database, so a retried pipeline returns the first intake
 // instead of releasing twice; accepted reports whether this call created it.
+// in.Status chooses the state it is recorded in: empty means a build that
+// succeeded and is now waiting for its freight, IntakeBuildFailed means one
+// that never produced anything and is already over.
 func (r *CI) Accept(ctx context.Context, in CIIntake) (out *CIIntake, accepted bool, err error) {
+	status := in.Status
+	if status == "" {
+		status = IntakeWaiting
+	}
 	res := r.db.WithContext(ctx).Exec(`
-		INSERT INTO ci_intake (idempotency_key, service, env, image, digest, commit_sha, pipeline, ci_actor,
-			jira_ticket, reason, token_id, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'waiting')
+		INSERT INTO ci_intake (idempotency_key, service, env, image, digest, commit_sha, stage, pipeline, ci_actor,
+			jira_ticket, reason, token_id, status, error, warning)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (idempotency_key) DO NOTHING`,
-		in.Key, in.Service, in.Env, in.Image, in.Digest, in.Commit, in.Pipeline, in.Actor,
-		in.JiraTicket, in.Reason, in.TokenID)
+		in.Key, in.Service, in.Env, in.Image, in.Digest, in.Commit, in.Stage, in.Pipeline, in.Actor,
+		in.JiraTicket, in.Reason, in.TokenID, status, in.Error, in.Warning)
 	if res.Error != nil {
 		return nil, false, res.Error
 	}
@@ -228,9 +241,9 @@ func scanCIIntakes(rows *sql.Rows) ([]CIIntake, error) {
 	out := []CIIntake{}
 	for rows.Next() {
 		var x CIIntake
-		if err := rows.Scan(&x.ID, &x.Key, &x.Service, &x.Env, &x.Image, &x.Digest, &x.Commit, &x.Pipeline,
-			&x.Actor, &x.JiraTicket, &x.Reason, &x.TokenID, &x.Status, &x.ReleaseID, &x.Error, &x.Attempts,
-			&x.CreatedAt, &x.UpdatedAt); err != nil {
+		if err := rows.Scan(&x.ID, &x.Key, &x.Service, &x.Env, &x.Image, &x.Digest, &x.Commit, &x.Stage,
+			&x.Pipeline, &x.Actor, &x.JiraTicket, &x.Reason, &x.TokenID, &x.Status, &x.ReleaseID, &x.Error,
+			&x.Warning, &x.Attempts, &x.CreatedAt, &x.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
