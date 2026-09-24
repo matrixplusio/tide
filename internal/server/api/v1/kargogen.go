@@ -188,9 +188,22 @@ func (a *API) pushKargo(c *gin.Context) {
 		return
 	}
 
-	res, _, err := a.kargoPlan(c, strings.TrimSpace(req.Domain))
+	res, snap, err := a.kargoPlan(c, strings.TrimSpace(req.Domain))
 	if err != nil {
 		respond.Fail(c, err)
+		return
+	}
+	// An upstream that did not answer produces an empty list of Applications,
+	// which is indistinguishable from an upstream that genuinely holds none.
+	// Pushing the second is right — Argo CD decides what exists, and what it
+	// no longer has should go. Pushing the first deletes a working pipeline
+	// because a network was down for a moment, and with pruning on that
+	// reaches the cluster before anybody sees it.
+	//
+	// So: nothing at all while an upstream is unreachable. Deleting is only
+	// allowed on an answer.
+	if down := unreachable(snap); down != "" {
+		respond.Fail(c, errcode.NewKey(errcode.UpstreamError, "kargogen.upstreamDown", down))
 		return
 	}
 	files := res.Files()
@@ -224,6 +237,20 @@ func (a *API) pushKargo(c *gin.Context) {
 		"files": len(out), "stages": res.Stages, "warehouses": res.Warehouses,
 	})
 	respond.OK(c, gin.H{"commit": commit, "branch": cfg.Branch, "files": len(out), "result": res})
+}
+
+// unreachable names an upstream whose Argo CD did not answer while this
+// snapshot was built, or "" when every one of them did.
+func unreachable(snap *catalog.Snapshot) string {
+	if snap == nil {
+		return "no catalog"
+	}
+	for _, u := range snap.Upstreams {
+		if !u.ArgoCDOK {
+			return u.Name + ": " + shorten(u.ArgoCDError)
+		}
+	}
+	return ""
 }
 
 // pruneScope names the directories this push is authoritative over, so that

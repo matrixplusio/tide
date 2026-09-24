@@ -447,6 +447,7 @@ var zhCNCI = map[Key]string{
 	"ci.envUnknown":                 "环境不存在",
 	"kargogen.nothingToGenerate":    "没有可生成的内容：这个范围里没有能建流水线的服务",
 	"kargogen.repoNotConfigured":    "还没有配置流水线仓库，去「管理 → 生成 Kargo 流水线」里填",
+	"kargogen.upstreamDown":         "没有推送：%s 没有应答，这次读到的服务目录是不完整的，推上去会删掉本来好好的流水线",
 	"kargogen.commitAll":            "全部业务域",
 	"kargogen.commitMessage":        "chore(kargo): 更新 %[1]s 的流水线配置（%[2]d 个 Warehouse、%[3]d 个 Stage）",
 	"ci.notDirect":                  "这个环境的 Kargo Stage 从上游 Stage 取货，不直接收 Warehouse 的新镜像。CI 只能推给直接对接 Warehouse 的环境",
