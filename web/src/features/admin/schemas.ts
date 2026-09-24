@@ -234,6 +234,7 @@ export const pipelineRepoSchema = z.object({
   pathPrefix: zOptionalText(256),
   token: secret(i18n.t('kargogen.token'), true),
   bareDomain: z.boolean(),
+  projectNamePrefix: z.string(),
   imageStrategy: z.enum(['Lexical', 'SemVer', 'NewestBuild', 'Digest']),
   tagPattern: zOptionalText(256),
 })

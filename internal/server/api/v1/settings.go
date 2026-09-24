@@ -377,7 +377,13 @@ func (a *API) validateSection(ctx context.Context, v any) error {
 			add(validate.FieldKey("announcement.text", "s.announceTextRequired"))
 		}
 	case *settings.PipelineRepo:
-		trim(&s.Provider, &s.BaseURL, &s.Project, &s.Branch, &s.PathPrefix)
+		trim(&s.Provider, &s.BaseURL, &s.Project, &s.Branch, &s.PathPrefix, &s.ProjectNamePrefix)
+		// A Kargo project's name is a namespace name, and this goes in front
+		// of it. Checked here rather than at generation, where the answer is
+		// a few hundred objects Kubernetes refuses one at a time.
+		if s.ProjectNamePrefix != "" && !reProjectPrefix.MatchString(s.ProjectNamePrefix) {
+			add(validate.FieldKey("projectNamePrefix", "s.projectPrefixFormat"))
+		}
 		if s.Provider == "" {
 			s.Provider = settings.ProviderGitLab
 		}
@@ -923,3 +929,7 @@ func validateApprovals(s *settings.ReleasePolicy, envs settings.Environments, ad
 		intRange(add, f("timeoutMinutes"), r.TimeoutMinutes, 10, 1440)
 	}
 }
+
+// reProjectPrefix: lower-case alphanumerics and hyphens, starting with a
+// letter and ending in the hyphen that separates it from the project name.
+var reProjectPrefix = regexp.MustCompile(`^[a-z]([a-z0-9-]*[a-z0-9])?-$`)

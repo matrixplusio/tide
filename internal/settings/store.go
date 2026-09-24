@@ -153,6 +153,21 @@ type PipelineRepo struct {
 	// the safe default: two business lines both having a "base" domain is
 	// ordinary, and the second one to be generated would collide.
 	BareDomain bool `json:"bareDomain,omitempty"`
+	// ProjectNamePrefix goes in front of every generated Kargo project name.
+	//
+	// A Kargo project creates a cluster-scoped namespace of the same name, so
+	// the names it takes are names nothing else can have. Left to the domain
+	// alone they are exactly the names a cluster reserves for the workloads
+	// themselves — "base", "orders" — and an environment that later wants one
+	// finds it occupied by a project holding no workloads at all. A prefix
+	// keeps the two apart; "kargo-" is the obvious one.
+	//
+	// Changing it renames every project, which means the old ones are deleted
+	// and new ones created. The Applications' authorized-stage annotations
+	// name the project too, and Kargo refuses a promotion whose annotation
+	// does not match — without saying that is why. So the annotations have to
+	// move first.
+	ProjectNamePrefix string `json:"projectNamePrefix,omitempty"`
 }
 
 // Repository providers Tide can push to.
