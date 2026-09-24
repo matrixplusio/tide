@@ -103,6 +103,17 @@ func TestCISnippetIsSafeToPasteIntoAPipeline(t *testing.T) {
 			t.Fatalf("snippet is missing %q:\n%s", want, s)
 		}
 	}
+	// The failure half: a pipeline that only pastes the success job reports
+	// nothing when the build breaks, which is the case it was added for.
+	for _, want := range []string{"when: on_failure", `\"status\":\"failed\"`, `\"stage\":\"$FAILED_STAGE\"`, "${CI_PIPELINE_ID}-${FAILED_STAGE}"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("snippet cannot report a failed build, missing %q:\n%s", want, s)
+		}
+	}
+	// Neither job may turn a pipeline red on its own account.
+	if strings.Count(s, "|| echo")+strings.Count(s, "|| true") < 2 {
+		t.Fatalf("a notification must never fail the pipeline:\n%s", s)
+	}
 	if strings.Contains(s, "tide_ci_") {
 		t.Fatalf("snippet carries a token:\n%s", s)
 	}

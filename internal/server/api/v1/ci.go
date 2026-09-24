@@ -331,13 +331,20 @@ func (a *API) ciSnippet(c *gin.Context) {
 	})
 }
 
-// ciSnippet is the GitLab job step. It is deliberately non-blocking and
-// deliberately cannot fail the job: the image is already pushed, and losing a
-// notification is a smaller problem than marking a good build red. Tide is
-// idempotent on the digest, so a re-run does not release twice.
+// ciSnippet is the GitLab job step, in both directions: one job that runs
+// when the build worked and one that runs when it did not.
+//
+// Neither can fail the pipeline. On success the image is already pushed and
+// losing a notification is a smaller problem than marking a good build red;
+// on failure the pipeline is red already and a second red job only hides
+// which one mattered. Tide is idempotent on the key, so a re-run neither
+// releases nor announces twice.
 func ciSnippet(url, env string) string {
-	return `# Tell Tide the image is ready. Needs TIDE_WEBHOOK_URL and TIDE_TOKEN
+	return `# Tell Tide how the build went. Needs TIDE_WEBHOOK_URL and TIDE_TOKEN
 # (masked, not protected) as group or project CI/CD variables.
+#
+# Two jobs: one for a build that worked, one for a build that did not.
+# The second only reports — a failed build creates no release.
 notify-tide:
   stage: deploy
   script:
@@ -347,10 +354,31 @@ notify-tide:
         -H "Authorization: Bearer $TIDE_TOKEN" \
         -H "Content-Type: application/json" \
         -H "Idempotency-Key: $IMAGE_DIGEST" \
-        -d "{\"service\":\"$APP_NAME\",\"env\":\"` + env + `\",\"image\":\"${IMAGE_REPO}:${IMAGE_TAG}\",\"digest\":\"$IMAGE_DIGEST\",\"commit\":\"$CI_COMMIT_SHA\",\"pipeline\":\"$CI_PIPELINE_URL\",\"actor\":\"$GITLAB_USER_LOGIN\",\"reason\":\"$CI_COMMIT_TITLE\"}" \
+        -d "{\"status\":\"succeeded\",\"service\":\"$APP_NAME\",\"env\":\"` + env + `\",\"image\":\"${IMAGE_REPO}:${IMAGE_TAG}\",\"digest\":\"$IMAGE_DIGEST\",\"commit\":\"$CI_COMMIT_SHA\",\"pipeline\":\"$CI_PIPELINE_URL\",\"actor\":\"$GITLAB_USER_LOGIN\",\"reason\":\"$CI_COMMIT_TITLE\"}" \
         || echo "Could not reach Tide; the image is pushed and the release can be started there by hand"
   variables:
     TIDE_WEBHOOK_URL: "` + url + `"
+
+notify-tide-failed:
+  stage: deploy
+  # Only when something earlier in the pipeline failed.
+  when: on_failure
+  variables:
+    TIDE_WEBHOOK_URL: "` + url + `"
+    # Which job broke. Set it per pipeline if the build is split into steps
+    # (compile / package / notify); it is what says where, and "pipeline
+    # failed" does not.
+    FAILED_STAGE: "$CI_JOB_STAGE"
+  script:
+    - |
+      if [ -z "${TIDE_WEBHOOK_URL:-}" ]; then exit 0; fi
+      # No digest to fall back on here, so the key has to be the job.
+      curl -sS -m 10 -X POST "$TIDE_WEBHOOK_URL" \
+        -H "Authorization: Bearer $TIDE_TOKEN" \
+        -H "Content-Type: application/json" \
+        -H "Idempotency-Key: ${CI_PIPELINE_ID}-${FAILED_STAGE}" \
+        -d "{\"status\":\"failed\",\"service\":\"$APP_NAME\",\"env\":\"` + env + `\",\"stage\":\"$FAILED_STAGE\",\"commit\":\"$CI_COMMIT_SHA\",\"pipeline\":\"$CI_PIPELINE_URL\",\"actor\":\"$GITLAB_USER_LOGIN\",\"reason\":\"$CI_COMMIT_TITLE\"}" \
+        || true
 `
 }
 
