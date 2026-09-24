@@ -114,7 +114,7 @@ func (a *API) kargoPlan(c *gin.Context, domain string) (kargogen.Result, *catalo
 	// image in the catalog, which would drop it from the pipeline without
 	// anyone noticing. Generating is a deliberate action, not a page load, so
 	// it can afford to go and ask what git says those services should run.
-	a.fillMissingImages(ctx, snap)
+	a.desiredImages(ctx, snap)
 	// The labels Tide reads the catalog by are the labels the generated
 	// stages should carry: a promotion policy selecting on them then means the
 	// same thing as a filter on the services page.
@@ -305,13 +305,21 @@ func (a *API) kargoRepoIdentity(c *gin.Context) {
 	respond.OK(c, id)
 }
 
-// fillMissingImages asks Argo CD for the desired manifests of the few
-// deployments whose image the catalog could not read, and fills them in.
+// desiredImages replaces every deployment's image with the one its manifests
+// ask for, rather than the one its pods happen to be running.
 //
-// Bounded by how rare it is: only workloads with no image at all, which in
-// practice means the handful scaled to zero. Everything else already has its
-// image from the cheap path.
-func (a *API) fillMissingImages(ctx context.Context, snap *catalog.Snapshot) {
+// The catalog reads status.summary.images, which is what is running now. For
+// everything the catalog is for — what version is live, is it healthy — that
+// is the right answer. For generating a warehouse it is the wrong one: a
+// warehouse exists to discover the images a service will pull next, so it has
+// to subscribe to the repository the manifests point at. The two differ
+// exactly when somebody has changed the manifests and the change has not
+// rolled out yet — which is precisely when a pipeline is being regenerated.
+//
+// Cost is one call per deployment instead of a handful. That is affordable
+// here and nowhere else: this runs when an administrator presses generate,
+// not on the path that builds the catalog every minute.
+func (a *API) desiredImages(ctx context.Context, snap *catalog.Snapshot) {
 	type todo struct {
 		d   *catalog.Deployment
 		env string
@@ -319,7 +327,7 @@ func (a *API) fillMissingImages(ctx context.Context, snap *catalog.Snapshot) {
 	var work []todo
 	for i := range snap.Services {
 		for env, d := range snap.Services[i].Envs {
-			if d != nil && d.Workload && d.Image == "" && d.App != "" {
+			if d != nil && d.Workload && d.App != "" {
 				work = append(work, todo{d, env})
 			}
 		}
@@ -342,6 +350,9 @@ func (a *API) fillMissingImages(ctx context.Context, snap *catalog.Snapshot) {
 			}
 			images, err := c.ArgoCD.ImagesFromManifests(ctx, w.d.App)
 			if err != nil || len(images) == 0 {
+				// Keep whatever the catalog had: an Application whose
+				// manifests cannot be read is better described by the image
+				// its pods are running than by nothing at all.
 				zap.L().Warn("kargo: no image in the desired manifests",
 					zap.String("app", w.d.App), zap.Error(err))
 				return
