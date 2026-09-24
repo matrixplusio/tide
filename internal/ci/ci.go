@@ -92,13 +92,13 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 	if env.CIMode() == settings.CIOff {
 		return nil, false, fmt.Errorf("%w: %s", ErrCIDisabled, req.Env)
 	}
-	// A cached snapshot is enough to catch a mistyped service name, and it
-	// keeps this call off the upstreams.
-	snap, err := s.Hub.Snapshot(ctx, false)
-	if err != nil {
-		return nil, false, err
-	}
-	if deploymentIn(snap, req.Service, req.Env) == nil {
+	// Whatever has been built, however old, and never a build: a pipeline is
+	// waiting on this reply. A mistyped service name is worth catching here
+	// when the answer is free, and is caught by the worker in any case.
+	// Nil until the first catalog is built. Refusing then would turn the
+	// minute after a restart into every pipeline failing to notify, so an
+	// unanswerable question is not asked.
+	if snap := s.Hub.Cached(); snap != nil && deploymentIn(snap, req.Service, req.Env) == nil {
 		return nil, false, fmt.Errorf("%w: %s → %s", ErrNotDeployed, req.Service, req.Env)
 	}
 	// A stage fed by another stage cannot receive a freshly built image: the
@@ -155,19 +155,19 @@ func (s *Service) Run(ctx context.Context) {
 // same three lookups for opposite reasons: one to hurry discovery along, the
 // other to explain why it never produced anything.
 func (s *Service) warehousesFor(ctx context.Context, service, env string) (c *catalog.Clients, project string, warehouses []string, direct bool) {
-	// The cached snapshot on purpose: this runs while a pipeline waits for a
-	// reply, and rebuilding the whole catalog to find one warehouse name would
-	// cost more than the interval this is trying to avoid.
-	snap, err := s.Hub.Snapshot(ctx, false)
-	if err != nil {
-		zap.L().Warn("ci: could not read the catalog", zap.Error(err))
+	// Cache only, and never a build: this runs while a pipeline waits for a
+	// reply. Rebuilding the whole catalog to find one warehouse name costs
+	// more than the interval it is trying to save, and a snapshot minutes old
+	// names the same warehouse.
+	snap := s.Hub.Cached()
+	if snap == nil {
 		return nil, "", nil, false
 	}
 	d := deploymentIn(snap, service, env)
 	if d == nil || d.KargoProject == "" || d.KargoStage == "" {
 		return nil, "", nil, false // not managed by Kargo, or not deployed here
 	}
-	c, err = s.Hub.ClientsFor(ctx, env)
+	c, err := s.Hub.ClientsFor(ctx, env)
 	if err != nil {
 		zap.L().Warn("ci: no upstream serves this environment", zap.String("env", env), zap.Error(err))
 		return nil, "", nil, false
