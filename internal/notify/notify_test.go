@@ -245,3 +245,27 @@ func TestABuildFailureCardPointsAtThePipeline(t *testing.T) {
 		t.Errorf("plain text must carry the same: %q", txt)
 	}
 }
+
+// The test button exists to prove a channel works. If it goes out as plain
+// text while every real notification goes out as a card, it proves the wrong
+// thing: Lark can accept the text and then refuse the cards.
+func TestTheChannelTestGoesOutInTheSameShapeAsARealOne(t *testing.T) {
+	msg := Message{Test: true, Text: "channel ok", System: settings.System{SiteName: "Tide", BaseURL: "https://tide.example.com"}}
+	card := LarkCard(msg)
+	if card == nil {
+		t.Fatal("the test message must render as a card")
+	}
+	blob, err := json.Marshal(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"channel ok", "Tide", "https://tide.example.com"} {
+		if !strings.Contains(string(blob), want) {
+			t.Errorf("test card omits %q: %s", want, blob)
+		}
+	}
+	// A channel with nowhere to point still has to render.
+	if LarkCard(Message{Test: true, Text: "channel ok"}) == nil {
+		t.Error("a deployment with no base URL still tests its channels")
+	}
+}
