@@ -35,4 +35,11 @@ while read -r local_ref _local_sha remote_ref _remote_sha; do
 	exit 1
 done
 
+# Branch names are only half of it. Content that got committed before a rule
+# existed to catch it is still sitting in history, and history is what a push
+# publishes — so the last thing before the remote sees anything is a full
+# sweep of the tracked files and of every message that is about to leave.
+hack/check-no-internal-data.sh || exit 1
+hack/check-no-internal-data.sh --messages || exit 1
+
 exit 0
