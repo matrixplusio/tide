@@ -196,6 +196,18 @@ func rolloutFailed(kind string, obj map[string]any) (bool, string) {
 	if kind != "Deployment" {
 		return false, ""
 	}
+	// Conditions describe the generation of the spec they were computed for,
+	// and Kubernetes leaves the last rollout's conditions in place until it
+	// has looked at the new one. A change that has just been applied is
+	// therefore accompanied, for a moment, by the previous attempt's verdict
+	// — and reading that as this attempt's is how a release was once marked
+	// failed twenty-six seconds in, quoting a deadline of ten minutes.
+	//
+	// A stale verdict is not "no verdict": it is the wrong one, so the only
+	// safe reading is to wait for the controller to catch up.
+	if !observedCurrent(obj) {
+		return false, ""
+	}
 	v, _ := lookup(obj, "status", "conditions")
 	conds, _ := v.([]any)
 	for _, c := range conds {
@@ -206,6 +218,13 @@ func rolloutFailed(kind string, obj map[string]any) (bool, string) {
 		}
 	}
 	return false, ""
+}
+
+// observedCurrent says whether status was computed for the spec that is
+// there now. False while a change is in flight, when nothing in status can
+// be trusted to be about it.
+func observedCurrent(obj map[string]any) bool {
+	return num(obj, "status", "observedGeneration") >= num(obj, "metadata", "generation")
 }
 
 func restartedAt(obj map[string]any) string {

@@ -30,8 +30,10 @@ func TestFleetStateSeparatesNotServingFromDriftedFromGit(t *testing.T) {
 	if len(unhealthy) != 1 || unhealthy[0].Health != "Degraded" {
 		t.Fatalf("only the one that is not serving belongs on the list: %+v", unhealthy)
 	}
-	if drifted != 3 {
-		t.Fatalf("drift is counted, not listed: %d", drifted)
+	// Drift is listed too now: a count on its own told somebody thirty-five
+	// services disagreed with git and gave them nowhere to go.
+	if len(drifted) != 3 {
+		t.Fatalf("every drifted deployment belongs on the list: %+v", drifted)
 	}
 	if domains != 2 {
 		t.Fatalf("domains: %d", domains)
@@ -51,7 +53,7 @@ func TestFleetStateLeavesAnEmptyEnvironmentOutOfTheCounts(t *testing.T) {
 	if stats["qa"] != nil {
 		t.Fatalf("an environment with no services has no line: %+v", stats["qa"])
 	}
-	if len(unhealthy) != 0 || drifted != 0 {
-		t.Fatalf("a healthy synced fleet reports nothing: %d %d", len(unhealthy), drifted)
+	if len(unhealthy) != 0 || len(drifted) != 0 {
+		t.Fatalf("a healthy synced fleet reports nothing: %d %d", len(unhealthy), len(drifted))
 	}
 }

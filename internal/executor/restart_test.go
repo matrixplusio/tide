@@ -89,3 +89,50 @@ func TestRolloutStatus(t *testing.T) {
 		})
 	}
 }
+
+// Kubernetes leaves the previous rollout's conditions in place until its
+// controller has looked at the new spec. So a change applied a moment ago is
+// accompanied by the last attempt's verdict, and reading that as this
+// attempt's is how a release was marked failed twenty-six seconds in, quoting
+// a deadline of ten minutes it could not possibly have reached.
+//
+// This matters more now that nothing else judges: the promotion task stops at
+// git, so what this function says about a workload is what the release says.
+func TestALastAttemptsVerdictIsNotThisAttemptsVerdict(t *testing.T) {
+	deployment := func(generation, observed int64) map[string]any {
+		return map[string]any{
+			"metadata": map[string]any{"generation": float64(generation)},
+			"status": map[string]any{
+				"observedGeneration": float64(observed),
+				"conditions": []any{map[string]any{
+					"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded",
+					"message": `ReplicaSet "cart-67fb4b659" has timed out progressing.`,
+				}},
+			},
+		}
+	}
+
+	// The spec has moved on and the controller has not caught up: the verdict
+	// on show belongs to the attempt before this one.
+	if failed, why := rolloutFailed("Deployment", deployment(7, 6)); failed {
+		t.Errorf("failed a release on the previous attempt's condition: %s", why)
+	}
+
+	// Caught up: now it is this attempt being described, and it did fail.
+	failed, why := rolloutFailed("Deployment", deployment(7, 7))
+	if !failed {
+		t.Fatal("a rollout Kubernetes has given up on must still fail the release")
+	}
+	if !strings.Contains(why, "ProgressDeadlineExceeded") {
+		t.Errorf("the reason must survive to the release: %q", why)
+	}
+
+	// An object with no generation at all is taken at face value rather than
+	// being treated as permanently in flight.
+	bare := map[string]any{"status": map[string]any{"conditions": []any{map[string]any{
+		"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded", "message": "gave up",
+	}}}}
+	if ok, _ := rolloutFailed("Deployment", bare); !ok {
+		t.Error("without a generation to compare, status is all there is")
+	}
+}

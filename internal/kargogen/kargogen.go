@@ -286,6 +286,32 @@ func projectYAML(domain string) string {
 // project rather than the same five steps copied into every stage: a domain
 // with 79 services would otherwise carry 79 identical copies, and changing how
 // promotion works would mean changing all of them.
+// taskYAML writes the promotion task: change the tag in git, commit, push.
+// It deliberately stops there.
+//
+// It used to end with an argocd-update step, which asks Argo CD to sync and
+// then waits for the Application to come back Healthy — with a five-minute
+// step timeout. That made Kargo the judge of whether a release worked, and it
+// was the wrong judge twice over.
+//
+// It judged too early. Two services measured at over four and a half minutes
+// from pod creation to ready — ordinary for a JVM that has to reach a config
+// server and a database first — and the step gave up at five, marking as
+// failed two releases whose pods are running the new version to this day. A
+// release that succeeded and reports failure is worse than one that fails:
+// somebody releases again, or stops believing the page.
+//
+// And it judged blindly. All a step timeout knows is that time passed. Tide
+// is already watching the same Application's workloads and pods, and can tell
+// a container still starting from one in CrashLoopBackOff — one deserves
+// patience and the other does not. It has its own deadline for this
+// (executeTimeoutMinutes, and it says what it is still waiting for), so the
+// step's timeout only ever fired first and threw away the better answer.
+//
+// So the waiting belongs where the watching already happens. What is lost is
+// the nudge the step gave Argo CD; without it Argo finds the commit on its
+// own schedule, up to its reconciliation interval. A webhook from the git
+// host removes that delay and is worth having for its own sake.
 func taskYAML(domain, name string) string {
 	return fmt.Sprintf(`apiVersion: kargo.akuity.io/v1alpha1
 kind: PromotionTask
@@ -321,13 +347,6 @@ spec:
     - uses: git-push
       config:
         path: ./repo
-    - uses: argocd-update
-      config:
-        apps:
-          - name: ${{ vars.appName }}
-            sources:
-              - repoURL: ${{ vars.gitRepo }}
-                desiredRevision: ${{ task.outputs.commit.commit }}
 `, name, domain)
 }
 
