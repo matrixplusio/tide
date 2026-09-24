@@ -405,3 +405,31 @@ func TestAProjectNamePrefixKeepsKargoOutOfTheWorkloadNames(t *testing.T) {
 		t.Errorf("bare domain with a prefix: got %q", r.Domains[0].Name)
 	}
 }
+
+// The promotion task changes the tag in git and stops. Whether the release
+// worked is decided by Tide, which is already watching the same Application's
+// workloads and pods.
+//
+// It used to end by asking Argo CD to sync and waiting for Healthy, with a
+// five-minute step timeout. That timeout marked two releases failed whose
+// pods are running the new version to this day: over four and a half minutes
+// from pod creation to ready is ordinary for a service that has to reach a
+// config server first. A release that succeeded and reports failure is worse
+// than one that fails — somebody releases again, or stops believing the page.
+func TestThePromotionTaskStopsAtGitAndDoesNotJudgeTheRollout(t *testing.T) {
+	snap := &catalog.Snapshot{Services: []catalog.Service{
+		svcIn("cart", "acme", "shop", depIn("dev", "registry.example.com/acme-dev/cart")),
+	}}
+	task := find(t, Generate(snap, envs("dev"), Options{ProjectPrefix: true}), "acme-shop/promotion-task.yaml")
+
+	// What it must still do: put the tag in git.
+	for _, want := range []string{"git-clone", "kustomize-set-image", "git-commit", "git-push"} {
+		if !strings.Contains(task, want) {
+			t.Errorf("the task no longer writes the tag to git: %q missing", want)
+		}
+	}
+	// What it must not do: decide whether the rollout succeeded.
+	if strings.Contains(task, "argocd-update") {
+		t.Error("the task waits on Argo CD again, so a step timeout decides the release instead of Tide")
+	}
+}
