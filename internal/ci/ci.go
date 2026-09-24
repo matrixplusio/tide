@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -35,6 +36,8 @@ const (
 var errWaiting = errors.New("freight not available yet")
 
 type Service struct {
+	// pass is held for the duration of a Process pass; see Process.
+	pass     atomic.Bool
 	PG       *pg.Store
 	Settings *settings.Store
 	Hub      *catalog.Hub
@@ -244,7 +247,19 @@ func (s *Service) whyNothingArrived(ctx context.Context, in pg.CIIntake) string 
 // Process makes one pass over the waiting intakes. Exported for tests and for
 // the handler, which runs a pass right after accepting so a freight that is
 // already there releases without waiting for the next tick.
+// Process turns waiting intakes into releases. Only one pass runs at a time,
+// in this process and — because Run holds a lock for it — across replicas.
+//
+// Both halves of that are needed. Two passes over the same waiting intake
+// each create a release, and only one of them can claim the target: the other
+// is left as a draft nobody asked for, next to a real release for the same
+// service a second earlier. Eight of those accumulated before anybody
+// noticed, because the failure to tidy up the loser was discarded.
 func (s *Service) Process(ctx context.Context) {
+	if !s.pass.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.pass.Store(false)
 	s.expire(ctx)
 	list, err := s.PG.CI.Waiting(ctx, 50)
 	if err != nil {
@@ -395,7 +410,7 @@ func (s *Service) submit(ctx context.Context, in pg.CIIntake, env settings.Envir
 	}
 	rel, err = s.PG.Releases.Submit(ctx, actor, rel.ID)
 	if err != nil {
-		_, _ = s.PG.Releases.Cancel(context.WithoutCancel(ctx), actor, rel.ID, "submit failed: "+err.Error())
+		s.abandon(ctx, actor, rel.ID, "submit failed: "+err.Error())
 		return nil, err
 	}
 	s.Hub.Reset()
@@ -410,13 +425,27 @@ func (s *Service) submit(ctx context.Context, in pg.CIIntake, env settings.Envir
 		"source": release.SourceCI, "pipeline": in.Pipeline, "ciActor": in.Actor, "commit": in.Commit,
 	})
 	if err != nil {
-		_, _ = s.PG.Releases.Cancel(context.WithoutCancel(ctx), actor, rel.ID, "auto start failed: "+err.Error())
+		s.abandon(ctx, actor, rel.ID, "auto start failed: "+err.Error())
 		return nil, err
 	}
 	if rel.Status == release.Approving {
 		s.notify(ctx, rel, "approval_requested")
 	}
 	return rel, nil
+}
+
+// abandon cancels a release that was created and then could not be started,
+// so it does not sit in the list as a draft nobody asked for.
+//
+// The failure to cancel is logged rather than discarded. Eight such drafts
+// accumulated before anybody noticed, and because nothing recorded why the
+// tidying up had not worked, the only way to find out was to read the list
+// and spot that each one had a twin a second older.
+func (s *Service) abandon(ctx context.Context, actor audit.Actor, id, why string) {
+	if _, err := s.PG.Releases.Cancel(context.WithoutCancel(ctx), actor, id, why); err != nil {
+		zap.L().Warn("ci: could not cancel the release it could not start",
+			zap.String("release", id), zap.String("why", why), zap.Error(err))
+	}
 }
 
 func (s *Service) notify(ctx context.Context, rel *release.Release, event string) {
