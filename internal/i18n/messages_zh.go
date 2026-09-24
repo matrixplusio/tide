@@ -393,6 +393,7 @@ var zhCNNotify = map[Key]string{
 	"n.modeAtLeast":       "至少 %d 人同意",
 	"n.plainHeader":       "[%s] %s %s %s\nJira: %s · 发起人: %s\n",
 	"n.test":              "[%s] 通知测试：渠道「%s」配置正确。",
+	"n.testTitle":         "%s · 通知测试",
 	"n.viewRelease":       "查看发布单",
 	"n.viewPipeline":      "查看流水线",
 	"n.goConfirm":         "去确认",

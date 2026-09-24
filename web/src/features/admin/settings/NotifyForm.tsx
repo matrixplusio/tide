@@ -152,7 +152,7 @@ export function NotifyForm({ initial }: { initial: Notify | null | undefined }) 
                 {(p) => <Input {...p} {...register(`channels.${i}.name`)} placeholder="ops" autoComplete="off" />}
               </FormField>
               <FormField label={t('notifyForm.kind')} error={e?.kind?.message} required>
-                {(p) => <Select {...p} {...register(`channels.${i}.kind`)} options={kinds} />}
+                {(p) => <Select {...p} {...register(`channels.${i}.kind`)} options={kinds.map(([v, k]) => [v, t(k)] as const)} />}
               </FormField>
               <FormField label={t('notifyForm.url')} error={e?.url?.message} required hint={f.url === MASK ? t('notifyForm.urlKept', { mask: MASK }) : undefined}>
                 {(p) => <PasswordInput {...p} {...register(`channels.${i}.url`)} className="mono" autoComplete="off" placeholder="https://open.larksuite.com/open-apis/bot/v2/hook/…" />}

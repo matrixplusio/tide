@@ -389,6 +389,7 @@ var enNotify = map[Key]string{
 	"n.modeAtLeast":       "at least %d approve",
 	"n.plainHeader":       "[%s] %s %s %s\nJira: %s · started by: %s\n",
 	"n.test":              "[%s] Notification test: channel \"%s\" is configured correctly.",
+	"n.testTitle":         "%s · Notification test",
 	"n.viewRelease":       "Open the release",
 	"n.viewPipeline":      "Open the pipeline",
 }

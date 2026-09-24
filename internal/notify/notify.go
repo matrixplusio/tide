@@ -201,9 +201,14 @@ func (n *Notifier) BuildEvent(ctx context.Context, b Build, event string) {
 }
 
 // Test sends a test message through ch regardless of rules or enabled state.
+//
+// It goes out in the same shape a real notification would — a card where the
+// channel renders cards — because a test that arrives as plain text while
+// every real message arrives as a card has not tested what it claims to:
+// a card can be refused (keyword rules, signature) where text is accepted.
 func (n *Notifier) Test(ctx context.Context, ch settings.Channel) error {
 	sys, _ := n.Settings.System(ctx)
-	return n.send(ctx, ch, Message{Text: t("n.test", sys.SiteName, ch.Name)})
+	return n.send(ctx, ch, Message{Test: true, System: sys, Text: t("n.test", sys.SiteName, ch.Name)})
 }
 
 // Message is one notification: either a release event (rendered per channel
@@ -214,6 +219,9 @@ type Message struct {
 	Event   string
 	System  settings.System
 	Text    string
+	// Test marks the message the "test this channel" button sends. It has
+	// no release and no build behind it, and still renders as a card.
+	Test bool
 }
 
 // Build is a pipeline outcome that produced no release: a failed build, or
@@ -344,6 +352,9 @@ var cardColor = map[string]string{
 // back to Tide (approvers land straight on the release). Plain text messages
 // (the channel test) return nil and go out as text.
 func LarkCard(msg Message) map[string]any {
+	if msg.Test {
+		return larkTestCard(msg)
+	}
 	if msg.Build != nil {
 		return larkBuildCard(msg)
 	}
@@ -401,6 +412,25 @@ func LarkCard(msg Message) map[string]any {
 			// t(), not the key: eventText holds catalog keys, and printing one
 			// straight into the title puts "n.eventPending" on the card.
 			"title": map[string]string{"tag": "plain_text", "content": fmt.Sprintf("%s · %s", subjectOf(r), t(eventText[msg.Event]))},
+		},
+		"elements": elements,
+	}
+}
+
+// larkTestCard proves the channel works, in the shape the real ones use.
+func larkTestCard(msg Message) map[string]any {
+	elements := []any{map[string]any{"tag": "div", "text": larkText(msg.Text)}}
+	if msg.System.BaseURL != "" {
+		elements = append(elements, map[string]any{"tag": "action", "actions": []any{map[string]any{
+			"tag": "button", "type": "primary", "url": strings.TrimRight(msg.System.BaseURL, "/"),
+			"text": map[string]string{"tag": "plain_text", "content": msg.System.SiteName},
+		}}})
+	}
+	return map[string]any{
+		"config": map[string]any{"wide_screen_mode": true},
+		"header": map[string]any{
+			"template": "blue",
+			"title":    map[string]string{"tag": "plain_text", "content": t("n.testTitle", msg.System.SiteName)},
 		},
 		"elements": elements,
 	}
