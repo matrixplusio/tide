@@ -105,19 +105,21 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 	if !ok {
 		return nil, false, fmt.Errorf("%w: %s", ErrEnvUnknown, req.Env)
 	}
-	if env.CIMode() == settings.CIOff {
-		return nil, false, fmt.Errorf("%w: %s", ErrCIDisabled, req.Env)
-	}
 	// A build that failed is recorded and announced, and that is all. None
-	// of the checks below apply to it: they all ask whether an image could
-	// be released here, and there is no image.
+	// of the checks below apply to it: every one of them asks whether an
+	// image could be released here, and there is no image.
 	//
-	// In particular it is not refused for a service Tide does not know or an
-	// environment fed by promotion. A pipeline failing is news either way,
-	// and swallowing it because the deployment side is not set up yet is how
-	// a failure goes unnoticed.
+	// This is why the branch comes first. "This environment does not take
+	// releases from CI" is an answer about releases; a build that failed is
+	// not asking to release anything, and refusing it there would mean that
+	// precisely the environments nobody deploys to automatically are the
+	// ones whose broken builds stay silent. Same for a service Tide has
+	// never seen and a stage fed by promotion.
 	if req.Failed {
 		return s.acceptFailure(ctx, token, req)
+	}
+	if env.CIMode() == settings.CIOff {
+		return nil, false, fmt.Errorf("%w: %s", ErrCIDisabled, req.Env)
 	}
 	// Whatever has been built, however old, and never a build: a pipeline is
 	// waiting on this reply. A mistyped service name is worth catching here
