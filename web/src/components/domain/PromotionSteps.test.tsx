@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import baseCss from '../../styles/base.css?raw'
 import { PromotionSteps } from './Live'
 import type { PromotionView } from '../../lib/types'
 
@@ -37,11 +36,10 @@ describe('PromotionSteps', () => {
     const { container } = render(<PromotionSteps p={promo(['Skipped'])} />)
     const icon = container.querySelector('.stepi')!
     expect(icon.classList.contains('skip')).toBe(false)
-    const css = readFileSync(resolve(__dirname, '../../styles/base.css'), 'utf8')
     // Whatever the icon is called, it must not collide with a bare utility
     // class that positions what it touches.
     for (const cls of [...icon.classList].filter((c) => c !== 'stepi')) {
-      expect(css).not.toMatch(new RegExp(`^\\.${cls}\\s*\\{`, 'm'))
+      expect(baseCss).not.toMatch(new RegExp(`^\\.${cls}\\s*\\{`, 'm'))
     }
   })
 })
