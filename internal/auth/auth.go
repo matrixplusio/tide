@@ -84,7 +84,7 @@ func (s *Service) sessionTTL(ctx context.Context) time.Duration {
 
 // sessionWindow is how long a session lives unused, and how long it may live
 // however much it is used.
-func (s *Service) sessionWindow(ctx context.Context) (ttl, max time.Duration) {
+func (s *Service) sessionWindow(ctx context.Context) (ttl, maxLife time.Duration) {
 	sec, err := s.Settings.Security(ctx)
 	if err != nil || sec.SessionTTLMinutes <= 0 {
 		sec = settings.DefaultSecurity()
@@ -94,13 +94,13 @@ func (s *Service) sessionWindow(ctx context.Context) (ttl, max time.Duration) {
 	if hours <= 0 {
 		hours = settings.DefaultSecurity().SessionMaxHours
 	}
-	max = time.Duration(hours) * time.Hour
+	maxLife = time.Duration(hours) * time.Hour
 	// A cap below the idle window would expire a session that is being used
 	// sooner than one that is not.
-	if max < ttl {
-		max = ttl
+	if maxLife < ttl {
+		maxLife = ttl
 	}
-	return ttl, max
+	return ttl, maxLife
 }
 
 const maxUserAgent = 256
@@ -149,8 +149,8 @@ func (s *Service) UserFromToken(ctx context.Context, token string) *User {
 // window but still dies at the cap, and the alternative — renewing on
 // everything — has that cost always.
 func (s *Service) KeepSessionAlive(ctx context.Context, token string) {
-	ttl, max := s.sessionWindow(ctx)
-	if err := s.PG.Accounts.TouchSession(ctx, hashToken(token), ttl, max); err != nil {
+	ttl, maxLife := s.sessionWindow(ctx)
+	if err := s.PG.Accounts.TouchSession(ctx, hashToken(token), ttl, maxLife); err != nil {
 		zap.L().Warn("session renewal failed", zap.Error(err))
 	}
 }
