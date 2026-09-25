@@ -91,7 +91,10 @@ func List(ctx context.Context, hub *catalog.Hub, d *catalog.Deployment, gate *Ga
 	if err != nil {
 		return nil, err
 	}
-	everything, err := c.Kargo.QueryFreight(ctx, d.KargoProject, "")
+	// Every item in a batch asks this same question — the project's whole
+	// freight, with nothing service-specific in the request. Within one
+	// request they share the answer; on their own they fetch it as before.
+	everything, err := memoFrom(ctx).AllFreight(ctx, c, d.Upstream, d.KargoProject)
 	if err != nil {
 		return nil, err
 	}

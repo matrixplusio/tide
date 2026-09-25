@@ -194,6 +194,9 @@ func (a *API) createRelease(c *gin.Context) {
 	}
 	plans := make([]planned, len(req.Items))
 	tasks := make([]func(), 0, len(req.Items))
+	// Shared for this request only, so the items stop asking Kargo the same
+	// project-wide question once each.
+	ctx = plan.WithMemo(ctx, plan.NewMemo())
 	for i, it := range req.Items {
 		i, it, d := i, it, deployments[i]
 		tasks = append(tasks, func() {
