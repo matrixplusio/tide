@@ -29,6 +29,7 @@ import {
   Page,
   Pill,
   Row,
+  Segmented,
   StatusDot,
   Toolbar,
 } from '../../components/ui'
@@ -539,20 +540,24 @@ function BatchOverview({ items, status, lives, expanded, onToggle, onAll, filter
               {t('detail.finished', { done, total: items.length })}
               {podWant > 0 && <span className="muted">{t('detail.podsReady', { ready: podReady, want: podWant })}</span>}
             </div>
-            {/* The counts were already the summary; clicking one is the
-                shortest way from "two failed" to the two. */}
-            <div className="d btnrow" role="group" aria-label={t('detail.filterByStatus')}>
-              {counts.map(([st, n]) => (
-                <button key={st} type="button" className="statfilter" aria-pressed={filter === st} onClick={() => onFilter(filter === st ? '' : st)}>
-                  {itemStatusText(st)} {n}
-                </button>
-              ))}
-              {filter && (
-                <button type="button" className="statfilter" onClick={() => onFilter('')}>
-                  {t('detail.filterClear')}
-                </button>
-              )}
-            </div>
+            {/* The counts were already the summary; picking one is the
+                shortest way from "two failed" to the two. Segmented rather
+                than something new, because this is the control the rest of
+                Tide already uses for one-of-several, and a filter should not
+                come out louder than the status pills it filters on. */}
+            {counts.length > 1 ? (
+              <div className="d">
+                <Segmented
+                  label={t('detail.filterByStatus')}
+                  value={filter}
+                  options={[['', t('detail.filterAll', { count: items.length })], ...counts.map(([st, n]): [string, string] => [st, `${itemStatusText(st)} ${n}`])]}
+                  onChange={onFilter}
+                />
+              </div>
+            ) : (
+              // One status is not a choice; the count is just the count.
+              <div className="d">{counts.map(([st, n]) => `${itemStatusText(st)} ${n}`).join(' · ')}</div>
+            )}
             <div className={`prog ${items.some((it) => it.status === 'failed') ? 'bad' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={t('detail.batchProgress')}>
               <i style={{ width: `${pct}%` }} />
             </div>

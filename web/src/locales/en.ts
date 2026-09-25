@@ -855,7 +855,7 @@ const en: Messages = {
     finished: '{{done}} of {{total}} finished',
     podsReady: ' · {{ready}} of {{want}} pods ready',
     filterByStatus: 'Filter items by status',
-    filterClear: 'Show all',
+    filterAll: 'All {{count}}',
     batchProgress: 'Overall batch progress',
     colOrder: 'Order',
     colService: 'Service',
