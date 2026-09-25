@@ -734,9 +734,3 @@ section > .ghead.item-head { border-top: .5px solid var(--sep); margin-top: 24px
 .build { padding: 6px 12px 2px; font-size: 10.5px; color: var(--ink3); font-family: var(--mono);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* A count that doubles as a filter. Named for what it is rather than "chip",
-   which already belongs to something else — sharing a utility class is how a
-   step icon once inherited position:absolute from the skip link. */
-.statfilter { font: inherit; color: inherit; background: var(--fill); border: 0; border-radius: 999px; padding: 2px 9px; cursor: pointer; }
-.statfilter[aria-pressed='true'] { background: var(--blue); color: #fff; }
-.statfilter:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
