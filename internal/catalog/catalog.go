@@ -629,7 +629,7 @@ func (h *Hub) build(ctx context.Context, gen int64) (*Snapshot, error) {
 			deps = append(deps, ds...)
 		})
 	}
-	parallel(len(tasks), tasks...)
+	Parallel(len(tasks), tasks...)
 	sort.Slice(snap.Upstreams, func(i, j int) bool { return snap.Upstreams[i].Name < snap.Upstreams[j].Name })
 	snap.Services = mergeServices(deps)
 	for _, d := range deps {
@@ -738,7 +738,7 @@ func (h *Hub) buildUpstream(ctx context.Context, c *Clients, cat settings.Catalo
 	// and reading image metadata have completely different fixes, and which
 	// one dominates decides which fix is worth writing.
 	tListed := time.Now()
-	parallel(2, func() {
+	Parallel(2, func() {
 		var err error
 		if apps, err = c.ArgoCD.ListApplications(ctx); err != nil {
 			st.ArgoCDError = err.Error()
@@ -791,7 +791,7 @@ func (h *Hub) buildUpstream(ctx context.Context, c *Clients, cat settings.Catalo
 				mu.Unlock()
 			})
 		}
-		parallel(8, tasks...)
+		Parallel(8, tasks...)
 	}
 	dStages := time.Since(tStages)
 	for i := range deps {
@@ -1052,7 +1052,7 @@ func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment
 			d.Digest, d.Version, d.BuiltAt = img.Digest, img.Version(), img.Created
 		})
 	}
-	parallel(8, tasks...)
+	Parallel(8, tasks...)
 	return failed, message, auth
 }
 

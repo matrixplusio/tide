@@ -128,7 +128,10 @@ function StepIcon({ status }: { status: string }) {
     case 'Aborted':
       return <span className="stepi bad" role="img" aria-label={i18n.t('live.stepFailed')}>✕</span>
     case 'Skipped':
-      return <span className="stepi skip" role="img" aria-label={i18n.t('live.stepSkipped')} />
+      // "skipped", not "skip": .skip is the skip-to-content link, and sharing
+      // the name pulled its position:absolute onto the icon, which then left
+      // its own row and landed on the one above.
+      return <span className="stepi skipped" role="img" aria-label={i18n.t('live.stepSkipped')}>–</span>
     default:
       return <span className="stepi todo" role="img" aria-label={i18n.t('live.stepPending')} />
   }

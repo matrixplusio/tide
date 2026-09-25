@@ -2,10 +2,10 @@ package catalog
 
 import "sync"
 
-// parallel runs tasks with at most limit running at once and waits for all.
-// Tasks record their own failures: catalog fan-outs degrade per item instead
-// of failing the whole view.
-func parallel(limit int, tasks ...func()) {
+// Parallel runs tasks with at most limit running at once and waits for all.
+// Tasks record their own failures: fan-outs degrade per item instead of
+// failing the whole view.
+func Parallel(limit int, tasks ...func()) {
 	if limit < 1 {
 		limit = 1
 	}

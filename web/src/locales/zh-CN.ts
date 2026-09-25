@@ -831,6 +831,7 @@ const zhCN = {
     configWithUpgrade: '随升级生效的配置 · {{count}} 项',
     errorText: '错误原文',
     promotionSteps: '晋级步骤 · Kargo',
+    promotionQueued: '排队中，尚未开始晋级',
     impact: '影响',
     stillHealthy: '服务仍健康',
     serviceHealth: '服务状态：{{health}}',
