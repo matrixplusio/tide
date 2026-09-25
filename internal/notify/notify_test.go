@@ -269,3 +269,118 @@ func TestTheChannelTestGoesOutInTheSameShapeAsARealOne(t *testing.T) {
 		t.Error("a deployment with no base URL still tests its channels")
 	}
 }
+
+// imagePayload is the stored form of an image item, which is what the
+// renderers read.
+func imagePayload(service string) []byte {
+	b, err := json.Marshal(release.ImagePayload{
+		Service: service, Env: "dev",
+		From: &release.Artifact{Tag: "old"},
+		To:   release.Artifact{Tag: "new"},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+// A batch of seven where one item failed is a failed release, which is true
+// and, on its own, misleading: the word says the whole thing came to
+// nothing. Someone reading it on their phone has to be able to tell "one
+// service needs looking at" from "none of it worked".
+func TestAPartlyFailedBatchSaysHowMuchOfItWorked(t *testing.T) {
+	r := &release.Release{
+		ID: "REL-1", Title: "batch → dev", Env: "dev", Status: release.Failed, CreatedByName: "someone",
+		Items: []release.Item{
+			{Kind: release.KindImage, Status: release.ItemSucceeded, Payload: imagePayload("a")},
+			{Kind: release.KindImage, Status: release.ItemSucceeded, Payload: imagePayload("b")},
+			{Kind: release.KindImage, Status: release.ItemFailed, Payload: imagePayload("c"), Error: "rollout failed"},
+		},
+	}
+	sys := settings.System{SiteName: "Tide"}
+
+	text := Text(r, EventFailed, sys)
+	for _, want := range []string{"2 项成功", "1 项失败"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the tally is missing %q from:\n%s", want, text)
+		}
+	}
+
+	card := LarkCard(Message{Release: r, Event: EventFailed, System: sys})
+	blob, err := json.Marshal(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"2 项成功", "1 项失败"} {
+		if !strings.Contains(string(blob), want) {
+			t.Errorf("the card omits %q: %s", want, blob)
+		}
+	}
+	// And each service carries its own verdict, so the one to look at is
+	// named rather than inferred from which line has an error under it.
+	for _, want := range []string{"[成功]", "[失败]"} {
+		if !strings.Contains(string(blob), want) {
+			t.Errorf("the card does not mark items with %q: %s", want, blob)
+		}
+	}
+}
+
+// One item is its own tally; repeating the release's status as "1 succeeded"
+// is noise.
+func TestASingleItemReleaseHasNoTally(t *testing.T) {
+	r := &release.Release{
+		ID: "REL-2", Title: "svc → dev", Env: "dev", Status: release.Succeeded, CreatedByName: "someone",
+		Items: []release.Item{{Kind: release.KindImage, Status: release.ItemSucceeded, Payload: imagePayload("a")}},
+	}
+	if got := Text(r, EventSucceeded, settings.System{SiteName: "Tide"}); strings.Contains(got, "1 项成功") {
+		t.Errorf("a single item should not be tallied:\n%s", got)
+	}
+}
+
+// "Failed" on a batch where six of seven worked reads as though none did,
+// and the title is all a phone shows before the message is opened.
+func TestAPartlyFailedBatchSaysSoInTheTitle(t *testing.T) {
+	mixed := &release.Release{
+		ID: "REL-3", Title: "batch → dev", Env: "dev", Status: release.Failed, CreatedByName: "someone",
+		Items: []release.Item{
+			{Kind: release.KindImage, Status: release.ItemSucceeded, Payload: imagePayload("a")},
+			{Kind: release.KindImage, Status: release.ItemFailed, Payload: imagePayload("b")},
+		},
+	}
+	card, _ := json.Marshal(LarkCard(Message{Release: mixed, Event: EventFailed, System: settings.System{SiteName: "Tide"}}))
+	if !strings.Contains(string(card), "部分失败") {
+		t.Errorf("the title does not distinguish a partial failure: %s", card)
+	}
+
+	// All of it failing is not partial, and must keep saying so plainly.
+	allBad := &release.Release{
+		ID: "REL-4", Title: "batch → dev", Env: "dev", Status: release.Failed, CreatedByName: "someone",
+		Items: []release.Item{
+			{Kind: release.KindImage, Status: release.ItemFailed, Payload: imagePayload("a")},
+			{Kind: release.KindImage, Status: release.ItemFailed, Payload: imagePayload("b")},
+		},
+	}
+	card2, _ := json.Marshal(LarkCard(Message{Release: allBad, Event: EventFailed, System: settings.System{SiteName: "Tide"}}))
+	if strings.Contains(string(card2), "部分失败") {
+		t.Errorf("a wholly failed batch must not be called partial: %s", card2)
+	}
+}
+
+// The status beside each service was the one English word in a Chinese
+// message.
+func TestItemStatusesAreTranslated(t *testing.T) {
+	r := &release.Release{
+		ID: "REL-5", Title: "batch → dev", Env: "dev", Status: release.Failed, CreatedByName: "someone",
+		Items: []release.Item{
+			{Kind: release.KindImage, Status: release.ItemSucceeded, Payload: imagePayload("a")},
+			{Kind: release.KindImage, Status: release.ItemFailed, Payload: imagePayload("b")},
+		},
+	}
+	text := Text(r, EventFailed, settings.System{SiteName: "Tide"})
+	if strings.Contains(text, "[succeeded]") || strings.Contains(text, "[failed]") {
+		t.Errorf("raw status words leaked into the message:\n%s", text)
+	}
+	if !strings.Contains(text, "[成功]") || !strings.Contains(text, "[失败]") {
+		t.Errorf("translated statuses missing:\n%s", text)
+	}
+}
