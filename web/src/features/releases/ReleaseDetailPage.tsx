@@ -51,6 +51,9 @@ export function ReleaseDetailPage() {
   const canPods = !!can?.pods
   const [cancelOpen, setCancelOpen] = useState(false)
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null)
+  // Fifty items is a page you scroll past, not one you read: the failures
+  // are what somebody opened it for.
+  const [itemFilter, setItemFilter] = useState('')
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set())
   const toggleItem = (id: number) =>
     setExpanded((prev) => {
@@ -132,10 +135,21 @@ export function ReleaseDetailPage() {
 
             {r.approvalRule && <ApprovalPanel r={r} />}
 
-            {items.length > 1 && <BatchOverview items={items} status={r.status} lives={q.data?.live} expanded={expanded} onToggle={toggleItem} onAll={(open) => setExpanded(open ? new Set(items.map((it) => it.id)) : new Set())} />}
+            {items.length > 1 && (
+              <BatchOverview
+                items={items}
+                status={r.status}
+                lives={q.data?.live}
+                expanded={expanded}
+                onToggle={toggleItem}
+                onAll={(open) => setExpanded(open ? new Set(items.map((it) => it.id)) : new Set())}
+                filter={itemFilter}
+                onFilter={setItemFilter}
+              />
+            )}
 
             {items.map((it) =>
-              items.length > 1 && !expanded.has(it.id) ? null : (
+              (items.length > 1 && !expanded.has(it.id)) || (itemFilter && it.status !== itemFilter) ? null : (
                 <ItemSection key={it.id} it={it} live={q.data?.live?.find((l) => l.itemId === it.id)} release={r} canPods={canPods} onCollapse={items.length > 1 ? () => toggleItem(it.id) : undefined} />
               ),
             )}
@@ -485,9 +499,9 @@ function syncStartedAt(it: Item): string | undefined {
 }
 
 /** Every service of a batch at a glance: order, change, status and how many new pods are ready. */
-function BatchOverview({ items, status, lives, expanded, onToggle, onAll }: { items: Item[]; status: Release['status']; lives?: ItemLive[] | null; expanded: ReadonlySet<number>; onToggle: (id: number) => void; onAll: (open: boolean) => void }) {
+function BatchOverview({ items, status, lives, expanded, onToggle, onAll, filter, onFilter }: { items: Item[]; status: Release['status']; lives?: ItemLive[] | null; expanded: ReadonlySet<number>; onToggle: (id: number) => void; onAll: (open: boolean) => void; filter: string; onFilter: (s: string) => void }) {
   const { t } = useTranslation()
-  const sorted = [...items].sort((a, b) => a.sequence - b.sequence || a.payload.service.localeCompare(b.payload.service))
+  const sorted = [...items].sort((a, b) => a.sequence - b.sequence || a.payload.service.localeCompare(b.payload.service)).filter((it) => !filter || it.status === filter)
   const rows = sorted.map((it) => {
     const live = lives?.find((l) => l.itemId === it.id)?.live
     const since = it.status === 'executing' ? restartSince(it) : undefined
@@ -525,8 +539,19 @@ function BatchOverview({ items, status, lives, expanded, onToggle, onAll }: { it
               {t('detail.finished', { done, total: items.length })}
               {podWant > 0 && <span className="muted">{t('detail.podsReady', { ready: podReady, want: podWant })}</span>}
             </div>
-            <div className="d">
-              {counts.map(([st, n]) => `${itemStatusText(st)} ${n}`).join(' · ')}
+            {/* The counts were already the summary; clicking one is the
+                shortest way from "two failed" to the two. */}
+            <div className="d btnrow" role="group" aria-label={t('detail.filterByStatus')}>
+              {counts.map(([st, n]) => (
+                <button key={st} type="button" className="statfilter" aria-pressed={filter === st} onClick={() => onFilter(filter === st ? '' : st)}>
+                  {itemStatusText(st)} {n}
+                </button>
+              ))}
+              {filter && (
+                <button type="button" className="statfilter" onClick={() => onFilter('')}>
+                  {t('detail.filterClear')}
+                </button>
+              )}
             </div>
             <div className={`prog ${items.some((it) => it.status === 'failed') ? 'bad' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={t('detail.batchProgress')}>
               <i style={{ width: `${pct}%` }} />

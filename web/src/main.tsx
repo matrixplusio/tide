@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { watchForActivity } from './lib/activity'
 import { BrowserRouter } from 'react-router-dom'
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { initI18n } from './lib/i18n'
@@ -37,6 +38,10 @@ const qc: QueryClient = new QueryClient({
 
 const root = document.getElementById('root')
 if (!root) throw new Error('#root missing')
+
+// Start listening before the first request goes out, so the first one
+// already knows whether anybody is here.
+watchForActivity()
 
 createRoot(root).render(
   <StrictMode>

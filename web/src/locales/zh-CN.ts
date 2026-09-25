@@ -856,6 +856,8 @@ const zhCN = {
     expandAll: '全部展开',
     finished: '已结束 {{done}} / {{total}}',
     podsReady: ' · 新版本 Pod 就绪 {{ready}} / {{want}}',
+    filterByStatus: '按状态筛选条目',
+    filterClear: '显示全部',
     batchProgress: '批量发布整体进度',
     colOrder: '顺序',
     colService: '服务',

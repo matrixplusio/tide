@@ -132,18 +132,27 @@ func (s *Service) UserFromToken(ctx context.Context, token string) *User {
 	if token == "" || len(token) > 128 {
 		return nil
 	}
-	id := hashToken(token)
-	u, err := s.PG.Accounts.SessionUser(ctx, id)
+	u, err := s.PG.Accounts.SessionUser(ctx, hashToken(token))
 	if err != nil || u == nil {
 		return nil
 	}
-	// Being used is what keeps a session alive; see TouchSession for why it
-	// is capped and why it does not write on every request.
+	return &User{*u}
+}
+
+// KeepSessionAlive pushes the session's expiry out, and is called only for
+// requests a person is behind.
+//
+// Not every request: several pages poll on a timer, so a tab left open would
+// renew a session with nobody there, and an idle timeout that never fires is
+// not one. The client says which requests had somebody at the keyboard; this
+// trusts it, because the cost of a lie is a session that outlives its idle
+// window but still dies at the cap, and the alternative — renewing on
+// everything — has that cost always.
+func (s *Service) KeepSessionAlive(ctx context.Context, token string) {
 	ttl, max := s.sessionWindow(ctx)
-	if err := s.PG.Accounts.TouchSession(ctx, id, ttl, max); err != nil {
+	if err := s.PG.Accounts.TouchSession(ctx, hashToken(token), ttl, max); err != nil {
 		zap.L().Warn("session renewal failed", zap.Error(err))
 	}
-	return &User{*u}
 }
 
 // SessionID is the public id of the session behind a cookie value.

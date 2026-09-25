@@ -250,11 +250,19 @@ func (a *API) setupGate(c *gin.Context) {
 	}
 }
 
+// activeHeader is set by the web client on requests made while somebody has
+// recently touched the page; background polling does not carry it.
+const activeHeader = "X-Tide-Active"
+
 func (a *API) loadUser(c *gin.Context) {
 	if token, err := cookie(c, sessionCookie); err == nil {
 		if u := a.Auth.UserFromToken(c.Request.Context(), token); u != nil {
 			c.Set(ctxUser, u)
 			c.Set("user_id", u.Sub)
+			// Only a request somebody is behind keeps the session alive.
+			if c.GetHeader(activeHeader) == "1" {
+				a.Auth.KeepSessionAlive(c.Request.Context(), token)
+			}
 		}
 	}
 	c.Next()

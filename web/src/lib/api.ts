@@ -1,6 +1,7 @@
 import { ErrCode } from './errcode'
 import { currentLocale, i18n } from './i18n'
 import { logger } from './logger'
+import { personIsHere } from './activity'
 
 // Thin client for /api/v1. Session is an HttpOnly cookie; nothing sensitive
 // is stored in JS. Every response is an envelope { code, msg, data }.
@@ -108,6 +109,9 @@ export async function apiFetch<T>(path: string, opts: ApiOptions = {}): Promise<
       headers: {
         Accept: 'application/json',
         'Accept-Language': currentLocale(),
+        // Tells the server this request has a person behind it, so that a
+        // tab polling on a timer does not keep a session alive by itself.
+        ...(personIsHere() ? { 'X-Tide-Active': '1' } : {}),
         ...(method !== 'GET' ? { 'Content-Type': 'application/json' } : {}),
       },
       body: hasBody ? JSON.stringify(opts.body) : method !== 'GET' ? '{}' : undefined,
