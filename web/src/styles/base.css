@@ -450,6 +450,8 @@ textarea.input { resize: vertical; min-height: 54px; }
 .sheet-h h2 { margin: 0; font-size: 15px; }
 .sheet-b { padding: 4px 18px 18px; }
 .anomaly { display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; background: var(--orange-bg); color: var(--ink); }
+.anomaly.notice { color: var(--text2); }
+.anomaly.notice b { color: var(--text3); }
 .anomaly.rollback, .anomaly.first_deploy { background: #ff3b3016; }
 .anomaly b { color: var(--orange); }
 .anomaly b.inherit { color: inherit; }

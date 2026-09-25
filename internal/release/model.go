@@ -219,6 +219,17 @@ const (
 	AnomalyFirstDeployPerKargo = "first_deploy_per_kargo"
 )
 
+// NoticeAnomalies are the codes that describe the situation rather than warn
+// about it. A first deployment is not a thing going wrong — it is what every
+// service's first release looks like, and after a pipeline is rebuilt it is
+// what all of them look like at once. Calling that "anomaly" in red next to
+// fifty successful items teaches people to read past the word, which is the
+// opposite of what it is for.
+var NoticeAnomalies = map[string]bool{
+	AnomalyFirstDeploy:         true,
+	AnomalyFirstDeployPerKargo: true,
+}
+
 type Anomaly struct {
 	Code string `json:"code"` // rollback / first_deploy / multi_version_jump / short_soak
 	// Message is the sentence as it was put to whoever confirmed the release,

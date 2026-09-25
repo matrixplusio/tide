@@ -297,6 +297,7 @@ export type SsoValues = z.infer<typeof ssoSchema>
 export const securitySchema = z
   .object({
     sessionTtlMinutes: intField(5, 1440),
+    sessionMaxHours: intField(1, 720),
     loginWindowMinutes: intField(5, 1440),
     captchaAfterUserFailures: intField(1, 20),
     captchaAfterIpFailures: intField(1, 100),

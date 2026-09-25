@@ -388,7 +388,13 @@ func DefaultNotify() Notify { return Notify{Channels: []Channel{}, Rules: []Noti
 
 // Security is sign-in protection and session lifetime.
 type Security struct {
-	SessionTTLMinutes        int  `json:"sessionTtlMinutes"`
+	// SessionTTLMinutes is how long a session stays valid without being
+	// used; each request pushes it out again.
+	SessionTTLMinutes int `json:"sessionTtlMinutes"`
+	// SessionMaxHours caps how long one sign-in can last however busy it is.
+	// Without it, renewing on use would mean a tab left open never expires —
+	// several pages poll on a timer, so "in use" would not need a person.
+	SessionMaxHours          int  `json:"sessionMaxHours"`
 	LoginWindowMinutes       int  `json:"loginWindowMinutes"`
 	CaptchaAfterUserFailures int  `json:"captchaAfterUserFailures"`
 	CaptchaAfterIPFailures   int  `json:"captchaAfterIpFailures"`
@@ -398,7 +404,7 @@ type Security struct {
 }
 
 func DefaultSecurity() Security {
-	return Security{SessionTTLMinutes: 60, LoginWindowMinutes: 15, CaptchaAfterUserFailures: 3, CaptchaAfterIPFailures: 5,
+	return Security{SessionTTLMinutes: 60, SessionMaxHours: 12, LoginWindowMinutes: 15, CaptchaAfterUserFailures: 3, CaptchaAfterIPFailures: 5,
 		LockAfterUserFailures: 10, LockAfterIPFailures: 30}
 }
 

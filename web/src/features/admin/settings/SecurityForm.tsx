@@ -13,6 +13,7 @@ const numberInput = { type: 'text', inputMode: 'numeric', autoComplete: 'off', c
 
 const defaults: Security = {
   sessionTtlMinutes: 60,
+  sessionMaxHours: 12,
   loginWindowMinutes: 15,
   captchaAfterUserFailures: 3,
   captchaAfterIpFailures: 5,
@@ -24,6 +25,7 @@ const defaults: Security = {
 function toValues(s: Security): SecurityValues {
   return {
     sessionTtlMinutes: String(s.sessionTtlMinutes),
+    sessionMaxHours: String(s.sessionMaxHours),
     loginWindowMinutes: String(s.loginWindowMinutes),
     captchaAfterUserFailures: String(s.captchaAfterUserFailures),
     captchaAfterIpFailures: String(s.captchaAfterIpFailures),
@@ -50,6 +52,7 @@ export function SecurityForm({ initial }: { initial: Security | null | undefined
     try {
       await save.mutateAsync({
         sessionTtlMinutes: Number(v.sessionTtlMinutes.trim()),
+        sessionMaxHours: Number(v.sessionMaxHours.trim()),
         loginWindowMinutes: Number(v.loginWindowMinutes.trim()),
         captchaAfterUserFailures: Number(v.captchaAfterUserFailures.trim()),
         captchaAfterIpFailures: Number(v.captchaAfterIpFailures.trim()),
@@ -70,6 +73,9 @@ export function SecurityForm({ initial }: { initial: Security | null | undefined
       <Group form>
         <FormField label={t('settings.sessionTtl')} error={errors.sessionTtlMinutes?.message} required hint={t('settings.sessionTtlHint')}>
           {(p) => <Input {...p} {...register('sessionTtlMinutes')} {...numberInput} />}
+        </FormField>
+        <FormField label={t('settings.sessionMax')} error={errors.sessionMaxHours?.message} required hint={t('settings.sessionMaxHint')}>
+          {(p) => <Input {...p} {...register('sessionMaxHours')} {...numberInput} />}
         </FormField>
       </Group>
 
