@@ -39,3 +39,6 @@ node_modules/
 # What stays out is the list of this environment's own names: a list of the
 # things you are hiding is itself worth hiding.
 /hack/*.local.txt
+
+# 本地文件，不进仓库：带环境细节的东西只留在工作区
+/hack/internal-data-patterns.local.txt
