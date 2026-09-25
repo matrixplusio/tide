@@ -368,12 +368,38 @@ func (s *Service) expire(ctx context.Context) {
 	}
 }
 
+// renudgeAt spaces the retries out: at the default tick of twenty seconds
+// these land about one, three, nine and twenty-seven minutes in. Early
+// enough that a lost notification is recovered while anyone still cares,
+// sparse enough that a warehouse is not asked ninety times.
+func renudgeAt(attempts int) bool {
+	for n := 3; n <= 81; n *= 3 {
+		if attempts == n {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) process(ctx context.Context, in pg.CIIntake) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	rel, err := s.release(ctx, in)
 	switch {
 	case errors.Is(err, errWaiting):
+		// Ask the warehouse again, now and then. The nudge on arrival is one
+		// request, and one request can fail — Kargo busy, a timeout, a token
+		// without the permission — after which the only thing left was
+		// Kargo's own interval, which used to be longer than this wait. The
+		// image was in the registry all along and the intake expired anyway.
+		//
+		// This loop is already awake every twenty seconds and already knows
+		// the freight has not arrived, so retrying costs almost nothing. Not
+		// every pass, though: that would be a request every twenty seconds
+		// per waiting intake for half an hour.
+		if renudgeAt(in.Attempts) {
+			s.Nudge(ctx, in)
+		}
 		if err := s.PG.CI.Attempt(ctx, in.ID); err != nil {
 			zap.L().Warn("ci: recording attempt failed", zap.Int64("intake_id", in.ID), zap.Error(err))
 		}

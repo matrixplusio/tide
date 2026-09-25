@@ -357,10 +357,16 @@ metadata:
   name: %s
   namespace: %s
 spec:
-  # Long on purpose. Tide asks this warehouse to look as soon as a pipeline
-  # reports a new image, so the interval is a safety net for a missed
-  # notification, not the way images are normally found.
-  interval: 1h
+  # Tide asks this warehouse to look as soon as a pipeline reports a new
+  # image, so this is the safety net for a notification that went missing,
+  # not the way images are normally found.
+  #
+  # It has to be shorter than Tide's wait or it is not a safety net at all.
+  # It was an hour against a wait of thirty minutes, which meant the fallback
+  # could only ever arrive after Tide had already given up: four builds were
+  # reported as "waited 30m and never found the image" when the image had
+  # been in the registry the whole time. Kept in step by a test.
+  interval: 15m
   freightCreationPolicy: Automatic
   subscriptions:
     - image:
