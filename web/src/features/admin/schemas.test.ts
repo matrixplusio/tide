@@ -3,6 +3,7 @@ import { bindingSchema, bindingSubject, environmentsSchema, envSelectorsIssue, m
 
 const security = {
   sessionTtlMinutes: '60',
+  sessionMaxHours: '12',
   loginWindowMinutes: '15',
   captchaAfterUserFailures: '3',
   captchaAfterIpFailures: '5',

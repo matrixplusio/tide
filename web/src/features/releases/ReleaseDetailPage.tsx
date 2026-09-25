@@ -8,7 +8,7 @@ import { itemStatusText } from '../../lib/status'
 import type { Item, ItemKind, ItemLive, Live, Release } from '../../lib/types'
 import { summarizeRollout } from '../../lib/rollout'
 import { changeSummary } from '../../lib/release'
-import { anomalyText } from '../../lib/anomaly'
+import { anomalyText, isNotice } from '../../lib/anomaly'
 import { useCancelRelease, useDecideRelease, useRelease } from './queries'
 import { subjectLabel } from '../../lib/permissions'
 import {
@@ -360,8 +360,8 @@ function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; liv
                 )}
                 {it.payload.withConfig && <KV k={t('detail.config')}>{t('detail.withConfig', { summary: changeSummary(it.payload.configChanges ?? []) })}</KV>}
                 {(it.payload.anomalies ?? []).map((a, i) => (
-                  <div key={i} className={`anomaly ${a.code}`}>
-                    <b aria-hidden="true">▲</b>
+                  <div key={i} className={`anomaly ${isNotice(a) ? 'notice' : ''} ${a.code}`}>
+                    <b aria-hidden="true">{isNotice(a) ? 'ℹ' : '▲'}</b>
                     <span title={a.message}>{anomalyText(a)}</span>
                   </div>
                 ))}
@@ -574,7 +574,9 @@ function BatchOverview({ items, status, lives, expanded, onToggle, onAll }: { it
                         {(it.payload.anomalies?.length ?? 0) > 0 && (
                           <>
                             {' '}
-                            <Pill tone="orange">{(it.payload.anomalies ?? []).map((a) => t(ANOMALY_SHORT[a.code] ?? 'detail.anomalyPill')).join(t('scope.listSeparator'))}</Pill>
+                            <Pill tone={(it.payload.anomalies ?? []).every(isNotice) ? 'neutral' : 'orange'}>
+                              {(it.payload.anomalies ?? []).map((a) => t(ANOMALY_SHORT[a.code] ?? 'detail.anomalyPill')).join(t('scope.listSeparator'))}
+                            </Pill>
                           </>
                         )}
                         {it.payload.withConfig && (it.payload.configChanges?.length ?? 0) > 0 && (

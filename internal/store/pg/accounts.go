@@ -217,6 +217,29 @@ func (a *Accounts) SessionUser(ctx context.Context, idHash string) (*User, error
 	return a.oneUser(ctx, `NOT u.disabled AND u.id = (SELECT s.user_id FROM sessions s WHERE s.id = $1 AND s.expires_at > now())`, idHash)
 }
 
+// TouchSession pushes a live session's expiry out by ttl, never past max
+// from when it started.
+//
+// Expiry used to be fixed at sign-in, so somebody was signed out in the
+// middle of what they were doing and the clock did not care that they were
+// doing it. Renewing on use fixes that, and the cap is what keeps it from
+// meaning "never": several pages poll on a timer, so a tab left open would
+// otherwise keep a session alive with nobody there.
+//
+// The write only happens in the last quarter of the window. Every request
+// renewing would be a write per request for a value that barely moves.
+//
+// Best effort, like every other bookkeeping write on the request path: a
+// failure here must not refuse a request that was properly authenticated.
+func (a *Accounts) TouchSession(ctx context.Context, idHash string, ttl, max time.Duration) error {
+	return a.db.WithContext(ctx).Exec(`UPDATE sessions
+		SET expires_at = LEAST(created_at + make_interval(secs => $3), now() + make_interval(secs => $2))
+		WHERE id = $1 AND expires_at > now()
+		  AND expires_at < now() + make_interval(secs => $2 * 0.75)
+		  AND expires_at < created_at + make_interval(secs => $3)`,
+		idHash, ttl.Seconds(), max.Seconds()).Error
+}
+
 func (a *Accounts) ListSessions(ctx context.Context, userID int64) ([]Session, error) {
 	out := []Session{}
 	err := a.db.WithContext(ctx).Raw(`SELECT id, COALESCE(client_ip, '') AS client_ip, COALESCE(user_agent, '') AS user_agent, created_at, expires_at

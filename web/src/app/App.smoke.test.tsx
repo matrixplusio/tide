@@ -51,7 +51,7 @@ const routes: [RegExp, unknown][] = [
       environments: { items: [{ name: 'qa', displayName: '测试', tier: 'testing', description: '', upstream: '' }] },
       notify: { channels: [], rules: [] },
       oidc: null,
-      security: { sessionTtlMinutes: 60, loginWindowMinutes: 15, captchaAfterUserFailures: 3, captchaAfterIpFailures: 5, lockAfterUserFailures: 10, lockAfterIpFailures: 30, localLoginAdminsOnly: false },
+      security: { sessionTtlMinutes: 60, sessionMaxHours: 12, loginWindowMinutes: 15, captchaAfterUserFailures: 3, captchaAfterIpFailures: 5, lockAfterUserFailures: 10, lockAfterIpFailures: 30, localLoginAdminsOnly: false },
       release: { confirmReadSeconds: 10, confirmTtlMinutes: 10, executeTimeoutMinutes: 15, minSoakMinutes: 30, multiVersionJump: 3, jiraBaseUrl: '', jiraProjects: [], freezes: [] },
       system: { siteName: 'Tide', baseUrl: '', announcement: { enabled: false, level: 'info', text: '' } },
     },

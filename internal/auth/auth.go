@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"go.uber.org/zap"
 
 	"tide/internal/access"
 	"tide/internal/audit"
@@ -77,11 +78,29 @@ type Session struct {
 }
 
 func (s *Service) sessionTTL(ctx context.Context) time.Duration {
+	ttl, _ := s.sessionWindow(ctx)
+	return ttl
+}
+
+// sessionWindow is how long a session lives unused, and how long it may live
+// however much it is used.
+func (s *Service) sessionWindow(ctx context.Context) (ttl, max time.Duration) {
 	sec, err := s.Settings.Security(ctx)
 	if err != nil || sec.SessionTTLMinutes <= 0 {
 		sec = settings.DefaultSecurity()
 	}
-	return time.Duration(sec.SessionTTLMinutes) * time.Minute
+	ttl = time.Duration(sec.SessionTTLMinutes) * time.Minute
+	hours := sec.SessionMaxHours
+	if hours <= 0 {
+		hours = settings.DefaultSecurity().SessionMaxHours
+	}
+	max = time.Duration(hours) * time.Hour
+	// A cap below the idle window would expire a session that is being used
+	// sooner than one that is not.
+	if max < ttl {
+		max = ttl
+	}
+	return ttl, max
 }
 
 const maxUserAgent = 256
@@ -113,9 +132,16 @@ func (s *Service) UserFromToken(ctx context.Context, token string) *User {
 	if token == "" || len(token) > 128 {
 		return nil
 	}
-	u, err := s.PG.Accounts.SessionUser(ctx, hashToken(token))
+	id := hashToken(token)
+	u, err := s.PG.Accounts.SessionUser(ctx, id)
 	if err != nil || u == nil {
 		return nil
+	}
+	// Being used is what keeps a session alive; see TouchSession for why it
+	// is capped and why it does not write on every request.
+	ttl, max := s.sessionWindow(ctx)
+	if err := s.PG.Accounts.TouchSession(ctx, id, ttl, max); err != nil {
+		zap.L().Warn("session renewal failed", zap.Error(err))
 	}
 	return &User{*u}
 }

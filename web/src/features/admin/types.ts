@@ -124,6 +124,7 @@ export interface OIDC {
 
 export interface Security {
   sessionTtlMinutes: number
+  sessionMaxHours: number
   loginWindowMinutes: number
   captchaAfterUserFailures: number
   captchaAfterIpFailures: number

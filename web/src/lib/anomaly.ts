@@ -37,3 +37,24 @@ export function anomalyText(a: Anomaly): string {
   if (!key || args.length < (ARITY[a.code] ?? 0)) return a.message
   return i18n.t(key, Object.fromEntries(args.map((v, i) => [String(i), v])))
 }
+
+/**
+ * Codes that describe the situation rather than warn about it.
+ *
+ * A first deployment is not a thing going wrong; it is what a service's first
+ * release looks like, and right after a pipeline is rebuilt every service
+ * looks like that at once. Shown in the same red as a rollback, the word
+ * stops meaning anything.
+ *
+ * Kept in step with release.NoticeAnomalies by a test on the Go side.
+ */
+const NOTICE = new Set(['first_deploy', 'first_deploy_per_kargo'])
+
+export function isNotice(a: Anomaly): boolean {
+  return NOTICE.has(a.code)
+}
+
+/** Split into the ones worth stopping for and the ones worth knowing. */
+export function splitAnomalies<T extends Anomaly>(list: T[]): { warnings: T[]; notices: T[] } {
+  return { warnings: list.filter((a) => !isNotice(a)), notices: list.filter(isNotice) }
+}

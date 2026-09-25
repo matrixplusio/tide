@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMe } from '../../app/session'
 import type { Item, Release } from '../../lib/types'
 import { changeSummary, itemDigest } from '../../lib/release'
-import { anomalyText } from '../../lib/anomaly'
+import { anomalyText, splitAnomalies } from '../../lib/anomaly'
 import { ConfigChanges } from './ConfigChanges'
 import { fmtTime, shortTag } from '../../lib/format'
 import { useCancelRelease, useConfirmRelease } from '../../features/releases/queries'
@@ -58,6 +58,7 @@ export function ConfirmSheet({ release, onClose, onDone }: { release: Release; o
   }, [counting, expiresAt, expired, skew])
   const items = release.items ?? []
   const anomalies = items.flatMap((it) => (it.kind === 'image' ? (it.payload.anomalies ?? []) : []).map((a) => ({ ...a, service: it.payload.service })))
+  const { warnings, notices } = splitAnomalies(anomalies)
   const restartOnly = items.length > 0 && items.every((it) => it.kind === 'restart')
   const syncOnly = items.length > 0 && items.every((it) => it.kind === 'sync')
   const first = items[0]
@@ -90,17 +91,37 @@ export function ConfirmSheet({ release, onClose, onDone }: { release: Release; o
       onClose={onClose}
       closeOnEsc={!busy}
     >
-      {anomalies.length > 0 && (
+      {/* Two headings, because they ask different things of the reader: one
+          says stop and look, the other says this is how it is. A batch after
+          a pipeline rebuild is fifty of the second kind, and putting those
+          under "anomalies" in red is how the word stops being read. */}
+      {warnings.length > 0 && (
         <>
-          <GroupHeader>{t('confirm.anomalies', { count: anomalies.length })}</GroupHeader>
+          <GroupHeader>{t('confirm.anomalies', { count: warnings.length })}</GroupHeader>
           <Group>
-            {anomalies.map((a, i) => (
+            {warnings.map((a, i) => (
               <div key={i} className={`anomaly ${a.code}`}>
                 <b aria-hidden="true">▲</b>
                 {/* Shown in the reader's language where the release stored
                     the facts apart from the wording; its own text otherwise,
                     and as the tooltip either way — that text is what whoever
                     confirmed actually read. */}
+                <div className="t" title={a.message}>
+                  <b className="inherit">{a.service}</b> · {anomalyText(a)}
+                </div>
+              </div>
+            ))}
+          </Group>
+        </>
+      )}
+
+      {notices.length > 0 && (
+        <>
+          <GroupHeader>{t('confirm.notices', { count: notices.length })}</GroupHeader>
+          <Group>
+            {notices.map((a, i) => (
+              <div key={i} className={`anomaly notice ${a.code}`}>
+                <b aria-hidden="true">ℹ</b>
                 <div className="t" title={a.message}>
                   <b className="inherit">{a.service}</b> · {anomalyText(a)}
                 </div>
