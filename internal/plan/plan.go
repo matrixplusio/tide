@@ -83,7 +83,9 @@ func List(ctx context.Context, hub *catalog.Hub, d *catalog.Deployment, gate *Ga
 	if d.KargoProject == "" {
 		return nil, ErrNotManaged
 	}
-	stage, err := c.Kargo.GetStage(ctx, d.KargoProject, d.KargoStage)
+	// One list per project rather than one fetch per item: fifty services in
+	// a project were fifty requests for stages the same list already held.
+	stage, err := memoFrom(ctx).Stage(ctx, c, d.Upstream, d.KargoProject, d.KargoStage)
 	if err != nil {
 		return nil, err
 	}

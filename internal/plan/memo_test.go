@@ -4,6 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -95,5 +98,87 @@ func TestWithoutAMemoEveryCallReachesTheUpstream(t *testing.T) {
 	}
 	if got := calls.Load(); got != 3 {
 		t.Fatalf("made %d requests, want 3 — a nil memo must not change behaviour", got)
+	}
+}
+
+// stageServer answers both the list and the single-stage endpoints, counting
+// each, so a test can show which one the planning actually used.
+func stageServer(t *testing.T, listHas ...string) (*catalog.Clients, *atomic.Int64, *atomic.Int64) {
+	t.Helper()
+	var lists, gets atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/stages") {
+			lists.Add(1)
+			items := make([]string, 0, len(listHas))
+			for _, n := range listHas {
+				items = append(items, `{"metadata":{"name":"`+n+`"}}`)
+			}
+			_, _ = w.Write([]byte(`{"items":[` + strings.Join(items, ",") + `]}`))
+			return
+		}
+		gets.Add(1)
+		name := path.Base(r.URL.Path)
+		_, _ = w.Write([]byte(`{"metadata":{"name":"` + name + `"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	return &catalog.Clients{Kargo: kargo.New(srv.URL, "t", true)}, &lists, &gets
+}
+
+// Fifty stages of a project are one list, not fifty fetches.
+func TestStagesComeFromOneListPerProject(t *testing.T) {
+	names := make([]string, 0, 50)
+	for i := 0; i < 50; i++ {
+		names = append(names, "svc"+strconv.Itoa(i)+"-dev")
+	}
+	c, lists, gets := stageServer(t, names...)
+	ctx := WithMemo(context.Background(), NewMemo())
+
+	var wg sync.WaitGroup
+	for _, n := range names {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			st, err := memoFrom(ctx).Stage(ctx, c, "idc", "kargo-acme-alpha", n)
+			if err != nil {
+				t.Error(err)
+			} else if st.Metadata.Name != n {
+				t.Errorf("got stage %q, want %q", st.Metadata.Name, n)
+			}
+		}()
+	}
+	wg.Wait()
+	if lists.Load() != 1 || gets.Load() != 0 {
+		t.Fatalf("lists=%d gets=%d, want 1 and 0", lists.Load(), gets.Load())
+	}
+}
+
+// A stage created after the list was read is the one case the list cannot
+// answer, and reporting it missing would be wrong.
+func TestAStageMissingFromTheListIsFetchedOnItsOwn(t *testing.T) {
+	c, lists, gets := stageServer(t, "known-dev")
+	ctx := WithMemo(context.Background(), NewMemo())
+
+	if st, err := memoFrom(ctx).Stage(ctx, c, "idc", "kargo-acme-alpha", "brand-new-dev"); err != nil {
+		t.Fatal(err)
+	} else if st.Metadata.Name != "brand-new-dev" {
+		t.Fatalf("got %q", st.Metadata.Name)
+	}
+	if lists.Load() != 1 || gets.Load() != 1 {
+		t.Fatalf("lists=%d gets=%d, want 1 and 1", lists.Load(), gets.Load())
+	}
+}
+
+// Without a memo nothing changes: the single fetch is still what happens.
+func TestWithoutAMemoStagesAreFetchedSingly(t *testing.T) {
+	c, lists, gets := stageServer(t, "svc-dev")
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		if _, err := memoFrom(ctx).Stage(ctx, c, "idc", "kargo-acme-alpha", "svc-dev"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if lists.Load() != 0 || gets.Load() != 3 {
+		t.Fatalf("lists=%d gets=%d, want 0 and 3", lists.Load(), gets.Load())
 	}
 }
