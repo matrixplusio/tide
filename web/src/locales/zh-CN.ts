@@ -787,6 +787,7 @@ const zhCN = {
     batchNote: '批量不是原子的，每项独立成功或失败；各服务明细默认收起，在服务总览里展开。',
     anomalyRollback: '回滚',
     anomalyFirst: '首次部署',
+    anomalyFirstPerKargo: 'Kargo 首次部署',
     anomalyJump: '跨版本',
     anomalySoak: '验证不足',
     anomalyDrift: '带未同步配置',

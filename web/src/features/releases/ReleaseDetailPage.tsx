@@ -158,7 +158,18 @@ export function ReleaseDetailPage() {
   )
 }
 
-const ANOMALY_SHORT: Record<string, string> = { rollback: 'detail.anomalyRollback', first_deploy: 'detail.anomalyFirst', multi_version_jump: 'detail.anomalyJump', short_soak: 'detail.anomalySoak', config_drift: 'detail.anomalyDrift' }
+// Every code the server can attach needs an entry: one that is missing falls
+// back to the bare word "anomaly", which tells the reader that something is
+// notable without saying what — and first_deploy_per_kargo, the one that was
+// missing, is the ordinary state of a pipeline that has just been rebuilt.
+const ANOMALY_SHORT: Record<string, string> = {
+  rollback: 'detail.anomalyRollback',
+  first_deploy: 'detail.anomalyFirst',
+  first_deploy_per_kargo: 'detail.anomalyFirstPerKargo',
+  multi_version_jump: 'detail.anomalyJump',
+  short_soak: 'detail.anomalySoak',
+  config_drift: 'detail.anomalyDrift',
+}
 const kindJoin = (k: ItemKind): string => (k === 'image' ? '→' : k === 'restart' ? i18n.t('detail.kindRestart') : i18n.t('detail.kindSync'))
 
 type Ev = { label: string; at?: string; state: 'done' | 'now' | 'todo'; who?: string }

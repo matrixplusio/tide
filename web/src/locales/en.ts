@@ -785,6 +785,7 @@ const en: Messages = {
     batchNote: 'A batch is not atomic; each item succeeds or fails on its own. Per-service detail is collapsed by default and opens from the overview.',
     anomalyRollback: 'rollback',
     anomalyFirst: 'first deployment',
+    anomalyFirstPerKargo: 'first deployment for Kargo',
     anomalyJump: 'version jump',
     anomalySoak: 'short soak',
     anomalyDrift: 'carries unsynced config',
