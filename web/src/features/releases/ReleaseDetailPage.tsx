@@ -377,11 +377,27 @@ function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; liv
             </>
           )}
           {it.status === 'executing' && live?.live && (it.kind !== 'image' || live.promotion?.phase === 'Succeeded') && <WaitingForPods live={live.live} kind={it.kind} since={restartSince(it)} />}
-          {live?.promotion && (
+          {live?.promotion ? (
             <>
               <GroupHeader>{t('detail.promotionSteps')}</GroupHeader>
               <PromotionSteps p={live.promotion} />
             </>
+          ) : (
+            // An item is "executing" from the moment the release starts, but
+            // the promotion only exists once the worker reaches this item —
+            // in a batch, that can be a while. Saying so beats an empty space
+            // that reads as a step list which is failing to load.
+            it.kind === 'image' &&
+            it.status === 'executing' && (
+              <>
+                <GroupHeader>{t('detail.promotionSteps')}</GroupHeader>
+                <Group>
+                  <Row>
+                    <div className="grow d">{t('detail.promotionQueued')}</div>
+                  </Row>
+                </Group>
+              </>
+            )
           )}
           {live?.error && <ErrorState error={live.error} />}
           {it.status === 'failed' && live?.live && (

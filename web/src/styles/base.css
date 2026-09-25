@@ -401,7 +401,7 @@ textarea.input { resize: vertical; min-height: 54px; }
 .stepi.run { background: var(--orange); animation: pulse 1.6s ease-in-out infinite; }
 .stepi.todo { box-shadow: inset 0 0 0 1.2px var(--gray4); }
 .stepi.bad { background: var(--red); }
-.stepi.skip { background: var(--gray4); }
+.stepi.skipped { background: var(--gray4); }
 .prog { height: 4px; border-radius: 2px; background: var(--fill2); overflow: hidden; margin-top: 6px; }
 .prog i { display: block; height: 100%; background: var(--blue); border-radius: 2px; transition: width var(--dur-layout-slow) var(--ease-in-out); }
 .prog.bad i { background: var(--red); }

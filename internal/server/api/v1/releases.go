@@ -168,40 +168,75 @@ func (a *API) createRelease(c *gin.Context) {
 	}
 	var blocked []string
 	in := release.CreateInput{Title: req.Title, Env: req.Env, JiraTicket: req.JiraTicket, Reason: req.Reason}
+
+	// Every service is resolved before any of them is planned, so that a name
+	// that is not deployed here is reported without having asked an upstream
+	// anything.
+	deployments := make([]*catalog.Deployment, len(req.Items))
 	for i, it := range req.Items {
 		d := deploymentIn(snap, it.Service, req.Env)
 		if d == nil {
 			respond.Fail(c, errcode.Invalid(errcode.FieldError{Field: itemField(i, "service"), Key: "r.notDeployedTo", Args: []any{it.Service, req.Env}}))
 			return
 		}
-		var payload any
-		switch it.Kind {
-		case release.KindRestart:
-			payload, err = plan.BuildRestart(ctx, a.Hub, d)
-		case release.KindSync:
-			payload, err = plan.BuildSync(ctx, a.Hub, d, it.Prune, it.Restart)
-			var pe *plan.PruneError
-			if errors.As(err, &pe) {
-				err = errcode.Invalid(errcode.FieldError{Field: itemField(i, "prune"), Msg: it.Service + "：" + pe.Error()})
-			}
-		default:
-			var ever bool
-			if ever, err = a.PG.Releases.EverDeployed(ctx, it.Service, req.Env); err == nil {
-				var gate *plan.Gate
-				if gate, err = a.gate(ctx, d); err == nil {
-					payload, err = plan.Build(ctx, a.Hub, sys, d, gate, it.Freight, ever)
+		deployments[i] = d
+	}
+
+	// Planning an item costs several upstream calls — Kargo for the stage and
+	// its freight, the registry for each candidate's metadata. Serially, that
+	// is linear in the size of the batch, and a batch near the documented
+	// limit of fifty spent longer than the upstream client's own timeout, so
+	// the fifty the docs allow could not actually be submitted. The items do
+	// not depend on one another, so they are planned together.
+	type planned struct {
+		payload any
+		err     error
+	}
+	plans := make([]planned, len(req.Items))
+	tasks := make([]func(), 0, len(req.Items))
+	for i, it := range req.Items {
+		i, it, d := i, it, deployments[i]
+		tasks = append(tasks, func() {
+			var payload any
+			var err error
+			switch it.Kind {
+			case release.KindRestart:
+				payload, err = plan.BuildRestart(ctx, a.Hub, d)
+			case release.KindSync:
+				payload, err = plan.BuildSync(ctx, a.Hub, d, it.Prune, it.Restart)
+				var pe *plan.PruneError
+				if errors.As(err, &pe) {
+					err = errcode.Invalid(errcode.FieldError{Field: itemField(i, "prune"), Msg: it.Service + "：" + pe.Error()})
+				}
+			default:
+				var ever bool
+				if ever, err = a.PG.Releases.EverDeployed(ctx, it.Service, req.Env); err == nil {
+					var gate *plan.Gate
+					if gate, err = a.gate(ctx, d); err == nil {
+						payload, err = plan.Build(ctx, a.Hub, sys, d, gate, it.Freight, ever)
+					}
 				}
 			}
-		}
-		if err != nil {
-			respond.Fail(c, err)
+			if err == nil {
+				if ip, ok := payload.(*release.ImagePayload); ok {
+					err = plan.AttachConfigDrift(ctx, a.Hub, d, ip, it.WithConfig)
+				}
+			}
+			plans[i] = planned{payload: payload, err: err}
+		})
+	}
+	catalog.Parallel(8, tasks...)
+
+	// Reported in the order they were sent, whichever finished first: the
+	// caller numbered these items and an error against item 7 has to be the
+	// one it gets when items 7 and 9 both failed.
+	for i, it := range req.Items {
+		if plans[i].err != nil {
+			respond.Fail(c, plans[i].err)
 			return
 		}
+		payload := plans[i].payload
 		if ip, ok := payload.(*release.ImagePayload); ok {
-			if err := plan.AttachConfigDrift(ctx, a.Hub, d, ip, it.WithConfig); err != nil {
-				respond.Fail(c, err)
-				return
-			}
 			for _, msg := range plan.EnforcedAnomalies(i18n.From(ctx), sys, req.Env, tier, ip.Anomalies) {
 				blocked = append(blocked, i18n.T(i18n.From(ctx), "r.itemBlocked", i+1, it.Service, msg))
 			}
@@ -426,38 +461,52 @@ func (a *API) getRelease(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), upstreamTimeout)
 		defer cancel()
 		snap, _ := a.Hub.Snapshot(ctx, false)
-		lives := []ItemLive{}
-		for _, it := range rel.Items {
-			tg, err := rel.Target(it)
-			if err != nil {
-				continue
-			}
-			il := ItemLive{ItemID: it.ID}
-			tag := ""
-			if pl, err := rel.ImagePayload(it); err == nil {
-				tag = pl.To.Tag
-				if cl, err := a.Hub.Named(ctx, pl.Upstream); err != nil {
-					il.Error = errcode.From(err).Text(i18n.From(ctx))
-				} else if it.ExternalRef != "" {
-					if promo, err := cl.Kargo.GetPromotion(ctx, pl.Project, it.ExternalRef); err == nil {
-						v := promotionView(promo)
-						il.Promotion = &v
-					} else {
+		// One item is two upstream round trips — the promotion from Kargo and
+		// the workload from Argo CD. Serially that is a batch of fifty taking
+		// a hundred of them, which does not finish inside the three seconds
+		// the page refreshes on: every poll returned data already stale, so a
+		// running batch looked frozen and then turned green all at once when
+		// the last one landed. They do not depend on each other, so they go
+		// together, bounded so a large batch does not stampede the upstream.
+		lives := make([]ItemLive, len(rel.Items))
+		gather := make([]func(), 0, len(rel.Items))
+		for i, it := range rel.Items {
+			i, it := i, it
+			gather = append(gather, func() {
+				tg, err := rel.Target(it)
+				if err != nil {
+					return
+				}
+				il := ItemLive{ItemID: it.ID}
+				tag := ""
+				if pl, err := rel.ImagePayload(it); err == nil {
+					tag = pl.To.Tag
+					if cl, err := a.Hub.Named(ctx, pl.Upstream); err != nil {
 						il.Error = errcode.From(err).Text(i18n.From(ctx))
+					} else if it.ExternalRef != "" {
+						if promo, err := cl.Kargo.GetPromotion(ctx, pl.Project, it.ExternalRef); err == nil {
+							v := promotionView(promo)
+							il.Promotion = &v
+						} else {
+							il.Error = errcode.From(err).Text(i18n.From(ctx))
+						}
+					}
+				} else if pl, err := rel.RestartPayload(it); err == nil {
+					tag = pl.Current.Tag
+				} else if pl, err := rel.SyncPayload(it); err == nil {
+					tag = pl.Current.Tag
+				}
+				if snap != nil {
+					if d := deploymentIn(snap, tg.Service, tg.Env); d != nil {
+						il.Live = a.live(ctx, d, tg.Digest, tag)
 					}
 				}
-			} else if pl, err := rel.RestartPayload(it); err == nil {
-				tag = pl.Current.Tag
-			} else if pl, err := rel.SyncPayload(it); err == nil {
-				tag = pl.Current.Tag
-			}
-			if snap != nil {
-				if d := deploymentIn(snap, tg.Service, tg.Env); d != nil {
-					il.Live = a.live(ctx, d, tg.Digest, tag)
-				}
-			}
-			lives = append(lives, il)
+				lives[i] = il
+			})
 		}
+		catalog.Parallel(8, gather...)
+		// Items whose target could not be read leave a zero value behind.
+		lives = slices.DeleteFunc(lives, func(l ItemLive) bool { return l.ItemID == 0 })
 		out["live"] = lives
 	}
 	respond.OK(c, out)

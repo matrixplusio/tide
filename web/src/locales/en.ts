@@ -829,6 +829,7 @@ const en: Messages = {
     configWithUpgrade: 'Config landing with this upgrade · {{count}} changes',
     errorText: 'Error, verbatim',
     promotionSteps: 'Promotion steps · Kargo',
+    promotionQueued: 'Queued; the promotion has not started',
     impact: 'What this means',
     stillHealthy: 'The service is still healthy',
     serviceHealth: 'Service health: {{health}}',
