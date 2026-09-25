@@ -28,7 +28,7 @@ describe('UpstreamStatusPanel', () => {
   // The reason a page stopped loading is the upstream's own words; a summary
   // of them is no use to whoever has to go and fix it.
   it('shows the upstream error verbatim', () => {
-    const err = 'Get "https://argocd.example.test:9/api/v1/applications": dial tcp 192.168.254.200:9: connect: connection refused'
+    const err = 'Get "https://argocd.example.test:9/api/v1/applications": dial tcp 203.0.113.9:9: connect: connection refused'
     render(<UpstreamStatusPanel upstreams={[up({ argocdOk: false, argocdVersion: undefined, argocdError: err })]} />)
     expect(screen.getByText(err)).toBeTruthy()
     expect(screen.getByText('Argo CD').closest('.urow')?.className).toContain('bad')

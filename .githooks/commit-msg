@@ -3,5 +3,19 @@
 # looked at files. A real service name written into a message therefore
 # reached the remote with nothing in its way — which is how one did.
 #
+# Two checks, not one, and both run before deciding: this repo's own leak
+# rules know the shapes that matter here, and the machine-wide hooks carry
+# the rules every repo shares (AI attribution, message style). Setting
+# core.hooksPath to .githooks replaces the global hooks outright, so
+# whatever this file does not call simply never runs.
+#
 # Enable with: git config core.hooksPath .githooks  (or `make hooks`)
-exec hack/check-no-internal-data.sh --message "$1"
+fail=0
+
+hack/check-no-internal-data.sh --message "$1" || fail=1
+
+g="$HOME/.claude/githooks"
+[ -f "$g/leakcheck.py" ] && { python3 "$g/leakcheck.py" --message "$1" || fail=1; }
+[ -f "$g/msgstyle.py" ] && { python3 "$g/msgstyle.py" "$1" || fail=1; }
+
+exit $fail

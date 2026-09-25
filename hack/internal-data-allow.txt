@@ -33,3 +33,10 @@ managed-resources
 my-activity
 order-backend
 gateway-backend
+
+# 测试夹具和界面文案，被全局规则（内网网段 / 写死的口令）打到的假值
+10.0.0.50
+wrong password!!
+old secret phrase
+show the password
+10.2.0.1
