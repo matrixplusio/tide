@@ -217,7 +217,7 @@ func (a *Accounts) SessionUser(ctx context.Context, idHash string) (*User, error
 	return a.oneUser(ctx, `NOT u.disabled AND u.id = (SELECT s.user_id FROM sessions s WHERE s.id = $1 AND s.expires_at > now())`, idHash)
 }
 
-// TouchSession pushes a live session's expiry out by ttl, never past max
+// TouchSession pushes a live session's expiry out by ttl, never past maxLife
 // from when it started.
 //
 // Expiry used to be fixed at sign-in, so somebody was signed out in the
@@ -231,13 +231,13 @@ func (a *Accounts) SessionUser(ctx context.Context, idHash string) (*User, error
 //
 // Best effort, like every other bookkeeping write on the request path: a
 // failure here must not refuse a request that was properly authenticated.
-func (a *Accounts) TouchSession(ctx context.Context, idHash string, ttl, max time.Duration) error {
+func (a *Accounts) TouchSession(ctx context.Context, idHash string, ttl, maxLife time.Duration) error {
 	return a.db.WithContext(ctx).Exec(`UPDATE sessions
 		SET expires_at = LEAST(created_at + make_interval(secs => $3), now() + make_interval(secs => $2))
 		WHERE id = $1 AND expires_at > now()
 		  AND expires_at < now() + make_interval(secs => $2 * 0.75)
 		  AND expires_at < created_at + make_interval(secs => $3)`,
-		idHash, ttl.Seconds(), max.Seconds()).Error
+		idHash, ttl.Seconds(), maxLife.Seconds()).Error
 }
 
 func (a *Accounts) ListSessions(ctx context.Context, userID int64) ([]Session, error) {
