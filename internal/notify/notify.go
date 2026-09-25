@@ -380,6 +380,9 @@ func LarkCard(msg Message) map[string]any {
 		larkField("**Jira**\n" + jira),
 		larkField(t("n.fieldRelease") + r.ID),
 	}
+	if sum := outcome(r); sum != "" {
+		fields = append(fields, larkField(t("n.fieldOutcome")+sum))
+	}
 	elements := []any{map[string]any{"tag": "div", "fields": fields}}
 	if lines := itemLines(r); lines != "" {
 		elements = append(elements, map[string]any{"tag": "div", "text": larkText(lines)})
@@ -411,7 +414,7 @@ func LarkCard(msg Message) map[string]any {
 			"template": color,
 			// t(), not the key: eventText holds catalog keys, and printing one
 			// straight into the title puts "n.eventPending" on the card.
-			"title": map[string]string{"tag": "plain_text", "content": fmt.Sprintf("%s · %s", subjectOf(r), t(eventText[msg.Event]))},
+			"title": map[string]string{"tag": "plain_text", "content": fmt.Sprintf("%s · %s", subjectOf(r), headline(r, msg.Event))},
 		},
 		"elements": elements,
 	}
@@ -500,6 +503,61 @@ func subjectOf(r *release.Release) string {
 	return r.Title + " → " + r.Env
 }
 
+// itemStatusText is the item's status in the reader's language. Left as the
+// stored word it was the one English phrase in a Chinese message.
+func itemStatusText(st release.ItemStatus) string {
+	return t(i18n.Key("n.itemStatus." + string(st)))
+}
+
+// partlyFailed reports a failed release that did not fail completely.
+func partlyFailed(r *release.Release) bool {
+	if r.Status != release.Failed || len(r.Items) < 2 {
+		return false
+	}
+	for _, it := range r.Items {
+		if it.Status == release.ItemSucceeded {
+			return true
+		}
+	}
+	return false
+}
+
+// headline is the word in the card's title. "Failed" on a batch where six of
+// seven worked is true and reads as though none of them did — and a title is
+// all a phone shows before the message is opened.
+func headline(r *release.Release, event string) string {
+	if partlyFailed(r) {
+		return t("n.eventPartlyFailed")
+	}
+	return t(eventText[event])
+}
+
+// outcome tallies a batch: "6 succeeded · 1 failed".
+//
+// A release of seven where one item failed is reported as failed, which is
+// right — it did not all work — but on its own the word says a batch of
+// seven came to nothing. The tally is the difference between "one service
+// needs looking at" and "tonight is ruined", and the person reading the
+// message on their phone should not have to open Tide to tell which.
+//
+// Empty for a single item: there the release's own status is the item's.
+func outcome(r *release.Release) string {
+	if len(r.Items) < 2 {
+		return ""
+	}
+	counts := map[release.ItemStatus]int{}
+	for _, it := range r.Items {
+		counts[it.Status]++
+	}
+	var parts []string
+	for _, st := range []release.ItemStatus{release.ItemSucceeded, release.ItemFailed, release.ItemSkipped, release.ItemCancelled, release.ItemExecuting, release.ItemPending} {
+		if n := counts[st]; n > 0 {
+			parts = append(parts, t(i18n.Key("n.count."+string(st)), n))
+		}
+	}
+	return strings.Join(parts, t("n.countJoin"))
+}
+
 // itemLines renders one line per item, the same content as the text message.
 func itemLines(r *release.Release) string {
 	var b strings.Builder
@@ -515,7 +573,10 @@ func itemLines(r *release.Release) string {
 			}
 		default:
 			if p, err := r.ImagePayload(it); err == nil {
-				fmt.Fprintf(&b, "· %s %s → **%s**\n", p.Service, label(p.From), label(&p.To))
+				// With its status: a card that lists seven services and marks
+				// none of them leaves the reader counting error lines to work
+				// out which one the headline is about.
+				fmt.Fprintf(&b, "· %s %s → **%s** [%s]\n", p.Service, label(p.From), label(&p.To), itemStatusText(it.Status))
 			}
 		}
 		if it.Error != "" {
@@ -561,12 +622,15 @@ func Text(r *release.Release, event string, sys settings.System) string {
 	if !strings.HasSuffix(subject, " "+r.Env) {
 		subject += " → " + r.Env
 	}
-	fmt.Fprint(&b, t("n.plainHeader", sys.SiteName, r.ID, subject, t(eventText[event]), jira, r.CreatedByName))
+	fmt.Fprint(&b, t("n.plainHeader", sys.SiteName, r.ID, subject, headline(r, event), jira, r.CreatedByName))
+	if sum := outcome(r); sum != "" {
+		fmt.Fprint(&b, t("n.fieldOutcomePlain")+sum+"\n")
+	}
 	for _, it := range r.Items {
 		if p, err := r.RestartPayload(it); err == nil {
-			fmt.Fprint(&b, t("n.itemRestartStatus", p.Service, label(&p.Current), it.Status))
+			fmt.Fprint(&b, t("n.itemRestartStatus", p.Service, label(&p.Current), itemStatusText(it.Status)))
 		} else if p, err := r.ImagePayload(it); err == nil {
-			fmt.Fprintf(&b, "· %s %s → %s [%s]\n", p.Service, label(p.From), label(&p.To), it.Status)
+			fmt.Fprintf(&b, "· %s %s → %s [%s]\n", p.Service, label(p.From), label(&p.To), itemStatusText(it.Status))
 		} else {
 			continue
 		}
