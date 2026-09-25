@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
-import baseCss from '../../styles/base.css?raw'
 import { PromotionSteps } from './Live'
 import type { PromotionView } from '../../lib/types'
 
@@ -36,10 +35,9 @@ describe('PromotionSteps', () => {
     const { container } = render(<PromotionSteps p={promo(['Skipped'])} />)
     const icon = container.querySelector('.stepi')!
     expect(icon.classList.contains('skip')).toBe(false)
-    // Whatever the icon is called, it must not collide with a bare utility
-    // class that positions what it touches.
-    for (const cls of [...icon.classList].filter((c) => c !== 'stepi')) {
-      expect(baseCss).not.toMatch(new RegExp(`^\\.${cls}\\s*\\{`, 'm'))
-    }
+    // That the name is not a global utility is checked where the stylesheet
+    // can actually be read — Vitest hands back an empty string for a CSS
+    // import, so asserting against it here passes whatever the CSS says.
+    // See TestNoModifierClassIsAlsoAUtility.
   })
 })
