@@ -17,6 +17,8 @@ const zhCN = {
     sidebar: '侧边栏',
     main: '主导航',
     skipToContent: '跳到主要内容',
+    search: '搜索',
+    searchKey: '/',
     profile: '个人中心',
     signOut: '退出',
     build: '当前版本',
@@ -31,6 +33,14 @@ const zhCN = {
     credentialExpiring: '上游凭据 {{count}} 天后到期',
     credentialExpired: '有 {{count}} 项上游凭据已过期',
     upstreamDown: '不可用',
+  },
+  search: {
+    title: '搜索',
+    placeholder: '服务名、项目、业务域，或发布单号 REL-…',
+    results: '搜索结果',
+    openRelease: '打开发布单',
+    none: '没有匹配的服务',
+    hint: '↑ ↓ 选择 · 回车打开 · Esc 关闭 · 任何页面按 / 打开搜索',
   },
   login: {
     title: '登录',

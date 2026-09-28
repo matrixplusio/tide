@@ -15,6 +15,8 @@ const en: Messages = {
     sidebar: 'Sidebar',
     main: 'Main navigation',
     skipToContent: 'Skip to content',
+    search: 'Search',
+    searchKey: '/',
     profile: 'Your profile',
     signOut: 'Sign out',
     build: 'Build',
@@ -29,6 +31,14 @@ const en: Messages = {
     credentialExpiring: 'An upstream credential expires in {{count}} days',
     credentialExpired: '{{count}} upstream credentials have expired',
     upstreamDown: 'unreachable',
+  },
+  search: {
+    title: 'Search',
+    placeholder: 'Service, project, domain, or a release id REL-…',
+    results: 'Search results',
+    openRelease: 'Open release',
+    none: 'No matching service',
+    hint: '↑ ↓ to choose · Enter to open · Esc to close · press / anywhere',
   },
   login: {
     title: 'Sign in',
