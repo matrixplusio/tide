@@ -150,6 +150,20 @@ func (a *API) createRelease(c *gin.Context) {
 		respond.Fail(c, err)
 		return
 	}
+	// The tags this release is about to compare are resolved again, whatever
+	// the cache says: a build tag is normally kept for a day, and the one way
+	// that is wrong — the same tag pushed twice — is the one a release must
+	// not be fooled by. Only these services' tags; the rest of the catalog
+	// keeps its answers, so building the fresh snapshot below stays cheap.
+	if old := a.Hub.Cached(); old != nil {
+		for _, it := range req.Items {
+			if svc := old.Find(it.Service); svc != nil {
+				if d := svc.Envs[req.Env]; d != nil && d.Image != "" && d.Tag != "" {
+					a.Hub.ForgetTags(ctx, d.Image, d.Tag)
+				}
+			}
+		}
+	}
 	snap, err := a.Hub.Snapshot(ctx, true)
 	if err != nil {
 		respond.Fail(c, err)

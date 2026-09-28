@@ -221,6 +221,8 @@ type Hub struct {
 type tagHit struct {
 	digest string
 	at     time.Time
+	// ttl is how long this answer is believed; see tagTTL and builtTagTTL.
+	ttl time.Duration
 	// err is set when the lookup failed. Remembering the failure matters as
 	// much as remembering success: an image that was never pushed fails on
 	// every rebuild, and a few dozen of those are a few dozen round trips to
@@ -230,9 +232,20 @@ type tagHit struct {
 
 // tagTTL bounds how stale a tag→digest answer can be. The tag itself always
 // comes fresh from Argo CD; only the metadata behind it is cached, so the
-// worst case is a version label and a digest that lag a few minutes behind a
-// tag that was moved — and tags in a release pipeline are not moved.
-const tagTTL = 5 * time.Minute
+// worst case is a version label and a digest that lag behind a tag that was
+// moved.
+//
+// A tag the installation's own pattern recognises as a build product is kept
+// for builtTagTTL instead. Re-resolving every deployment's tag once these
+// expired was measured at 9.6 of the 10.5 seconds a cold build took in
+// production, and those tags carry a timestamp and a commit in their name:
+// nobody moves them. Anything else — a version number, a hand-written tag —
+// keeps the short lifetime, and a release re-resolves the tags it is about
+// to compare regardless (see ForgetTags).
+const (
+	tagTTL      = 5 * time.Minute
+	builtTagTTL = 24 * time.Hour
+)
 
 var ErrNoUpstreams = errors.New("no upstreams configured")
 
@@ -1012,6 +1025,10 @@ func applyStage(d *Deployment, s *kargo.Stage) {
 // looking for.
 func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment) (failed int, message string, auth bool) {
 	built := h.buildTag(ctx)
+	// Separate from built on purpose: built is nil when no pattern was set,
+	// and that nil means "inspect everything", which must not change. The
+	// lifetime decision uses the same setting with its default applied.
+	shaped := h.tagShape(ctx)
 	var mu sync.Mutex
 	var tasks []func()
 	for i := range deps {
@@ -1034,7 +1051,11 @@ func (h *Hub) fillVersions(ctx context.Context, c *Clients, deps []rawDeployment
 			if ref == "" {
 				ref = d.Tag
 			}
-			img, err := h.Inspect(ctx, c, d.Image, ref)
+			ttl := tagTTL
+			if shaped != nil && shaped.MatchString(d.Tag) {
+				ttl = builtTagTTL
+			}
+			img, err := h.inspect(ctx, c, d.Image, ref, ttl)
 			if err != nil {
 				isAuth := errors.Is(err, registry.ErrUnauthorized)
 				d.ImageUnknown = true
@@ -1081,6 +1102,26 @@ func (h *Hub) buildTag(ctx context.Context) *regexp.Regexp {
 	return re
 }
 
+// tagShape is the configured tag pattern with the default applied, or nil
+// when it does not compile. It decides which tags earn builtTagTTL; the
+// installation configured it to say which tags are build products, and that
+// is the same question.
+func (h *Hub) tagShape(ctx context.Context) *regexp.Regexp {
+	if h.Settings == nil {
+		return nil
+	}
+	var cfg settings.PipelineRepo
+	if err := h.Settings.Load(ctx, settings.SectionPipelineRepo, &cfg); err != nil {
+		return nil
+	}
+	_, pattern := cfg.Selection()
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil
+	}
+	return re
+}
+
 // truncateError keeps the upstream's own words but not all of them: registry
 // bodies can be long, and this one ends up on a page.
 func truncateError(s string) string {
@@ -1100,6 +1141,13 @@ func imageKey(digest string) string { return "tide:catalog:image:" + digest }
 const imageTTL = 24 * time.Hour
 
 func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*registry.Image, error) {
+	return h.inspect(ctx, c, image, ref, tagTTL)
+}
+
+// inspect is Inspect with a say in how long a tag's answer is kept. Only the
+// catalog build passes anything but tagTTL, because only it knows whether
+// the tag matches the installation's build pattern.
+func (h *Hub) inspect(ctx context.Context, c *Clients, image, ref string, ttl time.Duration) (*registry.Image, error) {
 	digest := ref
 	byTag := !strings.HasPrefix(ref, "sha256:")
 	if byTag {
@@ -1120,7 +1168,7 @@ func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*regi
 			// build takes.
 			digest = h.digestFromShared(ctx, image, ref)
 			if digest != "" {
-				h.rememberTag(image, ref, digest, nil)
+				h.rememberTag(image, ref, digest, nil, ttl)
 			}
 		}
 	}
@@ -1139,11 +1187,13 @@ func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*regi
 	_, repo := registry.SplitImage(image)
 	img, err := c.Registry.Inspect(ctx, repo, ref)
 	if err != nil {
-		h.rememberTag(image, ref, "", err)
+		// A failure is never kept for the long lifetime: the image may simply
+		// not have been pushed yet.
+		h.rememberTag(image, ref, "", err, tagTTL)
 		return nil, err
 	}
 	h.remember(img)
-	h.rememberTag(image, ref, img.Digest, nil)
+	h.rememberTag(image, ref, img.Digest, nil, ttl)
 	if h.Shared != nil {
 		if b, err := json.Marshal(img); err == nil {
 			h.Shared.Set(ctx, imageKey(img.Digest), b, imageTTL)
@@ -1152,7 +1202,7 @@ func (h *Hub) Inspect(ctx context.Context, c *Clients, image, ref string) (*regi
 		// process: sharing it would hand every replica one replica's bad
 		// minute, and the failures worth remembering are cheap to rediscover.
 		if byTag {
-			h.Shared.Set(ctx, tagKey(image, ref), []byte(img.Digest), tagTTL)
+			h.Shared.Set(ctx, tagKey(image, ref), []byte(img.Digest), ttl)
 		}
 	}
 	return img, nil
@@ -1167,13 +1217,17 @@ func (h *Hub) tagged(image, tag string) (digest string, err error, ok bool) {
 	h.imgMu.Lock()
 	defer h.imgMu.Unlock()
 	hit, ok := h.tags[image+":"+tag]
-	if !ok || time.Since(hit.at) > tagTTL {
+	ttl := hit.ttl
+	if ttl == 0 {
+		ttl = tagTTL
+	}
+	if !ok || time.Since(hit.at) > ttl {
 		return "", nil, false
 	}
 	return hit.digest, hit.err, true
 }
 
-func (h *Hub) rememberTag(image, tag, digest string, err error) {
+func (h *Hub) rememberTag(image, tag, digest string, err error, ttl time.Duration) {
 	if tag == "" || strings.HasPrefix(tag, "sha256:") {
 		return
 	}
@@ -1182,8 +1236,41 @@ func (h *Hub) rememberTag(image, tag, digest string, err error) {
 	if h.tags == nil {
 		h.tags = map[string]tagHit{}
 	}
-	h.tags[image+":"+tag] = tagHit{digest: digest, at: time.Now(), err: err}
+	h.tags[image+":"+tag] = tagHit{digest: digest, at: time.Now(), err: err, ttl: ttl}
 }
+
+// ForgetTags drops what was remembered about these tags, in this process and
+// in the shared tier, so the next Inspect asks the registry.
+//
+// For the one moment the long lifetime is not good enough: a release is
+// about to compare the running image with a candidate, and "the tag was
+// re-pushed under the same name" is exactly what would make that comparison
+// lie. It costs one registry round trip per tag named, not one per
+// deployment in the catalog.
+//
+// The shared tier cannot delete, so the key is overwritten with a value
+// digestFromShared refuses; that reads as a miss, which is the same thing.
+func (h *Hub) ForgetTags(ctx context.Context, image string, tags ...string) {
+	h.imgMu.Lock()
+	for _, tag := range tags {
+		delete(h.tags, image+":"+tag)
+	}
+	h.imgMu.Unlock()
+	if h.Shared == nil {
+		return
+	}
+	for _, tag := range tags {
+		if tag == "" || strings.HasPrefix(tag, "sha256:") {
+			continue
+		}
+		h.Shared.Set(ctx, tagKey(image, tag), []byte(forgotten), tagTTL)
+	}
+}
+
+// forgotten is what ForgetTags leaves in the shared tier. Anything that is not
+// a digest is refused on read, so the exact word does not matter; it is a
+// word rather than empty so a person reading the cache can tell why.
+const forgotten = "forgotten"
 
 func (h *Hub) remember(img *registry.Image) {
 	h.imgMu.Lock()
