@@ -139,6 +139,15 @@ type PipelineRepo struct {
 	PathPrefix string `json:"pathPrefix,omitempty"`
 	// Token needs api scope: writing a commit is not a read.
 	Token string `json:"token" secret:"true"`
+	// ImageName is the name of the image entry in the deployment repository's
+	// kustomization.yaml, which is what kustomize matches on — not the image
+	// being pulled. Leave it empty when the entry is already the full image
+	// name; set it when the overlays use a literal that the entry renames.
+	//
+	// Getting this wrong is not an error: the promotion appends a second entry
+	// beside the first instead of changing it, the two work as a chain, and
+	// the first entry's tag never moves again.
+	ImageName string `json:"imageName,omitempty"`
 	// ImageStrategy is how Kargo picks the newest image. Kargo's own default
 	// is SemVer, which finds nothing at all when tags are not semantic
 	// versions — and finding nothing looks exactly like a credential problem.
@@ -168,6 +177,71 @@ type PipelineRepo struct {
 	// does not match — without saying that is why. So the annotations have to
 	// move first.
 	ProjectNamePrefix string `json:"projectNamePrefix,omitempty"`
+}
+
+// AppsRepo is the repository holding the service registry the ApplicationSet
+// renders Applications from. Tide edits one field of one row in it to take a
+// service out of an environment, or put it back.
+//
+// It is a separate setting from PipelineRepo even where both point at the same
+// host and the same credential, and the token is not inherited from there.
+// Sharing one silently would mean a reader of the configuration cannot tell
+// which repositories Tide can write, and the answer to "what can this
+// credential reach" is the first thing anyone asks after an incident.
+type AppsRepo struct {
+	// Provider is which API to speak; empty means GitLab, as in PipelineRepo.
+	Provider string `json:"provider,omitempty"`
+	// BaseURL is the host, e.g. https://gitlab.example.com.
+	BaseURL string `json:"baseUrl"`
+	// Project is the path with namespace, e.g. "acme/k8s-apps".
+	Project string `json:"project"`
+	// Branch the ApplicationSet reads. Writing anywhere else changes nothing:
+	// the generator pulls one revision, so a review branch would leave the
+	// release waiting for a merge nobody is watching for.
+	Branch string `json:"branch"`
+	// Registry is where a business line's registry file lives, with {line}
+	// standing for the line: "{line}/services.yaml". One file per line, so a
+	// mistake is contained to the line it was made in.
+	Registry string `json:"registry,omitempty"`
+	// LineDimension names the catalog dimension holding the business line, for
+	// a setup where it is not the catalog's project. Empty means the project is
+	// the line — which is what the project label already groups by, so nothing
+	// needs filling in for the ordinary case.
+	//
+	// Never derived from the service's name: a name carries the line in some
+	// business lines and not others, so a rule read off one of them works by
+	// accident and fails silently on the rest.
+	LineDimension string `json:"lineDimension,omitempty"`
+	// Token needs write access to the project, and the branch it writes is
+	// usually protected — so the token's role has to be one the protection
+	// admits, which is not the same question as its scope.
+	Token string `json:"token" secret:"true"`
+}
+
+// DefaultRegistryPath is where a line's registry sits when nothing says
+// otherwise.
+const DefaultRegistryPath = "{line}/services.yaml"
+
+// RegistryPath is the registry file for one business line.
+func (a AppsRepo) RegistryPath(line string) string {
+	pattern := a.Registry
+	if pattern == "" {
+		pattern = DefaultRegistryPath
+	}
+	return strings.ReplaceAll(pattern, "{line}", line)
+}
+
+// Host is Provider with the default filled in.
+func (a AppsRepo) Host() string {
+	if a.Provider == "" {
+		return ProviderGitLab
+	}
+	return a.Provider
+}
+
+// Configured reports whether an edit can even be attempted.
+func (a AppsRepo) Configured() bool {
+	return a.BaseURL != "" && a.Project != "" && a.Token != "" && a.Branch != ""
 }
 
 // Repository providers Tide can push to.
@@ -505,6 +579,7 @@ const (
 	SectionSystem       = "system"
 	SectionSetup        = "setup"
 	SectionPipelineRepo = "pipeline"
+	SectionAppsRepo     = "apps"
 )
 
 var ErrNotConfigured = errors.New("not configured")

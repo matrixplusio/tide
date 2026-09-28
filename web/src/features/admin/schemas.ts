@@ -232,6 +232,7 @@ export const pipelineRepoSchema = z.object({
   project: z.string().trim().min(1, i18n.t('kargogen.projectRequired')).max(256),
   branch: zOptionalText(256),
   pathPrefix: zOptionalText(256),
+  imageName: zOptionalText(256),
   token: secret(i18n.t('kargogen.token'), true),
   bareDomain: z.boolean(),
   projectNamePrefix: z.string(),
@@ -239,6 +240,19 @@ export const pipelineRepoSchema = z.object({
   tagPattern: zOptionalText(256),
 })
 export type PipelineRepoValues = z.infer<typeof pipelineRepoSchema>
+
+// ---- service registry repository ----------------------------------------------
+
+export const appsRepoSchema = z.object({
+  provider: z.enum(['gitlab', 'gitea']),
+  baseUrl: baseUrl(),
+  project: z.string().trim().min(1, i18n.t('appsrepo.projectRequired')).max(256),
+  branch: z.string().trim().min(1, i18n.t('appsrepo.branchRequired')).max(256),
+  registry: zOptionalText(256),
+  lineDimension: zOptionalText(64),
+  token: secret(i18n.t('appsrepo.token'), true),
+})
+export type AppsRepoValues = z.infer<typeof appsRepoSchema>
 
 // ---- upstreams ----------------------------------------------------------------
 

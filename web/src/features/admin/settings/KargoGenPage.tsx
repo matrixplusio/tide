@@ -5,6 +5,7 @@ import { useServices } from '../../services/queries'
 import { useKargoPlan, usePushKargo, useSettings } from '../queries'
 import type { KargoFile } from '../types'
 import { PipelineRepoForm } from './PipelineRepoForm'
+import { AppsRepoForm } from './AppsRepoForm'
 
 /**
  * Generate the Kargo pipeline for a business domain.
@@ -192,6 +193,7 @@ export function KargoGenPage() {
         )}
 
         <PipelineRepoForm initial={repo} />
+        <AppsRepoForm initial={settings.data?.apps} />
       </Page>
     </>
   )
