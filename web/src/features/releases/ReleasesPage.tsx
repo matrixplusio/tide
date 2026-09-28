@@ -84,7 +84,7 @@ export function ReleasesPage() {
     status: status ? [status] : view === 'active' ? ACTIVE : undefined,
     env: get('env') || undefined,
     project: get('project') || undefined,
-    kind: kind === 'image' || kind === 'restart' || kind === 'sync' ? kind : undefined,
+    kind: kind === 'image' || kind === 'restart' || kind === 'sync' || kind === 'scale' ? kind : undefined,
     service: get('service') || undefined,
     creator: get('creator') || undefined,
     jira: get('jira') || undefined,
@@ -124,6 +124,7 @@ export function ReleasesPage() {
               ['', t('releases.allKinds')],
               ['image', t('releases.kindImage')],
               ['sync', t('releases.kindSync')],
+              ['scale', t('releases.kindScale')],
               ['restart', t('releases.kindRestart')],
             ]}
             onChange={(e) => update({ kind: e.target.value })}
