@@ -8,6 +8,7 @@ import { approvalFor, approvalText, changeSummary, enforcedThresholds } from '..
 import { applyServerError } from '../../lib/forms'
 import { fmtTime } from '../../lib/format'
 import type { Candidate, Deployment, Release } from '../../lib/types'
+import type { Preset } from '../../lib/redo'
 import { Banner, Button, ButtonRow, Checkbox, EmptyState, ErrorState, FormErrorBanner, FormField, Group, GroupHeader, Input, Loading, Note, Pill, Segmented, Textarea, Form } from '../../components/ui'
 import { ConfigChanges, ConfirmSheet } from '../../components/domain'
 import { useCreateRelease } from '../releases/queries'
@@ -16,14 +17,14 @@ import { mapReleaseField, normalizeJira, requiredFields, promoteSchema, type Pro
 
 type Scope = 'available' | 'all'
 
-export function PromoteForm({ d, canOperate, busy }: { d: Deployment; canOperate: boolean; busy: boolean }) {
+export function PromoteForm({ d, canOperate, busy, preset }: { d: Deployment; canOperate: boolean; busy: boolean; preset?: Preset }) {
   const { t } = useTranslation()
   if (!d.kargoProject) return <Banner>{t('forms.notKargoManaged')}</Banner>
   if (!canOperate) return <Banner tone="warn">{t('forms.noPromotePermission', { env: d.env })}</Banner>
-  return <PromoteFormInner d={d} busy={busy} />
+  return <PromoteFormInner d={d} busy={busy} preset={preset} />
 }
 
-function PromoteFormInner({ d, busy }: { d: Deployment; busy: boolean }) {
+function PromoteFormInner({ d, busy, preset }: { d: Deployment; busy: boolean; preset?: Preset }) {
   const { t } = useTranslation()
   const nav = useNavigate()
   const me = useMe()
@@ -45,7 +46,7 @@ function PromoteFormInner({ d, busy }: { d: Deployment; busy: boolean }) {
   const form = useForm<PromoteValues>({
     resolver: zodResolver(promoteSchema(req)),
     mode: 'onTouched',
-    defaultValues: { freight: '', title: '', jiraTicket: '', reason: '', withConfig: false },
+    defaultValues: { freight: preset?.freight ?? '', title: '', jiraTicket: preset?.jiraTicket ?? '', reason: preset?.reason ?? '', withConfig: preset?.withConfig ?? false },
   })
   const { register, handleSubmit, formState, control, setValue } = form
 

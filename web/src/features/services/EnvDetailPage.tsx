@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useSearchParams } from 'react-router-dom'
+import { readPreset } from '../../lib/redo'
 import { fmtTime, safeHttpUrl } from '../../lib/format'
 import { Banner, Chev, EmptyState, ErrorState, Group, GroupHeader, KV, Loading, Note, Page, Pill, Row, Segmented, StatusDot, Toolbar } from '../../components/ui'
 import { ConflictBanner, HealthPill, PodsList, ResourcesList, RolloutView, VersionLabel, phaseDot, phaseTone } from '../../components/domain'
@@ -25,6 +26,8 @@ export function EnvDetailPage() {
   const { service = '', env = '' } = useParams()
   const [params, setParams] = useSearchParams()
   const rawChange = params.get('change')
+  // A failed release's "re-create" lands here with its inputs in the URL.
+  const preset = readPreset(params)
   const change: Change = rawChange === 'restart' || rawChange === 'sync' || rawChange === 'scale' ? rawChange : 'upgrade'
   const setChange = (v: Change) => {
     const next = new URLSearchParams(params)
@@ -82,13 +85,18 @@ export function EnvDetailPage() {
                 <ConflictBanner conflicts={q.data.conflicts} />
               ) : (
                 <>
+                  {preset.from && (
+                    <Banner tone="info">
+                      {t('forms.presetFrom', { id: preset.from })}
+                    </Banner>
+                  )}
                   <div className="change-switch">
                     <Segmented label={t('services.changeType')} value={change} options={CHANGES.map(([k, key]) => [k, t(key)] as const)} onChange={setChange} />
                   </div>
-                  {change === 'upgrade' && <PromoteForm key={`${service}/${env}`} d={d} canOperate={q.data.canOperate} busy={!!inFlight || !!d.promoting} />}
-                  {change === 'sync' && <SyncForm key={`${service}/${env}`} d={d} canOperate={!!can?.sync} busy={!!inFlight || !!d.promoting} />}
-                  {change === 'restart' && <RestartForm key={`${service}/${env}`} d={d} canOperate={!!can?.restart} busy={!!inFlight || !!d.promoting} />}
-                  {change === 'scale' && <ScaleForm key={`${service}/${env}`} d={d} canOperate={!!can?.scale} busy={!!inFlight || !!d.promoting} />}
+                  {change === 'upgrade' && <PromoteForm key={`${service}/${env}`} d={d} preset={preset} canOperate={q.data.canOperate} busy={!!inFlight || !!d.promoting} />}
+                  {change === 'sync' && <SyncForm key={`${service}/${env}`} d={d} preset={preset} canOperate={!!can?.sync} busy={!!inFlight || !!d.promoting} />}
+                  {change === 'restart' && <RestartForm key={`${service}/${env}`} d={d} preset={preset} canOperate={!!can?.restart} busy={!!inFlight || !!d.promoting} />}
+                  {change === 'scale' && <ScaleForm key={`${service}/${env}`} d={d} preset={preset} canOperate={!!can?.scale} busy={!!inFlight || !!d.promoting} />}
                 </>
               )}
 

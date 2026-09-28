@@ -7,6 +7,7 @@ import { useMe } from '../../app/session'
 import { applyServerError } from '../../lib/forms'
 import { changeSummary } from '../../lib/release'
 import type { ConfigDiff, Deployment, Release } from '../../lib/types'
+import type { Preset } from '../../lib/redo'
 import { Banner, Button, ButtonRow, Checkbox, ErrorState, Form, FormErrorBanner, FormField, Group, GroupHeader, Input, Loading, Note, Textarea } from '../../components/ui'
 import { ConfigChanges, ConfirmSheet, VersionLabel } from '../../components/domain'
 import { useCreateRelease } from '../releases/queries'
@@ -19,7 +20,7 @@ import { mapSyncField, normalizeJira, requiredFields, syncSchema, type SyncValue
  * Argo CD Application. The person reviews the exact diff; execution refuses
  * to run if it changed in the meantime.
  */
-export function SyncForm({ d, canOperate, busy }: { d: Deployment; canOperate: boolean; busy: boolean }) {
+export function SyncForm({ d, canOperate, busy, preset }: { d: Deployment; canOperate: boolean; busy: boolean; preset?: Preset }) {
   const { t } = useTranslation()
   const q = useConfigDiff(d.service, d.env, canOperate)
   if (!canOperate) return <Banner tone="warn">{t('forms.noSyncPermission', { env: d.env })}</Banner>
@@ -35,12 +36,12 @@ export function SyncForm({ d, canOperate, busy }: { d: Deployment; canOperate: b
       </GroupHeader>
       {q.isPending && <Loading />}
       {q.error && <ErrorState error={q.error} onRetry={() => void q.refetch()} />}
-      {q.data && <SyncFormInner key={q.data.revision + changeSummary(q.data.changes)} d={d} diff={q.data} busy={busy} />}
+      {q.data && <SyncFormInner key={q.data.revision + changeSummary(q.data.changes)} d={d} diff={q.data} busy={busy} preset={preset} />}
     </>
   )
 }
 
-function SyncFormInner({ d, diff, busy }: { d: Deployment; diff: ConfigDiff; busy: boolean }) {
+function SyncFormInner({ d, diff, busy, preset }: { d: Deployment; diff: ConfigDiff; busy: boolean; preset?: Preset }) {
   const { t } = useTranslation()
   const nav = useNavigate()
   const req = requiredFields(useMe().app, d.env)
@@ -51,7 +52,7 @@ function SyncFormInner({ d, diff, busy }: { d: Deployment; diff: ConfigDiff; bus
   const form = useForm<SyncValues>({
     resolver: zodResolver(syncSchema(req, deletes)),
     mode: 'onTouched',
-    defaultValues: { title: '', jiraTicket: '', reason: '', restart: diff.needsRestart, prune: false },
+    defaultValues: { title: '', jiraTicket: preset?.jiraTicket ?? '', reason: preset?.reason ?? '', restart: preset?.restart ?? diff.needsRestart, prune: preset?.prune ?? false },
   })
   const { register, handleSubmit, formState } = form
   const empty = diff.changes.length === 0

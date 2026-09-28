@@ -686,6 +686,7 @@ const en: Messages = {
   },
   forms: {
     noScalePermission: "You do not have permission to change the replica count in {{env}}.",
+    presetFrom: 'Pre-filled from {{id}} with the same choices and reason. Check them before submitting: the cluster has changed since that one failed, and this is a new release.',
     scaleLabel: "Change the replica count",
     scaleHeader: "Replicas in {{env}}",
     replicas: "Replicas",
