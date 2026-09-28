@@ -683,6 +683,44 @@ section > .ghead.item-head { border-top: .5px solid var(--sep); margin-top: 24px
 .sub.in-group { padding: 16px 12px 6px; }
 .group > .sub.in-group:first-child { padding-top: 12px; }
 
+/* Insights: a section is a heading, one line on what it answers, then its
+   charts. The line under the heading is the whole of the prose; the reasoning
+   behind a chart sits in a tooltip on its sub-heading, where it does not
+   push the numbers down the page. */
+.ins { margin-top: 26px; }
+.toolbar + .ins, .ins:first-child { margin-top: 8px; }
+.ins-h { font-size: 13.5px; font-weight: 600; color: var(--ink); margin: 0; padding: 0 4px; }
+.ins-lead { font-size: 11.5px; color: var(--ink2); margin: 3px 0 0; padding: 0 4px; }
+.ins-h + .cards, .ins-h + .group, .ins-lead + .cards, .ins-lead + .group { margin-top: 10px; }
+.ins .cards + .group { margin-top: 12px; }
+.ins-sub { font-size: 12px; font-weight: 600; color: var(--ink2); padding: 16px 4px 6px;
+  display: flex; align-items: center; gap: 6px; }
+.ins-sub.in-group { padding: 16px 12px 6px; }
+.group > .ins-sub.in-group:first-child { padding-top: 12px; }
+.ins-sub.in-group + .bars, .ins-sub.in-group + .heat { padding-top: 0; }
+.ins .cards + .ins-sub, .ins .group + .ins-sub { padding-top: 18px; }
+/* The "how to read this" mark. Small and quiet on purpose: it is an offer,
+   not a warning. Keyboard reachable so the tooltip is not mouse-only. */
+.tip { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; border: 0; padding: 0;
+  background: transparent; font-size: 9.5px; font-weight: 600; font-style: italic; font-family: Georgia, serif;
+  color: var(--ink3); box-shadow: inset 0 0 0 1px var(--ink3); cursor: help; }
+.tip:hover, .tip:focus-visible { color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); outline: none; }
+.ins .group > .note { padding: 8px 12px 12px; }
+.ins .group > .note:only-child { padding: 14px 12px; }
+.ins .cards + .note { padding: 8px 4px 0; }
+/* Services not released in the period: names, each a link, wrapping. A
+   paragraph of fifteen links separated by commas is not a list anybody can
+   scan. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px; }
+.chips .chip { padding: 3px 9px; color: var(--ink); text-decoration: none; font-family: var(--mono); font-size: 11.5px; }
+.chips .chip:hover { background: var(--sel); }
+.bars.wide .bar-row { grid-template-columns: minmax(160px, 340px) 1fr auto; }
+.bar-bad { color: var(--red); }
+.ins-more { display: block; width: 100%; border: 0; border-top: .5px solid var(--sep2); background: transparent;
+  color: var(--blue); font-size: 12px; padding: 9px 12px; cursor: pointer; text-align: left; }
+.ins-more:hover { background: var(--sel); }
+.heat-cell { height: 14px; }
+
 /* Insights states its numbers with the overview page's .card, so both pages
    say a number the same way. The caption is the sentence that keeps a
    percentage from being read as more than it is. */

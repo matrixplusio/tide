@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 
 // Plain CSS charts. A charting library would be a large dependency for four
 // shapes, and these carry their numbers as text anyway, which is what people
@@ -36,16 +37,22 @@ export interface BarDatum {
   value: number
   /** Shown to the right of the bar; defaults to the value. */
   text?: string
+  /** How many of `value` failed. Stated in red next to the count rather
+   *  than by recolouring the bar: the bar's length is the quantity, and a
+   *  row that changes colour reads as a different quantity. */
+  failed?: number
   tone?: 'ok' | 'warn' | 'bad' | 'accent'
   title?: string
 }
 
 /** Bars is a horizontal bar list: the shape most of these questions want,
- *  and it degrades to a readable list when every value is zero. */
-export function Bars({ data, max }: { data: BarDatum[]; max?: number }) {
+ *  and it degrades to a readable list when every value is zero. `wide`
+ *  gives the label column room for a service and an environment. */
+export function Bars({ data, max, wide }: { data: BarDatum[]; max?: number; wide?: boolean }) {
+  const { t } = useTranslation()
   const top = max ?? Math.max(1, ...data.map((d) => d.value))
   return (
-    <div className="bars">
+    <div className={wide ? 'bars wide' : 'bars'}>
       {data.map((d) => (
         <div className="bar-row" key={d.label} title={d.title}>
           <span className="bar-label">{d.label}</span>
@@ -55,7 +62,10 @@ export function Bars({ data, max }: { data: BarDatum[]; max?: number }) {
               style={{ width: `${Math.round((d.value / top) * 100)}%` }}
             />
           </span>
-          <span className="bar-value">{d.text ?? d.value}</span>
+          <span className="bar-value">
+            {d.text ?? d.value}
+            {d.failed !== undefined && d.failed > 0 && <span className="bar-bad"> · {t('insights.nFailed', { n: d.failed })}</span>}
+          </span>
         </div>
       ))}
     </div>
