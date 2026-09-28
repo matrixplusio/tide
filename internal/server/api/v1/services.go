@@ -238,6 +238,7 @@ func (a *API) getEnv(c *gin.Context) {
 			"create":  g.HasTarget(rbac.ReleasesCreate, tg),
 			"sync":    g.HasTarget(rbac.ReleasesSync, tg),
 			"restart": g.HasTarget(rbac.ReleasesRestart, tg),
+			"scale":   g.HasTarget(rbac.ReleasesScale, tg),
 			"pods":    g.HasTarget(rbac.PodsView, tg),
 		},
 		"releases":  vs,

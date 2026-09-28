@@ -370,7 +370,27 @@ interface ItemBase {
   finishedAt?: string
 }
 
-export type Item = ItemBase & ({ kind: 'image'; payload: ImagePayload } | { kind: 'restart'; payload: RestartPayload } | { kind: 'sync'; payload: SyncPayload })
+/** How many replicas a service runs in one environment. Written into git, so
+ *  that the next sync does not undo it. Zero keeps the workload and its routes
+ *  — a request gets a 503 rather than failing to resolve — but nothing
+ *  answers. */
+export interface ScalePayload {
+  upstream: string
+  service: string
+  env: Env
+  app: string
+  project?: string
+  stage?: string
+  /** The manifest the count lives in, relative to the repository root. */
+  path: string
+  from: number
+  to: number
+  workload: Workload
+  current?: Artifact
+}
+
+export type Item = ItemBase &
+  ({ kind: 'image'; payload: ImagePayload } | { kind: 'restart'; payload: RestartPayload } | { kind: 'sync'; payload: SyncPayload } | { kind: 'scale'; payload: ScalePayload })
 export type ItemKind = Item['kind']
 
 export interface Release {

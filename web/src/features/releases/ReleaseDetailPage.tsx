@@ -341,6 +341,33 @@ function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; liv
                   </KV>
                 ))}
               </>
+            ) : it.kind === 'scale' ? (
+              <>
+                <KV k={t('detail.action')}>{t('detail.scaleAction', { from: it.payload.from, to: it.payload.to })}</KV>
+                {/* The version is not changing, and saying so is the point:
+                    a reader looking at a release row needs to know whether
+                    anything was deployed. */}
+                {it.payload.current?.tag && (
+                  <KV k={t('detail.version')}>
+                    {it.payload.current.version && <b>{it.payload.current.version} </b>}
+                    <span className="mono">{it.payload.current.tag}</span>
+                  </KV>
+                )}
+                <KV k={t('detail.manifest')} mono>
+                  {it.payload.path}
+                </KV>
+                <KV k={it.payload.workload.kind} mono>
+                  {it.payload.workload.namespace}/{it.payload.workload.name}
+                </KV>
+                <KV k="Argo CD" mono>
+                  {it.payload.app}
+                </KV>
+                {it.externalRef && (
+                  <KV k={t('detail.commit')} mono>
+                    {it.externalRef}
+                  </KV>
+                )}
+              </>
             ) : (
               <>
                 <KV k={t('detail.from')}>
@@ -598,6 +625,8 @@ function BatchOverview({ items, status, lives, expanded, onToggle, onAll, filter
                       <span>{t('detail.syncCell', { summary: changeSummary(it.payload.changes ?? []) })}</span>
                     ) : it.kind === 'restart' ? (
                       <span>{t('detail.restartCell', { version: it.payload.current.version || it.payload.current.tag || t('detail.currentVersion') })}</span>
+                    ) : it.kind === 'scale' ? (
+                      <span>{t('detail.scaleCell', { from: it.payload.from, to: it.payload.to })}</span>
                     ) : (
                       <span title={`${it.payload.from?.tag ?? ''} → ${it.payload.to.tag}`}>
                         {it.payload.from?.version || it.payload.from?.tag || t('detail.nothing')} → <b>{it.payload.to.version || it.payload.to.tag}</b>

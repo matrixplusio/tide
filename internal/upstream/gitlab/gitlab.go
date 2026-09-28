@@ -9,6 +9,7 @@ package gitlab
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -101,6 +102,38 @@ func (c *Client) Existing(ctx context.Context, project, ref, path string) (map[s
 		}
 	}
 	return files, nil
+}
+
+// Read returns one file's contents at ref. Tide only ever generated the
+// pipeline repository, so reading was never needed; editing a file somebody
+// else maintains is a read, a change and a write, and the read has to be of
+// the same ref the write will be based on.
+//
+// ErrNotFound distinguishes "the file is not there" from "the request failed",
+// because creating a registry that was merely unreachable would render every
+// Application in a business line from an empty list.
+func (c *Client) Read(ctx context.Context, ref, path string) (string, error) {
+	q := url.Values{"ref": {ref}}
+	var out struct {
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
+	}
+	ep := "/projects/" + p(c.Project) + "/repository/files/" + url.PathEscape(path) + "?" + q.Encode()
+	if err := c.do(ctx, http.MethodGet, ep, nil, &out); err != nil {
+		var he *upstream.HTTPError
+		if errors.As(err, &he) && he.Status == http.StatusNotFound {
+			return "", fmt.Errorf("%w: %s at %s", repo.ErrNotFound, path, ref)
+		}
+		return "", err
+	}
+	if out.Encoding != "base64" {
+		return "", fmt.Errorf("%s came back %s-encoded, not base64", path, out.Encoding)
+	}
+	raw, err := base64.StdEncoding.DecodeString(out.Content)
+	if err != nil {
+		return "", fmt.Errorf("decode %s: %w", path, err)
+	}
+	return string(raw), nil
 }
 
 // maxPages bounds the tree walk. A repository this deep is not one Tide is

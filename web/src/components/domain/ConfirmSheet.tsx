@@ -136,6 +136,7 @@ export function ConfirmSheet({ release, onClose, onDone }: { release: Release; o
         {items.map((it) => {
           if (it.kind === 'restart') return <RestartRow key={it.id} it={it} />
           if (it.kind === 'sync') return <SyncRow key={it.id} it={it} />
+          if (it.kind === 'scale') return <ScaleRow key={it.id} it={it} />
           const p = it.payload
           return (
             <Row key={it.id} className="top">
@@ -223,6 +224,40 @@ export function ConfirmSheet({ release, onClose, onDone }: { release: Release; o
       </ButtonRow>
       <Note>{t('confirm.noAutoRun')}</Note>
     </Modal>
+  )
+}
+
+// The one confirmation whose number can be zero, and zero is not a smaller
+// version of the others: nothing answers afterwards. It says so rather than
+// leaving a reader to work it out from a digit in a sentence.
+function ScaleRow({ it }: { it: Extract<Item, { kind: 'scale' }> }) {
+  const { t } = useTranslation()
+  const p = it.payload
+  return (
+    <Row className="top">
+      <div className="grow">
+        <div className="t">
+          <b>{p.service}</b> <span className="muted">seq {it.sequence}</span>{' '}
+          <Pill tone={p.to === 0 ? 'orange' : 'blue'}>{t('confirm.scale', { from: p.from, to: p.to })}</Pill>
+        </div>
+        <div className="d ink">
+          {t('confirm.keep')} {p.current?.version && <b>{p.current.version} </b>}
+          <span className="mono">{p.current?.tag || t('confirm.currentVersion')}</span>
+        </div>
+        {p.to === 0 ? (
+          <div className="d orange" style={{ marginTop: 4 }}>
+            {t('confirm.scaleZero', { workload: `${p.workload.kind}/${p.workload.name}` })}
+          </div>
+        ) : (
+          <div className="d" style={{ marginTop: 4 }}>
+            {t('confirm.scaleTarget', { workload: `${p.workload.kind}/${p.workload.name}`, app: p.app })}
+          </div>
+        )}
+        <div className="d mono" style={{ marginTop: 4 }}>
+          {p.path}
+        </div>
+      </div>
+    </Row>
   )
 }
 

@@ -250,6 +250,16 @@ const (
 	KindImage   = "image"
 	KindRestart = "restart"
 	KindSync    = "sync"
+	// KindScale changes how many replicas a service runs in one environment,
+	// zero included. It edits the count in git, not the cluster: a scale
+	// applied to the cluster is undone by the next sync, and until then the
+	// Application is permanently OutOfSync — which stalls the whole sync wave
+	// and surfaces as unrelated things failing to start.
+	//
+	// Zero is not the same as removing the service. The workload stays, with
+	// its Service and its routes, so a request gets a 503 rather than failing
+	// to resolve, and the manifests are still there to read.
+	KindScale = "scale"
 )
 
 // Resource change actions, from the cluster's point of view.
@@ -323,6 +333,45 @@ type RestartPayload struct {
 	Stage     string     `json:"stage,omitempty"`
 	Current   Artifact   `json:"current"`
 	Workloads []Workload `json:"workloads"`
+}
+
+// ScalePayload is the payload of kind=scale: how many replicas a service runs
+// in one environment.
+type ScalePayload struct {
+	Upstream string `json:"upstream"`
+	Service  string `json:"service"`
+	Env      string `json:"env"`
+	App      string `json:"app"`
+	// Project and Stage are set when Kargo manages the environment: scaling
+	// must not overlap a promotion, which writes the same repository.
+	Project string `json:"project,omitempty"`
+	Stage   string `json:"stage,omitempty"`
+	// Path is the manifest the count lives in, relative to the repository
+	// root. Recorded at build time rather than derived at execution time: it
+	// comes from the Application's source, and an Application that moved in
+	// between would otherwise send the edit to a file nobody meant.
+	Path string `json:"path"`
+	// From and To are the counts this release moves between. From is checked
+	// again before writing: the file is small and rarely touched, so refusing
+	// a surprise costs one retry, while merging one silently overwrites
+	// whatever somebody else just decided.
+	From int `json:"from"`
+	To   int `json:"to"`
+	// Workload is the object the count belongs to, so Poll waits for the right
+	// thing and the release says what was scaled.
+	Workload Workload `json:"workload"`
+	// Current is the version running when the release was built. Scaling keeps
+	// it; the release records it so the row says what was running.
+	Current Artifact `json:"current,omitempty"`
+}
+
+// ScalePayload decodes a scale item's payload.
+func (i *Item) ScalePayload() (*ScalePayload, error) {
+	var p ScalePayload
+	if err := json.Unmarshal(i.Payload, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 // Workload is a restartable resource managed by the Application.

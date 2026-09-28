@@ -10,11 +10,13 @@ import { useEnvDetail } from './queries'
 import { PromoteForm } from './PromoteForm'
 import { RestartForm } from './RestartForm'
 import { SyncForm } from './SyncForm'
+import { ScaleForm } from './ScaleForm'
 
 const CHANGES = [
   ['upgrade', 'services.changeUpgrade'],
   ['sync', 'services.changeSync'],
   ['restart', 'services.changeRestart'],
+  ['scale', 'services.changeScale'],
 ] as const
 type Change = (typeof CHANGES)[number][0]
 
@@ -23,7 +25,7 @@ export function EnvDetailPage() {
   const { service = '', env = '' } = useParams()
   const [params, setParams] = useSearchParams()
   const rawChange = params.get('change')
-  const change: Change = rawChange === 'restart' || rawChange === 'sync' ? rawChange : 'upgrade'
+  const change: Change = rawChange === 'restart' || rawChange === 'sync' || rawChange === 'scale' ? rawChange : 'upgrade'
   const setChange = (v: Change) => {
     const next = new URLSearchParams(params)
     if (v !== 'upgrade') next.set('change', v)
@@ -86,6 +88,7 @@ export function EnvDetailPage() {
                   {change === 'upgrade' && <PromoteForm key={`${service}/${env}`} d={d} canOperate={q.data.canOperate} busy={!!inFlight || !!d.promoting} />}
                   {change === 'sync' && <SyncForm key={`${service}/${env}`} d={d} canOperate={!!can?.sync} busy={!!inFlight || !!d.promoting} />}
                   {change === 'restart' && <RestartForm key={`${service}/${env}`} d={d} canOperate={!!can?.restart} busy={!!inFlight || !!d.promoting} />}
+                  {change === 'scale' && <ScaleForm key={`${service}/${env}`} d={d} canOperate={!!can?.scale} busy={!!inFlight || !!d.promoting} />}
                 </>
               )}
 
