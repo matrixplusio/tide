@@ -910,6 +910,7 @@ const en: Messages = {
     srcRollback: 'Rollback: {{n}} commits undone',
     srcSame: 'Both images come from the same commit; no source change',
     srcCapped: '(newest 50 only)',
+    srcHidden: '({{n}} merge/build commits hidden)',
     srcNote: {
       noBuild: 'No commit list: at least one image was not reported by CI, so its commit is unknown',
       noHistory: 'No commit list: the CI report carried no history (older pipeline component)',
