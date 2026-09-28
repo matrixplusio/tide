@@ -16,6 +16,7 @@ function toValues(r: PipelineRepo | null | undefined): PipelineRepoValues {
     project: r?.project ?? '',
     branch: r?.branch ?? '',
     pathPrefix: r?.pathPrefix ?? '',
+    imageName: r?.imageName ?? '',
     token: r?.token ?? '',
     bareDomain: r?.bareDomain ?? false,
     projectNamePrefix: r?.projectNamePrefix ?? '',
@@ -46,6 +47,7 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
         project: v.project.trim(),
         branch: (v.branch ?? '').trim(),
         pathPrefix: (v.pathPrefix ?? '').trim(),
+        imageName: (v.imageName ?? '').trim(),
         token: v.token,
         bareDomain: v.bareDomain,
         projectNamePrefix: v.projectNamePrefix.trim(),
@@ -90,6 +92,9 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
         </FormField>
         <FormField label={t('kargogen.pathPrefix')} error={e.pathPrefix?.message} hint={t('kargogen.pathPrefixHint')}>
           {(p) => <Input {...p} {...form.register('pathPrefix')} mono placeholder="kargo" autoComplete="off" spellCheck={false} />}
+        </FormField>
+        <FormField label={t('kargogen.imageName')} error={e.imageName?.message} hint={t('kargogen.imageNameHint')}>
+          {(p) => <Input {...p} {...form.register('imageName')} mono placeholder="PLACEHOLDER" autoComplete="off" spellCheck={false} />}
         </FormField>
         <FormField label={t('kargogen.imageStrategy')} error={e.imageStrategy?.message} required hint={t('kargogen.imageStrategyHint')}>
           {(p) => (

@@ -181,6 +181,30 @@ export interface SettingsData {
   release?: ReleasePolicy | null
   system?: SystemSettings | null
   pipeline?: PipelineRepo | null
+  apps?: AppsRepo | null
+}
+
+/** The repository holding the service registry the ApplicationSet renders
+ *  from. Tide edits one field of one row to take a service out of an
+ *  environment, or put it back.
+ *
+ *  Separate from the pipeline repository even when both are the same host and
+ *  the same credential: sharing one silently would leave a reader unable to
+ *  tell which repositories Tide can write. */
+export interface AppsRepo {
+  provider?: 'gitlab' | 'gitea'
+  baseUrl: string
+  /** Path with namespace, e.g. "acme/k8s-apps". */
+  project: string
+  /** The branch the ApplicationSet reads. Writing anywhere else changes
+   *  nothing, because the generator pulls one revision. */
+  branch: string
+  /** Where a line's registry file lives; {line} stands for the line. */
+  registry?: string
+  /** The catalog dimension holding the business line, when it is not the
+   *  catalog's project. */
+  lineDimension?: string
+  token: string
 }
 
 /** Where generated Kargo pipelines are committed. Tide writes through
@@ -194,6 +218,9 @@ export interface PipelineRepo {
   /** Created from the default branch when it does not exist yet. */
   branch: string
   pathPrefix?: string
+  /** The name of the image entry in the deployment repo's kustomization.yaml —
+   *  what kustomize matches on, which is not the image being pulled. */
+  imageName?: string
   token: string
   /** Name Kargo projects after the domain alone instead of line-and-domain. */
   bareDomain?: boolean
@@ -204,7 +231,7 @@ export interface PipelineRepo {
   tagPattern?: string
 }
 
-export type SettingsSection = 'catalog' | 'upstreams' | 'environments' | 'notify' | 'oidc' | 'security' | 'release' | 'system' | 'pipeline'
+export type SettingsSection = 'catalog' | 'upstreams' | 'environments' | 'notify' | 'oidc' | 'security' | 'release' | 'system' | 'pipeline' | 'apps'
 
 /** An approval rule and the environments it covers (first match wins). */
 export interface ApprovalPolicy {

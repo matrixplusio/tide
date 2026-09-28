@@ -83,6 +83,22 @@ type Options struct {
 	NamePrefix string
 	// TaskName is the shared promotion task's name within each project.
 	TaskName string
+	// ImageName is the name of the image entry inside the deployment
+	// repository's kustomization.yaml — what kustomize matches on, which is
+	// not the same thing as the image being pulled.
+	//
+	// Without it the step names only the repository, and kustomize-set-image
+	// matches entries by their `name`. An overlay whose entry is called
+	// something else (a literal that the entry then renames, so that one line
+	// decides the registry for every manifest under it) is not matched at all,
+	// and Kargo appends a second entry instead of changing the first. The two
+	// then work as a chain — the second selects what the first renamed — and
+	// the first one's tag is frozen at whatever a person last typed.
+	//
+	// Nothing is guessed here: an empty value keeps the plain form, because a
+	// repository whose entry is already the full image name needs no rename
+	// and naming it would be noise.
+	ImageName string
 	// Labels put on every generated Stage, so promotion policies can select
 	// them by service and environment. Keys are the label prefixes Tide uses
 	// elsewhere.
@@ -248,7 +264,7 @@ func generateDomain(domain string, services []catalog.Service, order []string, o
 
 	files := []File{
 		{Path: domain + "/project.yaml", YAML: projectYAML(domain)},
-		{Path: domain + "/promotion-task.yaml", YAML: taskYAML(domain, opts.TaskName)},
+		{Path: domain + "/promotion-task.yaml", YAML: taskYAML(domain, opts.TaskName, opts.ImageName)},
 		{Path: domain + "/warehouses.yaml", YAML: strings.Join(warehouses, "---\n")},
 		{Path: domain + "/stages.yaml", YAML: strings.Join(stages, "---\n")},
 	}
@@ -312,7 +328,15 @@ func projectYAML(domain string) string {
 // the nudge the step gave Argo CD; without it Argo finds the commit on its
 // own schedule, up to its reconciliation interval. A webhook from the git
 // host removes that delay and is worth having for its own sake.
-func taskYAML(domain, name string) string {
+func taskYAML(domain, name, imageName string) string {
+	// Naming the entry also means renaming it: the entry carries the registry
+	// path for every manifest under it, so setting the tag without newName
+	// would leave whatever the entry was renamed to last, and the image would
+	// be pulled from the wrong registry.
+	rename := ""
+	if imageName != "" {
+		rename = fmt.Sprintf("\n            name: %s\n            newName: ${{ vars.imageRepo }}", imageName)
+	}
 	return fmt.Sprintf(`apiVersion: kargo.akuity.io/v1alpha1
 kind: PromotionTask
 metadata:
@@ -337,7 +361,7 @@ spec:
       config:
         path: ./repo/${{ vars.appPath }}
         images:
-          - image: ${{ vars.imageRepo }}
+          - image: ${{ vars.imageRepo }}%s
             tag: ${{ imageFrom(vars.imageRepo).Tag }}
     - uses: git-commit
       as: commit
@@ -347,7 +371,7 @@ spec:
     - uses: git-push
       config:
         path: ./repo
-`, name, domain)
+`, name, domain, rename)
 }
 
 func warehouseYAML(service, domain, image string, opts Options) string {
