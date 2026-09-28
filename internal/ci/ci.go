@@ -365,7 +365,54 @@ func (s *Service) expire(ctx context.Context) {
 		}
 		zap.L().Warn("ci: intake expired", zap.Int64("intake_id", in.ID), zap.String("service", in.Service),
 			zap.String("env", in.Env), zap.String("digest", in.Digest))
+		// Say so where a person will see it. The pipeline was green and the
+		// intake has just gone quiet; without this the developer's picture
+		// is "released", and the first sign otherwise is a user asking why
+		// the feature is not there.
+		s.stranded(ctx, in, msg)
 	}
+}
+
+// stranded tells the channels that a build Tide accepted never shipped, and
+// why — which of the four things between "CI said done" and "pods run it"
+// was missing. The catalog answers the first three without a network call;
+// a snapshot a few minutes old is right about whether a service has an
+// environment at all.
+func (s *Service) stranded(ctx context.Context, in pg.CIIntake, freightMsg string) {
+	if s.Notifier == nil {
+		return
+	}
+	var snap *catalog.Snapshot
+	if s.Hub != nil {
+		snap = s.Hub.Recent(10 * time.Minute)
+	}
+	s.Notifier.BuildEvent(ctx, notify.Build{
+		Service: in.Service, Env: in.Env, Stage: in.Stage, Commit: in.Commit,
+		Pipeline: in.Pipeline, Actor: in.Actor, Reason: in.Reason,
+		Detail: strandedReason(snap, in.Service, in.Env, freightMsg),
+	}, notify.EventBuildStranded)
+}
+
+// strandedReason is the one line under the notification: not "expired", but
+// what to go and fix. Ordered from "Tide cannot see the service at all" to
+// "everything is wired and Kargo still found nothing", because each later
+// case only means something once the earlier ones are ruled out.
+func strandedReason(snap *catalog.Snapshot, service, env, freightMsg string) string {
+	if snap == nil {
+		return freightMsg
+	}
+	svc := snap.Find(service)
+	if svc == nil {
+		return i18n.T(i18n.Default, "ci.strandedNoService", service)
+	}
+	d := svc.Envs[env]
+	if d == nil {
+		return i18n.T(i18n.Default, "ci.strandedNoEnv", service, env)
+	}
+	if d.KargoStage == "" {
+		return i18n.T(i18n.Default, "ci.strandedNoStage", service, env)
+	}
+	return freightMsg
 }
 
 // renudgeAt spaces the retries out: at the default tick of twenty seconds

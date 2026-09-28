@@ -47,17 +47,22 @@ const (
 	// channel is the only place they can surface.
 	EventBuildFailed  = "build.failed"
 	EventBuildWarning = "build.warning"
+	// EventBuildStranded: the build succeeded, Tide accepted it, and then
+	// nothing shipped — the service has no CD in that environment, or Kargo
+	// never found the image. The pipeline is green and the intake quietly
+	// expires, so without this a developer believes the release happened.
+	EventBuildStranded = "build.stranded"
 )
 
 var Events = []string{EventPending, EventApproval, EventStarted, EventSucceeded, EventFailed, EventRejected, EventCancelled,
-	EventBuildFailed, EventBuildWarning}
+	EventBuildFailed, EventBuildWarning, EventBuildStranded}
 
 // A notification goes to a shared channel rather than to one person's session,
 // so there is no request to take a language from. Like audit records, these
 // render in the deployment's default language and read the same for everyone.
 var eventText = map[string]i18n.Key{EventPending: "n.eventPending", EventApproval: "n.eventApproval", EventStarted: "n.eventStarted",
 	EventSucceeded: "n.eventSucceeded", EventFailed: "n.eventFailed", EventRejected: "n.eventRejected", EventCancelled: "n.eventCancelled",
-	EventBuildFailed: "n.eventBuildFailed", EventBuildWarning: "n.eventBuildWarning"}
+	EventBuildFailed: "n.eventBuildFailed", EventBuildWarning: "n.eventBuildWarning", EventBuildStranded: "n.eventBuildStranded"}
 
 // t renders a notification message in the deployment's language.
 func t(k i18n.Key, args ...any) string { return i18n.T(i18n.Default, k, args...) }
@@ -345,7 +350,7 @@ func payload(ch settings.Channel, msg Message, now time.Time) ([]byte, error) {
 var cardColor = map[string]string{
 	EventPending: "orange", EventApproval: "orange", EventStarted: "blue", EventSucceeded: "green",
 	EventFailed: "red", EventRejected: "red", EventCancelled: "grey",
-	EventBuildFailed: "red", EventBuildWarning: "orange",
+	EventBuildFailed: "red", EventBuildWarning: "orange", EventBuildStranded: "orange",
 }
 
 // LarkCard renders a release event as a Lark interactive card with a button

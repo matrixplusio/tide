@@ -26,6 +26,7 @@ const EVENT_LABELS: Record<NotifyEvent, string> = {
   'release.cancelled': 'notifyForm.evtCancelled',
   'build.failed': 'notifyForm.evtBuildFailed',
   'build.warning': 'notifyForm.evtBuildWarning',
+  'build.stranded': 'notifyForm.evtBuildStranded',
 }
 
 type ChannelValues = NotifyValues['channels'][number]

@@ -413,7 +413,7 @@ export type ReleasePolicyValues = z.infer<typeof releasePolicySchema>
 // ---- notify (§6) --------------------------------------------------------------
 
 export const CHANNEL_KINDS = ['lark', 'teams', 'webhook'] as const
-export const NOTIFY_EVENTS = ['release.approval_requested', 'release.started', 'release.succeeded', 'release.failed', 'release.rejected', 'release.cancelled', 'build.failed', 'build.warning'] as const
+export const NOTIFY_EVENTS = ['release.approval_requested', 'release.started', 'release.succeeded', 'release.failed', 'release.rejected', 'release.cancelled', 'build.failed', 'build.warning', 'build.stranded'] as const
 
 /**
  * A rule's service filter is typed as one line, so the form holds a string

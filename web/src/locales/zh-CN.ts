@@ -1491,6 +1491,7 @@ const zhCN = {
     evtCancelled: '已取消',
     evtBuildFailed: '构建失败',
     evtBuildWarning: '构建没通知到 Tide',
+    evtBuildStranded: '构建成功但没发出去（没接 CD / 没有 Stage / Kargo 没发现镜像）',
     evtPending: '等待确认（CI 建单）',
     saved: '通知设置已保存',
     nameRequired: '请输入名称',

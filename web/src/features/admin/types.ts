@@ -89,7 +89,7 @@ export const CI_MODES = ['off', 'approve', 'auto'] as const
 export type CIMode = (typeof CI_MODES)[number]
 
 export type ChannelKind = 'lark' | 'teams' | 'webhook'
-export type NotifyEvent = 'release.pending' | 'release.approval_requested' | 'release.started' | 'release.succeeded' | 'release.failed' | 'release.rejected' | 'release.cancelled' | 'build.failed' | 'build.warning'
+export type NotifyEvent = 'release.pending' | 'release.approval_requested' | 'release.started' | 'release.succeeded' | 'release.failed' | 'release.rejected' | 'release.cancelled' | 'build.failed' | 'build.warning' | 'build.stranded'
 
 export interface Channel {
   name: string
