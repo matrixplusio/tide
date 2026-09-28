@@ -141,8 +141,7 @@ type PipelineRepo struct {
 	Token string `json:"token" secret:"true"`
 	// ImageName is the name of the image entry in the deployment repository's
 	// kustomization.yaml, which is what kustomize matches on — not the image
-	// being pulled. Leave it empty when the entry is already the full image
-	// name; set it when the overlays use a literal that the entry renames.
+	// being pulled. Empty means DefaultImageName; see ImageEntry.
 	//
 	// Getting this wrong is not an error: the promotion appends a second entry
 	// beside the first instead of changing it, the two work as a chain, and
@@ -271,6 +270,23 @@ var ImageStrategies = []string{StrategyLexical, StrategySemVer, StrategyNewestBu
 // out "latest", "cache", "main" and branch names. Without it the first
 // Lexical discovery would pick whichever of those sorts highest.
 const DefaultTagPattern = `^[0-9]`
+
+// DefaultImageName is the literal the deployment repository's generator
+// leaves as a manifest's image until a build exists: a marker meaning "no
+// image yet", not a convention meant for anybody else. It matters here for a
+// mechanical reason only — every overlay renames that literal, so it is the
+// entry name kustomize matches on, and a promotion that names anything else
+// appends a second entry instead of changing the first. Nobody should have
+// to know that to use Tide, hence a default rather than a form field to fill.
+const DefaultImageName = "PLACEHOLDER"
+
+// ImageEntry is ImageName with the default applied.
+func (p PipelineRepo) ImageEntry() string {
+	if p.ImageName == "" {
+		return DefaultImageName
+	}
+	return p.ImageName
+}
 
 // Selection is the image strategy and tag filter with the defaults applied.
 func (p PipelineRepo) Selection() (strategy, pattern string) {

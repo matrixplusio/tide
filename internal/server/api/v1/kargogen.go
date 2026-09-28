@@ -124,7 +124,7 @@ func (a *API) kargoPlan(c *gin.Context, domain string) (kargogen.Result, *catalo
 		ProjectPrefix: !repoCfg.BareDomain,
 		NamePrefix:    repoCfg.ProjectNamePrefix,
 		ImageStrategy: strategy,
-		ImageName:     repoCfg.ImageName,
+		ImageName:     repoCfg.ImageEntry(),
 		TagPattern:    pattern,
 		ServiceLabel:  labelOrDefault(cat.ServiceLabel, "tide.io/service"),
 		EnvLabel:      labelOrDefault(cat.EnvLabel, "tide.io/env"),

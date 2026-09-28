@@ -421,7 +421,7 @@ const en: Messages = {
 
   kargogen: {
     imageName: 'Image entry name',
-    imageNameHint: "The name of the image entry in the deployment repository's kustomization.yaml — what kustomize matches on, which is not the image being pulled. Leave empty when the entry is already the full image name. Getting it wrong is not an error: the promotion appends a second entry beside the first instead of changing it, and the first one's tag never moves again.",
+    imageNameHint: "The name of the image entry in the deployment repository's kustomization.yaml — what kustomize matches on, which is not the image being pulled. Empty means PLACEHOLDER, the name the deployment repository's generator writes; fill it in only when the entry is called something else. Getting it wrong is not an error: the promotion appends a second entry beside the first instead of changing it, and the first one's tag never moves again.",
     imageStrategy: 'Image selection',
     imageStrategyHint: 'How Kargo decides which tag is newest. Its own default is SemVer, which discovers nothing at all against tags that are not semantic versions \u2014 and looks like a credential problem',
     stratLexical: 'Lexical (for tags that start with a timestamp)',
