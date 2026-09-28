@@ -269,13 +269,32 @@ a.row:focus-visible, .row.tap:focus-visible { outline-offset: -2px; }
 .tbl .envcol { padding-left: 18px; }
 /* service matrix: same column widths in every domain group so environments line up */
 .tbl.fixed { table-layout: fixed; }
-.tbl.fixed .svccol { width: 220px; }
+/* The service column is a fixed width, so a long name has to be allowed to
+   wrap: nowrap here put the name on top of the environment column beside it.
+   overflow-wrap covers a name with nothing to break on. */
+.tbl.fixed .svccol { width: 220px; overflow-wrap: anywhere; }
 .tbl.fixed .dimcol { width: 88px; }
 .tbl tr:last-child td { border-bottom: 0; }
 .tbl tbody tr.tap { cursor: pointer; transition: background-color var(--dur-micro) var(--ease-out); }
 .tbl tbody tr.tap:hover { background: var(--sel); }
 .tbl tbody tr.tap:focus-visible { outline-offset: -2px; }
-.envcell { display: flex; align-items: center; gap: 6px; position: relative; white-space: nowrap; }
+/* Wraps rather than staying on one line. The environment columns are a fixed
+   width, and a cell that holds a tag *and* a note ("the registry has never
+   heard of this tag") is wider than one — nowrap put each cell on top of the
+   column to its right, so four environments rendered as one unreadable line.
+   The tag itself still never breaks: it is an identifier, and half of one
+   read across two lines is worse than a wrapped cell. */
+.envcell { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; position: relative; white-space: normal; min-width: 0; }
+/* A flex item will not shrink below its content unless it is allowed to, so
+   without this the label keeps its full width and the ellipsis below never
+   has anything to cut. */
+.envcell > * { min-width: 0; }
+/* The tag stays on one line and is cut with an ellipsis when the column is
+   narrower than it is — at a laptop width the columns are around 110px and a
+   build tag is wider than that. The whole value is on the cell's title, and
+   the .abbr marker already says the tag is not the complete one. Letting it
+   overflow instead is what put four environments on top of each other. */
+.envcell .mono { display: inline-block; vertical-align: bottom; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 /* same artifact (digest) as the env to the left: one faint continuous line from that value to this dot */
 .tbl td.link-r { padding-right: 0; }
 .link-r .envcell::after { content: ""; flex: 1; min-width: 6px; height: 1.5px; margin-left: 4px; background: var(--gray2); opacity: .7; }

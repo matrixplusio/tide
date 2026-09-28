@@ -192,7 +192,13 @@ export function ServicesPage() {
                           nav(`/services/${encodeURIComponent(s.name)}`, { state: { from: `/services?${params}` } })
                         }}
                       >
-                        <td className="nowrap">
+                        {/* Wraps rather than staying on one line: the column is a
+                            fixed width, and a name that does not fit spills over
+                            the environment beside it. Wrapping and not an
+                            ellipsis, because service names here share long
+                            prefixes and differ in their last word — truncating
+                            would render two different services identically. */}
+                        <td className="svccol">
                           <Link className="inherit" to={`/services/${encodeURIComponent(s.name)}`} state={{ from: `/services?${params}` }}>
                             <b>{s.name}</b>
                           </Link>
