@@ -23,10 +23,11 @@ export function KargoGenPage() {
   const { t } = useTranslation()
   const toast = useToast()
   const [domain, setDomain] = useState('')
+  const [project, setProject] = useState('')
   const [asked, setAsked] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
   const [shut, setShut] = useState<Set<string>>(new Set())
-  const q = useKargoPlan(domain, asked)
+  const q = useKargoPlan(domain, project, asked)
   const result = q.data?.result
 
   const settings = useSettings()
@@ -45,11 +46,21 @@ export function KargoGenPage() {
     }
     return [...count].sort(([a], [b]) => a.localeCompare(b))
   }, [services.data])
+  // A domain spans business lines (one "shop" in three of them is three
+  // Kargo projects), so the second picker is what narrows a run to exactly
+  // one project — the unit the repository is pruned by.
+  const projects = useMemo(() => {
+    const count = new Map<string, number>()
+    for (const s of services.data?.services ?? []) {
+      if (s.project) count.set(s.project, (count.get(s.project) ?? 0) + 1)
+    }
+    return [...count].sort(([a], [b]) => a.localeCompare(b))
+  }, [services.data])
 
   const download = () => {
     // A file download, not a fetch: the endpoint answers with a zip and the
     // browser knows what to do with it.
-    window.location.href = `/api/v1/kargo/generate.zip?domain=${encodeURIComponent(domain)}`
+    window.location.href = `/api/v1/kargo/generate.zip?domain=${encodeURIComponent(domain)}&project=${encodeURIComponent(project)}`
   }
 
   const generated = (result?.domains ?? []).length > 0
@@ -80,6 +91,15 @@ export function KargoGenPage() {
             options={[['', t('kargogen.allDomains')], ...domains.map(([name, n]): [string, string] => [name, `${name} · ${t('kargogen.serviceCount', { count: n })}`])]}
             onChange={(e) => setDomain(e.target.value)}
           />
+          {projects.length > 1 && (
+            <Select
+              appearance="filled"
+              aria-label={t('kargogen.line')}
+              value={project}
+              options={[['', t('kargogen.allLines')], ...projects.map(([name, n]): [string, string] => [name, `${name} · ${t('kargogen.serviceCount', { count: n })}`])]}
+              onChange={(e) => setProject(e.target.value)}
+            />
+          )}
           <Button onClick={() => (asked ? void q.refetch() : setAsked(true))} disabled={q.isFetching}>
             {q.isFetching ? t('kargogen.generating') : t('kargogen.generate')}
           </Button>
@@ -94,7 +114,7 @@ export function KargoGenPage() {
                 variant="quiet"
                 disabled={!canPush || push.isPending}
                 title={canPush ? undefined : t('kargogen.saveRepoFirst')}
-                onClick={() => push.mutate({ domain }, { onSuccess: (r) => toast.success(t('kargogen.pushed', { files: r.files, branch: r.branch })) })}
+                onClick={() => push.mutate({ domain, project }, { onSuccess: (r) => toast.success(t('kargogen.pushed', { files: r.files, branch: r.branch })) })}
               >
                 {push.isPending ? t('kargogen.pushing') : t('kargogen.push')}
               </Button>

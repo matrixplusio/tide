@@ -172,6 +172,39 @@ func TestDomainFilter(t *testing.T) {
 	}
 }
 
+// One domain in two business lines is two Kargo projects; filtering by line
+// picks one of them, and filtering by line alone must not read as "no
+// filter" anywhere downstream — a push scoped to the whole tree on that
+// misreading would delete every other project.
+func TestProjectFilter(t *testing.T) {
+	line := func(name, project string) catalog.Service {
+		s := svc(name, "shop", dep("dev"))
+		s.Project = project
+		return s
+	}
+	snap := &catalog.Snapshot{Services: []catalog.Service{line("order-api", "acme"), line("portal-api", "globex")}}
+	all := Generate(snap, envs("dev"), Options{ProjectPrefix: true})
+	one := Generate(snap, envs("dev"), Options{ProjectPrefix: true, Project: "acme"})
+	both := Generate(snap, envs("dev"), Options{ProjectPrefix: true, Project: "acme", Domain: "shop"})
+	none := Generate(snap, envs("dev"), Options{ProjectPrefix: true, Project: "acme", Domain: "trade"})
+
+	if len(all.Domains) != 2 {
+		t.Fatalf("two lines should be two projects: %+v", all.Domains)
+	}
+	if len(one.Domains) != 1 || one.Domains[0].Name != "acme-shop" || one.Services != 1 {
+		t.Fatalf("line filter: %+v", one.Domains)
+	}
+	if len(both.Domains) != 1 || both.Domains[0].Name != "acme-shop" {
+		t.Fatalf("line and domain together: %+v", both.Domains)
+	}
+	if len(none.Domains) != 0 {
+		t.Fatalf("a domain the line does not have must generate nothing: %+v", none.Domains)
+	}
+	if find(t, one, "acme-shop/stages.yaml") != find(t, all, "acme-shop/stages.yaml") {
+		t.Error("filtering changed what the project generates")
+	}
+}
+
 // Every stage carries the labels promotion policies select on; without them
 // `stageSelector` has nothing to match and policies have to name stages one
 // by one.
