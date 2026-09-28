@@ -170,6 +170,26 @@ func (a *API) putSettings(c *gin.Context) {
 			return
 		}
 	}
+	// The same check for the manifest repository: the first thing this token
+	// is asked to do is commit a replica count to a protected branch.
+	if cfg, ok := next.(*settings.AppsRepo); ok {
+		if err := a.Settings.Unmask(ctx, section, cfg); err != nil {
+			respond.Fail(c, err)
+			return
+		}
+		tctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
+		id, err := appsRepoClient(*cfg).Whoami(tctx)
+		cancel()
+		switch {
+		case err != nil:
+			respond.Fail(c, errcode.New(errcode.UpstreamCheckFailed, "").
+				WithData(gin.H{"error": shorten(err.Error())}))
+			return
+		case !id.CanWrite:
+			respond.Fail(c, errcode.NewKey(errcode.UpstreamCheckFailed, "s.repoReadOnly", id.Username, cfg.Project))
+			return
+		}
+	}
 	if ups, ok := next.(*settings.Upstreams); ok {
 		tctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
 		results := testAll(tctx, *ups)
@@ -415,6 +435,31 @@ func (a *API) validateSection(ctx context.Context, v any) error {
 			if _, err := regexp.Compile(s.TagPattern); err != nil {
 				add(validate.FieldKey("tagPattern", "s.badTagPattern"))
 			}
+		}
+	case *settings.AppsRepo:
+		trim(&s.Provider, &s.BaseURL, &s.Project, &s.Branch, &s.Registry, &s.LineDimension)
+		if s.Provider == "" {
+			s.Provider = settings.ProviderGitLab
+		}
+		if !slices.Contains(settings.Providers, s.Provider) {
+			add(validate.FieldKey("provider", "s.unknownProvider", s.Provider))
+		}
+		add(validate.HTTPURL("baseUrl", s.BaseURL, true, validate.BaseURL))
+		if s.Project == "" {
+			add(validate.FieldKey("project", "s.projectRequired"))
+		} else if !strings.Contains(strings.Trim(s.Project, "/"), "/") {
+			add(validate.FieldKey("project", "s.projectPath"))
+		}
+		// Required here where the pipeline repository has a default: this one
+		// is the branch the ApplicationSet reads, and writing anywhere else
+		// changes nothing while looking like it did.
+		add(validate.Required("branch", s.Branch, "label.branch"))
+		add(validate.Required("token", s.Token, "label.token"))
+		// A registry pattern without the placeholder would point every
+		// business line at the same file, and a mistake in one line would
+		// then be a mistake in all of them.
+		if s.Registry != "" && !strings.Contains(s.Registry, "{line}") {
+			add(validate.FieldKey("registry", "s.registryNeedsLine"))
 		}
 	default:
 		return errors.New("unknown settings type")
