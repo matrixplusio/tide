@@ -64,6 +64,24 @@ func (in CreateInput) Validate() error {
 				return fmt.Errorf("%w: item %d: application, revision and changes are required", ErrInvalid, i)
 			}
 			service, env = p.Service, p.Env
+		case KindScale:
+			var p ScalePayload
+			if err := json.Unmarshal(it.Payload, &p); err != nil {
+				return fmt.Errorf("%w: item %d: %w", ErrInvalid, i, err)
+			}
+			if p.App == "" || p.Path == "" {
+				return fmt.Errorf("%w: item %d: application and manifest path are required", ErrInvalid, i)
+			}
+			if p.To < 0 {
+				return fmt.Errorf("%w: item %d: a replica count cannot be negative", ErrInvalid, i)
+			}
+			if p.To > MaxReplicas {
+				return fmt.Errorf("%w: item %d: %d replicas is beyond the limit of %d", ErrInvalid, i, p.To, MaxReplicas)
+			}
+			if p.From == p.To {
+				return fmt.Errorf("%w: item %d: already at %d replicas", ErrInvalid, i, p.To)
+			}
+			service, env = p.Service, p.Env
 		default:
 			return fmt.Errorf("%w: item %d: unsupported kind %q", ErrInvalid, i, it.Kind)
 		}
@@ -76,6 +94,12 @@ func (in CreateInput) Validate() error {
 	}
 	return nil
 }
+
+// MaxReplicas bounds what a release may ask for. Not a cluster limit — the
+// cluster has its own, and it answers with pods that never schedule — but a
+// limit on typing mistakes: a stray digit turning 3 into 300 is the kind of
+// change that is only noticed by what it starves.
+const MaxReplicas = 50
 
 func (in CreateInput) DefaultTitle() string {
 	var p struct {
@@ -91,6 +115,10 @@ func (in CreateInput) DefaultTitle() string {
 		return i18n.T(i18n.Default, "pl.titleRestart", withSpace(subject, len(in.Items) == 1), in.Env)
 	case KindSync:
 		return i18n.T(i18n.Default, "pl.titleSync", withSpace(subject, len(in.Items) == 1), in.Env)
+	case KindScale:
+		var sp ScalePayload
+		_ = json.Unmarshal(in.Items[0].Payload, &sp)
+		return i18n.T(i18n.Default, "pl.titleScale", withSpace(subject, len(in.Items) == 1), sp.To, in.Env)
 	}
 	return fmt.Sprintf("%s → %s", subject, in.Env)
 }

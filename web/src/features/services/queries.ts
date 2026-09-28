@@ -56,7 +56,7 @@ export interface EnvData {
   live: Live
   canOperate: boolean
   /** What the viewer may do on this service here (project / type scopes applied). */
-  can: { create: boolean; sync: boolean; restart: boolean; pods: boolean }
+  can: { create: boolean; sync: boolean; restart: boolean; scale: boolean; pods: boolean }
   releases: Release[] | null
   promotions: PromotionView[] | null
   promotionsError?: string

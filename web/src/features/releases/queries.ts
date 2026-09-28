@@ -94,6 +94,7 @@ export interface CreateReleaseInput {
     | { kind?: 'image'; service: string; freight: string; sequence: number; withConfig?: boolean }
     | { kind: 'restart'; service: string; sequence: number }
     | { kind: 'sync'; service: string; sequence: number; prune?: boolean; restart?: boolean }
+    | { kind: 'scale'; service: string; sequence: number; replicas: number }
   )[]
 }
 

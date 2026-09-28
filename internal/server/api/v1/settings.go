@@ -49,6 +49,11 @@ var sections = map[string]sectionDef{
 			var r settings.PipelineRepo
 			return redactedOrNil(s.Load(ctx, settings.SectionPipelineRepo, &r), &r)
 		}},
+	settings.SectionAppsRepo: {rbac.EnvironmentsManage, func() any { return &settings.AppsRepo{} },
+		func(ctx context.Context, s *settings.Store) (any, error) {
+			var r settings.AppsRepo
+			return redactedOrNil(s.Load(ctx, settings.SectionAppsRepo, &r), &r)
+		}},
 	settings.SectionNotify: {rbac.NotificationsManage, func() any { return &settings.Notify{} },
 		func(ctx context.Context, s *settings.Store) (any, error) {
 			n, err := s.Notify(ctx)

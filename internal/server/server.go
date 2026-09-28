@@ -140,6 +140,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 			release.KindImage:   executor.Image{Hub: hub},
 			release.KindRestart: executor.Restart{Hub: hub},
 			release.KindSync:    executor.Sync{Hub: hub},
+			release.KindScale:   executor.Scale{Hub: hub, Settings: set},
 		},
 		Notifier: notifier,
 		OnChange: hub.Reset,

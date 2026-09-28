@@ -132,6 +132,32 @@ func (c *Client) Push(ctx context.Context, branch, message string, files []repo.
 	return &repo.Commit{ID: out.Commit.SHA, ShortID: short, URL: out.Commit.HTML}, nil
 }
 
+// Read returns one file's contents at ref. See the gitlab client's Read for
+// why this exists and why a missing file is its own error.
+func (c *Client) Read(ctx context.Context, ref, path string) (string, error) {
+	q := url.Values{"ref": {ref}}
+	var out struct {
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
+	}
+	ep := c.repoPath() + "/contents/" + url.PathEscape(path) + "?" + q.Encode()
+	if err := c.do(ctx, http.MethodGet, ep, nil, &out); err != nil {
+		var he *upstream.HTTPError
+		if errors.As(err, &he) && he.Status == http.StatusNotFound {
+			return "", fmt.Errorf("%w: %s at %s", repo.ErrNotFound, path, ref)
+		}
+		return "", err
+	}
+	if out.Encoding != "base64" {
+		return "", fmt.Errorf("%s came back %s-encoded, not base64", path, out.Encoding)
+	}
+	raw, err := base64.StdEncoding.DecodeString(out.Content)
+	if err != nil {
+		return "", fmt.Errorf("decode %s: %w", path, err)
+	}
+	return string(raw), nil
+}
+
 // blobs maps every file in the branch to its blob id, which is what an update
 // has to quote. The whole tree in one request rather than one request per
 // file: a hundred generated files would otherwise be a hundred round trips

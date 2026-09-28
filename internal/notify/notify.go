@@ -571,6 +571,12 @@ func itemLines(r *release.Release) string {
 			if p, err := r.SyncPayload(it); err == nil {
 				fmt.Fprint(&b, t("n.itemSync", p.Service, len(p.Changes)))
 			}
+		case release.KindScale:
+			// Both numbers: "scaled to 2" reads as good news whether it came
+			// from 1 or from 8.
+			if p, err := it.ScalePayload(); err == nil {
+				fmt.Fprint(&b, t("n.itemScale", p.Service, p.From, p.To))
+			}
 		default:
 			if p, err := r.ImagePayload(it); err == nil {
 				// With its status: a card that lists seven services and marks

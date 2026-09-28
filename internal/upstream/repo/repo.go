@@ -10,11 +10,17 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 )
 
 // File is one file to write, with its full path inside the repository.
+// ErrNotFound means the repository answered, and the file is not there. It is
+// deliberately distinct from a failed request: a caller that edits a file must
+// not treat "could not reach the host" as "start from nothing".
+var ErrNotFound = errors.New("file not found")
+
 type File struct {
 	Path    string
 	Content string

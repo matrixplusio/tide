@@ -62,6 +62,34 @@ export function mapSyncField(field: string): string | null {
   return null
 }
 
+export const MAX_REPLICAS = 50
+
+export const scaleSchema = (req: RequiredFields) =>
+  z.object({
+    // A text field, not a number input: an empty number input reads as NaN and
+    // a browser will happily let "1e3" through. Parsed here so the message says
+    // what is wrong rather than the field silently holding nothing.
+    replicas: z.string().superRefine((v, ctx) => {
+      const s = v.trim()
+      if (s === '') return addIssue(ctx, [], i18n.t('forms.replicasRequired'))
+      if (!/^\d+$/.test(s)) return addIssue(ctx, [], i18n.t('forms.replicasWhole'))
+      const n = Number(s)
+      if (n > MAX_REPLICAS) return addIssue(ctx, [], i18n.t('forms.replicasMax', { max: MAX_REPLICAS }))
+      return undefined
+    }),
+    jiraTicket: req.jira ? zJira() : zOptionalJira(),
+    title: zTitle(),
+    reason: zReason(req.reason),
+  })
+export type ScaleValues = z.infer<ReturnType<typeof scaleSchema>>
+
+/** Server field paths for POST /releases → scale form fields. */
+export function mapScaleField(field: string): string | null {
+  if (field === 'jiraTicket' || field === 'reason') return field
+  if (/^items\.\d+\.replicas$/.test(field)) return 'replicas'
+  return null
+}
+
 /** Server field paths for POST /releases → restart form fields. */
 export function mapRestartField(field: string): string | null {
   return field === 'jiraTicket' || field === 'reason' ? field : null

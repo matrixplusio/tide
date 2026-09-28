@@ -2,9 +2,14 @@ import type { ApprovalPolicyInfo, ApprovalRule, ChangeAction, Item, ResourceChan
 import { i18n } from './i18n'
 import { scopeMatches, subjectLabel } from './permissions'
 
-/** The digest an item's confirmation echoes: the target for upgrades, the running one for restarts. */
+/** The digest an item's confirmation echoes: the target for upgrades, the
+ *  running one for everything else. Stopping has nothing to go to, so it echoes
+ *  what is being given up — which is also what the person should be reading
+ *  before they confirm. */
 export function itemDigest(it: Item): string {
-  return it.kind === 'image' ? it.payload.to.digest : it.payload.current.digest
+  if (it.kind === 'image') return it.payload.to.digest
+  if (it.kind === 'scale') return it.payload.current?.digest ?? ''
+  return it.payload.current.digest
 }
 
 /** Human-readable thresholds that block releases in this environment, or [] when none are enforced. */

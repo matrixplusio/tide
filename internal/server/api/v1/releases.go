@@ -38,6 +38,10 @@ type releaseItemReq struct {
 	Restart bool `json:"restart"`
 	// WithConfig (image): send unsynced git changes along with the image.
 	WithConfig bool `json:"withConfig"`
+	// Replicas (scale): how many to run. A pointer because zero is a real
+	// answer and an omitted field is not — without it "scale to 0" and "you
+	// forgot to say" are the same request.
+	Replicas *int `json:"replicas"`
 }
 
 type createReleaseReq struct {
@@ -92,7 +96,7 @@ func (r *createReleaseReq) Check() error {
 			case !reFreight.MatchString(it.Freight):
 				errs = append(errs, validate.FieldKey(itemField(i, "freight"), "r.freightFormat"))
 			}
-		case release.KindRestart, release.KindSync:
+		case release.KindRestart, release.KindSync, release.KindScale:
 			if it.Freight != "" {
 				errs = append(errs, validate.FieldKey(itemField(i, "freight"), "r.freightNotNeeded"))
 			}
@@ -101,6 +105,12 @@ func (r *createReleaseReq) Check() error {
 		}
 		if it.Kind != release.KindSync && (it.Prune || it.Restart) {
 			errs = append(errs, validate.FieldKey(itemField(i, "prune"), "r.pruneSyncOnly"))
+		}
+		if it.Kind != release.KindScale && it.Replicas != nil {
+			errs = append(errs, validate.FieldKey(itemField(i, "replicas"), "r.replicasScaleOnly"))
+		}
+		if it.Kind == release.KindScale && it.Replicas == nil {
+			errs = append(errs, validate.FieldKey(itemField(i, "replicas"), "r.replicasRequired"))
 		}
 		if it.Kind != release.KindImage && it.WithConfig {
 			errs = append(errs, validate.FieldKey(itemField(i, "withConfig"), "r.withConfigImageOnly"))
@@ -205,6 +215,8 @@ func (a *API) createRelease(c *gin.Context) {
 			switch it.Kind {
 			case release.KindRestart:
 				payload, err = plan.BuildRestart(ctx, a.Hub, d)
+			case release.KindScale:
+				payload, err = plan.BuildScale(ctx, a.Hub, a.Settings, d, *it.Replicas)
 			case release.KindSync:
 				payload, err = plan.BuildSync(ctx, a.Hub, d, it.Prune, it.Restart)
 				var pe *plan.PruneError
@@ -340,7 +352,7 @@ func (a *API) listReleases(c *gin.Context) {
 		Env:         p.match("env", reEnv, "label.envName"),
 		ServiceLike: p.text("service", 100),
 		Jira:        p.text("jira", 64),
-		Kind:        p.enum("kind", []string{release.KindImage, release.KindRestart, release.KindSync}),
+		Kind:        p.enum("kind", []string{release.KindImage, release.KindRestart, release.KindSync, release.KindScale}),
 		Creator:     p.text("creator", 100),
 		Since:       p.time("since"),
 		Until:       p.time("until"),
@@ -798,6 +810,8 @@ func kindPermission(kind string) rbac.Permission {
 		return rbac.ReleasesRestart
 	case release.KindSync:
 		return rbac.ReleasesSync
+	case release.KindScale:
+		return rbac.ReleasesScale
 	}
 	return rbac.ReleasesCreate
 }

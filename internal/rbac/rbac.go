@@ -24,10 +24,15 @@ const (
 	NotificationsManage Permission = "notifications.manage"
 	SettingsManage      Permission = "settings.manage"
 
-	PodsView          Permission = "pods.view"
-	ReleasesCreate    Permission = "releases.create"
-	ReleasesRestart   Permission = "releases.restart"
-	ReleasesSync      Permission = "releases.sync"
+	PodsView        Permission = "pods.view"
+	ReleasesCreate  Permission = "releases.create"
+	ReleasesRestart Permission = "releases.restart"
+	ReleasesSync    Permission = "releases.sync"
+	// ReleasesScale changes how many replicas a service runs. Its own
+	// permission rather than the upgrade one: scaling to zero takes a service
+	// out of service without deploying anything, so whoever may do that is a
+	// different question from whoever may ship a version.
+	ReleasesScale     Permission = "releases.scale"
 	ReleasesCancelAny Permission = "releases.cancel_any"
 )
 
@@ -62,6 +67,7 @@ var Catalog = []Def{
 	{ReleasesCreate, "perm.releasesCreate.name", "perm.releasesCreate.desc", ScopeEnv},
 	{ReleasesRestart, "perm.releasesRestart.name", "perm.releasesRestart.desc", ScopeEnv},
 	{ReleasesSync, "perm.releasesSync.name", "perm.releasesSync.desc", ScopeEnv},
+	{ReleasesScale, "perm.releasesScale.name", "perm.releasesScale.desc", ScopeEnv},
 	{ReleasesCancelAny, "perm.releasesCancelAny.name", "perm.releasesCancelAny.desc", ScopeEnv},
 }
 
