@@ -912,6 +912,7 @@ const zhCN = {
     srcRollback: '回退，撤掉 {{n}} 个提交',
     srcSame: '两个版本来自同一个提交，源码没有变化',
     srcCapped: '（只列最近 50 个）',
+    srcHidden: '（另有 {{n}} 个合并/构建提交已隐藏）',
     srcNote: {
       noBuild: '拿不到提交列表：至少一边的镜像没有经 CI 上报，不知道它来自哪个提交',
       noHistory: '拿不到提交列表：CI 上报里没带提交历史（流水线组件版本较旧）',

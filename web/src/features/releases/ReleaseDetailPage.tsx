@@ -9,6 +9,7 @@ import type { BuildInfo, Item, ItemChanges, ItemKind, ItemLive, Live, Release } 
 import { summarizeRollout } from '../../lib/rollout'
 import { changeSummary } from '../../lib/release'
 import { redoLink } from '../../lib/redo'
+import { isNoiseCommit } from '../../lib/changes'
 import { anomalyText, isNotice } from '../../lib/anomaly'
 import { useCancelRelease, useDecideRelease, useRelease } from './queries'
 import { subjectLabel } from '../../lib/permissions'
@@ -849,15 +850,23 @@ function ChangeList({ ch }: { ch?: ItemChanges | null }) {
       </KV>
     )
   }
+  // Merge commits and the CI's own "build:<service>" commit are kept in the
+  // history (they are how the running commit is found in it) but not shown:
+  // they carry no change of their own. Sampled across five active
+  // repositories, they were nearly all of the noise; the titles underneath
+  // were worth reading.
+  const shown = commits.filter((c) => !isNoiseCommit(c.title))
+  const hidden = commits.length - shown.length
   return (
     <KV k={t('detail.srcChanges')}>
       <div className="changes">
         <div className={`changes-h ${ch.direction === 'rollback' ? 'warn' : ''}`}>
-          {ch.direction === 'rollback' ? t('detail.srcRollback', { n: commits.length }) : t('detail.srcForward', { n: commits.length })}
+          {ch.direction === 'rollback' ? t('detail.srcRollback', { n: shown.length }) : t('detail.srcForward', { n: shown.length })}
+          {hidden > 0 && <span className="muted"> {t('detail.srcHidden', { n: hidden })}</span>}
           {commits.length >= 50 && <span className="muted"> {t('detail.srcCapped')}</span>}
         </div>
         <ul className="changes-list">
-          {[...commits].reverse().map((c) => (
+          {[...shown].reverse().map((c) => (
             <li key={c.id}>
               {c.url ? (
                 <a className="mono" href={c.url} target="_blank" rel="noreferrer">
