@@ -7,6 +7,7 @@ import (
 
 	"tide/internal/catalog"
 	"tide/internal/manifest"
+	"tide/internal/plan"
 	"tide/internal/release"
 	"tide/internal/settings"
 	"tide/internal/upstream/gitea"
@@ -57,6 +58,15 @@ func (x Scale) Validate(ctx context.Context, it *release.Item) error {
 	}
 	if err := x.noAutoscaler(ctx, c, p); err != nil {
 		return err
+	}
+	// Checked again here, not only when the release was built: a budget can
+	// land in the repository between the two, and the whole harm is in the
+	// commit this executor is about to make.
+	if pdb, err := plan.BlockingPDB(ctx, c, p.App, p.To); err != nil {
+		return err
+	} else if pdb != "" {
+		return fmt.Errorf("PodDisruptionBudget/%s would forbid evicting any of %d replicas, so no node could be drained; change the budget first",
+			pdb, p.To)
 	}
 	// The count in git is what the next sync applies, so that is what has to
 	// still be what this release was built against.

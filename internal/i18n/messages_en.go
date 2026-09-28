@@ -469,6 +469,7 @@ var enPlan = map[Key]string{
 	"pl.noReplicasField":       "%s does not set a replica count, so something else decides it. Adding one here would start a fight nobody is watching.",
 	"pl.alreadyAtReplicas":     "%s/%s is already at %d replicas.",
 	"pl.replicasRange":         "%d replicas is outside the range Tide will set (0 to %d).",
+	"pl.pdbBlocks":             "PodDisruptionBudget %s would forbid evicting any of %d replicas, so no node could ever be drained. Change or remove the budget first.",
 	"pl.workloadNotInApp":      "%s is not among the resources %s manages, so there is nothing to wait for after the change.",
 	"r.replicasScaleOnly":      "replicas only applies to changing the replica count",
 	"r.replicasRequired":       "say how many replicas to run",
