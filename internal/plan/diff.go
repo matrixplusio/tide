@@ -16,6 +16,8 @@ const (
 	maxDiffLines  = 3000
 	diffContext   = 3
 	lastAppliedKy = "kubectl.kubernetes.io/last-applied-configuration"
+	// What a Secret value is replaced by. Argo CD uses the same shape.
+	redacted = "********"
 )
 
 // manifestYAML renders an Argo CD state document as YAML without the fields
@@ -30,6 +32,14 @@ func manifestYAML(state string) (string, error) {
 	if err := json.Unmarshal([]byte(state), &obj); err != nil {
 		return "", fmt.Errorf("decode manifest: %w", err)
 	}
+	return ManifestYAML(obj)
+}
+
+// ManifestYAML renders one live object as the YAML a person reads, without the
+// bookkeeping the cluster owns. It does not redact anything: the sync diff
+// depends on live and target being rendered the same way, and a caller that
+// shows a manifest to a person calls RedactSecret first.
+func ManifestYAML(obj map[string]any) (string, error) {
 	delete(obj, "status")
 	if md, ok := obj["metadata"].(map[string]any); ok {
 		for _, k := range []string{"managedFields", "resourceVersion", "uid", "generation", "creationTimestamp", "selfLink"} {
@@ -49,6 +59,31 @@ func manifestYAML(state string) (string, error) {
 		return "", fmt.Errorf("encode manifest: %w", err)
 	}
 	return buf.String(), nil
+}
+
+// RedactSecret replaces the values in a Secret with a placeholder, keeping the
+// keys. A live Secret holds base64, and base64 is not encryption — whoever can
+// read the manifest can read the password. The keys are what someone
+// diagnosing a service needs ("is the key even there?"); the values are not.
+//
+// A SealedSecret is left alone on purpose: what it carries is ciphertext, and
+// it is the only place a reader can check that the sealed value was updated.
+//
+// Only for showing a manifest to a person. The sync diff must not call it:
+// redacting both sides would hide that a value changed at all.
+func RedactSecret(obj map[string]any) {
+	if kind, _ := obj["kind"].(string); kind != "Secret" {
+		return
+	}
+	for _, field := range []string{"data", "stringData"} {
+		m, ok := obj[field].(map[string]any)
+		if !ok {
+			continue
+		}
+		for k := range m {
+			m[k] = redacted
+		}
+	}
 }
 
 // unifiedDiff returns a unified diff of two texts with diffContext lines of

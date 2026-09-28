@@ -470,7 +470,7 @@ export interface Live {
   sync: string
   health: string
   operation?: string
-  resources: { kind: string; name: string; namespace: string; sync: string; health?: string; message?: string }[] | null
+  resources: { group?: string; version?: string; kind: string; name: string; namespace: string; sync: string; health?: string; message?: string }[] | null
   pods: Pod[] | null
   rollouts: Rollout[] | null
   error?: string

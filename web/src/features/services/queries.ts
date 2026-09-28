@@ -118,6 +118,22 @@ export function usePodLogs(service: string, env: string, pod: string, opts: { en
   })
 }
 
+export type ResourceRef = { group?: string; version?: string; kind: string; namespace: string; name: string }
+
+// One resource's manifest, fetched only once a person opens that row. No
+// batching: a page shows a list of names and a person reads one of them.
+export function useResourceManifest(service: string, env: string, ref: ResourceRef | null) {
+  return useQuery({
+    queryKey: ['resource', service, env, ref?.group, ref?.version, ref?.kind, ref?.namespace, ref?.name],
+    queryFn: ({ signal }) =>
+      apiFetch<{ kind: string; name: string; namespace: string; yaml: string }>(`/api/v1/services/${svc(service)}/envs/${encodeURIComponent(env)}/resource`, {
+        query: { group: ref?.group || undefined, version: ref?.version || undefined, kind: ref?.kind, namespace: ref?.namespace || undefined, name: ref?.name },
+        signal,
+      }),
+    enabled: !!ref,
+  })
+}
+
 export function usePodEvents(service: string, env: string, pod: string, uid: string, enabled: boolean) {
   return useQuery({
     queryKey: ['events', service, env, pod, uid],

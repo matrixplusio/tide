@@ -26,9 +26,14 @@ var (
 	reReleaseID = regexp.MustCompile(`^REL-[0-9]{8}-[0-9]{3,6}$`)
 	reSessionID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	reAction    = regexp.MustCompile(`^[a-z.]{0,64}$`)
-	reSection   = regexp.MustCompile(`^[a-z]{1,32}$`)
-	reFreight   = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	reDigest    = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	// A Kubernetes API group ("", "apps", "gateway.networking.k8s.io"),
+	// version and kind. Empty group is the core one, so callers allow "".
+	reAPIGroup   = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$`)
+	reAPIVersion = regexp.MustCompile(`^v[0-9]+((alpha|beta)[0-9]+)?$`)
+	reAPIKind    = regexp.MustCompile(`^[A-Z][A-Za-z0-9]{0,62}$`)
+	reSection    = regexp.MustCompile(`^[a-z]{1,32}$`)
+	reFreight    = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	reDigest     = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	// IANA zone names: "Asia/Shanghai", "UTC", "America/Argentina/Salta".
 	reTimezone = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+_-]*(/[A-Za-z0-9+_-]+){0,2}$`)
 )

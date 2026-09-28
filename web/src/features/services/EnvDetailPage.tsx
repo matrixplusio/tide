@@ -1,8 +1,11 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { fmtTime, safeHttpUrl } from '../../lib/format'
 import { Banner, Chev, EmptyState, ErrorState, Group, GroupHeader, KV, Loading, Note, Page, Pill, Row, Segmented, StatusDot, Toolbar } from '../../components/ui'
 import { ConflictBanner, HealthPill, PodsList, ResourcesList, RolloutView, VersionLabel, phaseDot, phaseTone } from '../../components/domain'
+import type { ResourcePick } from '../../components/domain'
+import { ResourceModal } from './ResourceModal'
 import { useEnvDetail } from './queries'
 import { PromoteForm } from './PromoteForm'
 import { RestartForm } from './RestartForm'
@@ -28,6 +31,7 @@ export function EnvDetailPage() {
     setParams(next, { replace: true })
   }
   const base = `/services/${encodeURIComponent(service)}/envs/${encodeURIComponent(env)}`
+  const [pick, setPick] = useState<ResourcePick | null>(null)
   const q = useEnvDetail(service, env)
   const d = q.data?.deployment
   const inFlight = (q.data?.releases ?? []).find((r) => r.status === 'confirming' || r.status === 'approving' || r.status === 'executing')
@@ -129,7 +133,7 @@ export function EnvDetailPage() {
               <PodsList live={q.data.live} base={can?.pods ? base : undefined} />
               {!can?.pods && <Note>{t('services.noPodPermission')}</Note>}
               <GroupHeader>{t('services.resources')}</GroupHeader>
-              <ResourcesList live={q.data.live} />
+              <ResourcesList live={q.data.live} onOpen={can?.pods ? setPick : undefined} />
               {grafana && (
                 <Note>
                   {t('services.metricsIn')}{' '}
@@ -142,6 +146,7 @@ export function EnvDetailPage() {
           </div>
         )}
       </Page>
+      {pick && <ResourceModal service={service} env={env} pick={pick} onClose={() => setPick(null)} />}
     </>
   )
 }

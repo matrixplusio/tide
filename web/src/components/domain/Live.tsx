@@ -84,7 +84,12 @@ export function PodsList({ live, base }: { live: Live; base?: string }) {
   )
 }
 
-export function ResourcesList({ live }: { live: Live }) {
+export type ResourcePick = { group?: string; version?: string; kind: string; namespace: string; name: string }
+
+// onOpen makes each row openable. It stays a prop instead of a query in here
+// because this component is also on the release page, where there is no
+// service and environment to fetch a manifest for.
+export function ResourcesList({ live, onOpen }: { live: Live; onOpen?: (r: ResourcePick) => void }) {
   const { t } = useTranslation()
   const resources = live.resources ?? []
   return (
@@ -99,7 +104,11 @@ export function ResourcesList({ live }: { live: Live }) {
       {resources.map((r) => {
         const state: DotState = r.sync === 'Synced' && (!r.health || r.health === 'Healthy') ? 'ok' : r.health === 'Progressing' ? 'run' : r.health && r.health !== 'Healthy' ? 'bad' : 'warn'
         return (
-          <Row key={r.kind + r.namespace + r.name}>
+          <Row
+            key={r.kind + r.namespace + r.name}
+            onClick={onOpen ? () => onOpen({ group: r.group, version: r.version, kind: r.kind, namespace: r.namespace, name: r.name }) : undefined}
+            title={onOpen ? t('live.openManifest') : undefined}
+          >
             <StatusDot state={state} label={`${r.sync}${r.health ? ` / ${r.health}` : ''}`} />
             <div className="grow">
               <div className="t">{r.kind}</div>

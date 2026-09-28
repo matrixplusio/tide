@@ -1,6 +1,7 @@
 export { VersionLabel, DeployDot, ReleaseStatusPill, ItemStatusPill, HealthPill, AutoPill } from './labels'
 export { ReleaseRow } from './ReleaseRow'
 export { RolloutView, PodsList, ResourcesList, PromotionSteps } from './Live'
+export type { ResourcePick } from './Live'
 export { ConfirmSheet } from './ConfirmSheet'
 export { RefreshNow } from './RefreshNow'
 export { phaseTone, phaseDot } from './tones'
