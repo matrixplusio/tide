@@ -423,7 +423,7 @@ const zhCN = {
 
   kargogen: {
     imageName: '镜像条目名',
-    imageNameHint: "部署仓库 kustomization.yaml 里那条 images 条目的名字——kustomize 是按它匹配的，和要拉取的镜像不是一回事。条目名本来就是完整镜像名的话留空。填错不会报错：晋级会在第一条旁边追加第二条而不是改它，此后第一条的 tag 再也不会变。",
+    imageNameHint: "部署仓库 kustomization.yaml 里那条 images 条目的名字——kustomize 是按它匹配的，和要拉取的镜像不是一回事。留空就是 PLACEHOLDER（部署仓库生成器写的那个），只有条目名不是它时才填。填错不会报错：晋级会在第一条旁边追加第二条而不是改它，此后第一条的 tag 再也不会变。",
     imageStrategy: '镜像选择策略',
     imageStrategyHint: 'Kargo 按什么顺序认定「最新」。它自己的默认是 SemVer，对非语义化版本的 tag 一个都发现不了，而且看起来像凭据出错',
     stratLexical: '字典序（tag 以时间戳开头时用这个）',
