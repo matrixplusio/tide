@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../../lib/api'
-import type { BuildInfo, ItemKind, ItemLive, Paged, Release, ReleaseStatus } from '../../lib/types'
+import type { BuildInfo, ItemChanges, ItemKind, ItemLive, Paged, Release, ReleaseStatus } from '../../lib/types'
 
 export const PAGE_SIZE = 20
 
@@ -69,6 +69,8 @@ export function useActiveReleaseCount(enabled = true) {
 export interface ReleaseDetail {
   /** CI builds behind the images an upgrade moves between, by digest. */
   builds?: Record<string, BuildInfo | null> | null
+  /** Commits between from and to, per item id; only for upgrades. */
+  changes?: Record<string, ItemChanges | null> | null
   release: Release
   /** What the viewer may do, with project / type scopes applied. */
   can: { confirm: boolean; cancel: boolean; pods: boolean }

@@ -5,7 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useMe } from '../../app/session'
 import { fmtDuration, fmtTime, sinceMs } from '../../lib/format'
 import { itemStatusText } from '../../lib/status'
-import type { BuildInfo, Item, ItemKind, ItemLive, Live, Release } from '../../lib/types'
+import type { BuildInfo, Item, ItemChanges, ItemKind, ItemLive, Live, Release } from '../../lib/types'
 import { summarizeRollout } from '../../lib/rollout'
 import { changeSummary } from '../../lib/release'
 import { redoLink } from '../../lib/redo'
@@ -154,7 +154,7 @@ export function ReleaseDetailPage() {
 
             {items.map((it) =>
               (items.length > 1 && !expanded.has(it.id)) || (itemFilter && it.status !== itemFilter) ? null : (
-                <ItemSection key={it.id} it={it} live={q.data?.live?.find((l) => l.itemId === it.id)} release={r} canPods={canPods} onCollapse={items.length > 1 ? () => toggleItem(it.id) : undefined} builds={q.data?.builds ?? undefined} />
+                <ItemSection key={it.id} it={it} live={q.data?.live?.find((l) => l.itemId === it.id)} release={r} canPods={canPods} onCollapse={items.length > 1 ? () => toggleItem(it.id) : undefined} builds={q.data?.builds ?? undefined} changes={q.data?.changes ?? undefined} />
               ),
             )}
           </>
@@ -279,7 +279,7 @@ function CancelReleaseModal({ release, onClose }: { release: Release; onClose: (
   )
 }
 
-function ItemSection({ it, live, release, canPods, onCollapse, builds }: { it: Item; live?: ItemLive; release: Release; canPods: boolean; onCollapse?: () => void; builds?: Record<string, BuildInfo | null> }) {
+function ItemSection({ it, live, release, canPods, onCollapse, builds, changes }: { it: Item; live?: ItemLive; release: Release; canPods: boolean; onCollapse?: () => void; builds?: Record<string, BuildInfo | null>; changes?: Record<string, ItemChanges | null> }) {
   const { t } = useTranslation()
   const p = it.payload
   const base = `/services/${encodeURIComponent(p.service)}/envs/${encodeURIComponent(p.env)}`
@@ -400,6 +400,7 @@ function ItemSection({ it, live, release, canPods, onCollapse, builds }: { it: I
                   {it.payload.to.digest}
                 </KV>
                 <BuildLine b={builds?.[it.payload.to.digest]} />
+                <ChangeList ch={changes?.[String(it.id)]} />
                 <KV k="Freight" mono>
                   {it.payload.freight}
                 </KV>
@@ -822,6 +823,62 @@ function BuildLine({ b }: { b?: BuildInfo | null }) {
           </>
         )}
       </span>
+    </KV>
+  )
+}
+
+/** The commits between the image a service runs and the one it moves to —
+ *  the thing a developer reads before confirming. Says why when there is no
+ *  list: an empty box would read as "nothing changed", which is the one
+ *  answer that must not be given by accident. */
+function ChangeList({ ch }: { ch?: ItemChanges | null }) {
+  const { t } = useTranslation()
+  if (!ch) return null
+  const commits = ch.commits ?? []
+  if (ch.note) {
+    // Not configured is the operator's business, not the reader's: say
+    // nothing rather than nag on every release.
+    if (ch.note === 'notConfigured') return null
+    return (
+      <KV k={t('detail.srcChanges')}>
+        <span className="muted">{t(`detail.srcNote.${ch.note}`)}</span>
+      </KV>
+    )
+  }
+  if (ch.direction === 'same' || commits.length === 0) {
+    return (
+      <KV k={t('detail.srcChanges')}>
+        <span className="muted">{t('detail.srcSame')}</span>
+      </KV>
+    )
+  }
+  return (
+    <KV k={t('detail.srcChanges')}>
+      <div className="changes">
+        <div className={`changes-h ${ch.direction === 'rollback' ? 'warn' : ''}`}>
+          {ch.direction === 'rollback' ? t('detail.srcRollback', { n: commits.length }) : t('detail.srcForward', { n: commits.length })}
+          {commits.length >= 50 && <span className="muted"> {t('detail.srcCapped')}</span>}
+        </div>
+        <ul className="changes-list">
+          {[...commits].reverse().map((c) => (
+            <li key={c.id}>
+              {c.url ? (
+                <a className="mono" href={c.url} target="_blank" rel="noreferrer">
+                  {c.shortId}
+                </a>
+              ) : (
+                <span className="mono">{c.shortId}</span>
+              )}
+              <span className="changes-title">{c.title}</span>
+              <span className="muted nowrap">
+                {c.author}
+                {c.author && ' · '}
+                {fmtTime(c.at, true)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </KV>
   )
 }

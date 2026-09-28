@@ -43,15 +43,18 @@ const (
 // into a release (or gives up). It outlives the request because the freight
 // the release needs may not exist when the pipeline finishes pushing.
 type CIIntake struct {
-	ID         int64     `json:"id"`
-	Key        string    `json:"key"`
-	Service    string    `json:"service"`
-	Env        string    `json:"env"`
-	Image      string    `json:"image"`
-	Digest     string    `json:"digest"`
-	Commit     string    `json:"commit,omitempty"`
-	Stage      string    `json:"stage,omitempty"`
-	Pipeline   string    `json:"pipeline,omitempty"`
+	ID       int64  `json:"id"`
+	Key      string `json:"key"`
+	Service  string `json:"service"`
+	Env      string `json:"env"`
+	Image    string `json:"image"`
+	Digest   string `json:"digest"`
+	Commit   string `json:"commit,omitempty"`
+	Stage    string `json:"stage,omitempty"`
+	Pipeline string `json:"pipeline,omitempty"`
+	// Repo is the source repository the image was built from, when the
+	// pipeline said; see migration 0019.
+	Repo       string    `json:"repo,omitempty"`
 	Actor      string    `json:"actor,omitempty"`
 	JiraTicket string    `json:"jiraTicket,omitempty"`
 	Reason     string    `json:"reason,omitempty"`
@@ -126,7 +129,7 @@ func (r *CI) RevokeToken(ctx context.Context, id string) error {
 	return nil
 }
 
-const ciIntakeCols = `id, idempotency_key, service, env, image, digest, commit_sha, stage, pipeline, ci_actor,
+const ciIntakeCols = `id, idempotency_key, service, env, image, digest, commit_sha, stage, pipeline, repo, ci_actor,
 	jira_ticket, reason, token_id, status, COALESCE(release_id, ''), error, warning, attempts, created_at, updated_at`
 
 // CIBuild is what CI said about an image when it handed it over: the commit
@@ -137,6 +140,7 @@ type CIBuild struct {
 	Digest    string    `json:"digest"`
 	Commit    string    `json:"commit,omitempty"`
 	Pipeline  string    `json:"pipeline,omitempty"`
+	Repo      string    `json:"repo,omitempty"`
 	Actor     string    `json:"actor,omitempty"`
 	Title     string    `json:"title,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -150,7 +154,7 @@ func (r *CI) BuildsByDigest(ctx context.Context, digests []string) (map[string]C
 	if len(digests) == 0 {
 		return out, nil
 	}
-	rows, err := r.db.WithContext(ctx).Raw(`SELECT DISTINCT ON (digest) digest, commit_sha, pipeline, ci_actor, reason, created_at
+	rows, err := r.db.WithContext(ctx).Raw(`SELECT DISTINCT ON (digest) digest, commit_sha, pipeline, repo, ci_actor, reason, created_at
 		FROM ci_intake WHERE digest = ANY($1) AND digest <> ''
 		ORDER BY digest, created_at DESC`, digests).Rows()
 	if err != nil {
@@ -159,7 +163,7 @@ func (r *CI) BuildsByDigest(ctx context.Context, digests []string) (map[string]C
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var b CIBuild
-		if err := rows.Scan(&b.Digest, &b.Commit, &b.Pipeline, &b.Actor, &b.Title, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.Digest, &b.Commit, &b.Pipeline, &b.Repo, &b.Actor, &b.Title, &b.CreatedAt); err != nil {
 			return nil, err
 		}
 		out[b.Digest] = b
@@ -180,11 +184,11 @@ func (r *CI) Accept(ctx context.Context, in CIIntake) (out *CIIntake, accepted b
 	}
 	res := r.db.WithContext(ctx).Exec(`
 		INSERT INTO ci_intake (idempotency_key, service, env, image, digest, commit_sha, stage, pipeline, ci_actor,
-			jira_ticket, reason, token_id, status, error, warning)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+			jira_ticket, reason, token_id, status, error, warning, repo)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		ON CONFLICT (idempotency_key) DO NOTHING`,
 		in.Key, in.Service, in.Env, in.Image, in.Digest, in.Commit, in.Stage, in.Pipeline, in.Actor,
-		in.JiraTicket, in.Reason, in.TokenID, status, in.Error, in.Warning)
+		in.JiraTicket, in.Reason, in.TokenID, status, in.Error, in.Warning, in.Repo)
 	if res.Error != nil {
 		return nil, false, res.Error
 	}
@@ -280,7 +284,7 @@ func scanCIIntakes(rows *sql.Rows) ([]CIIntake, error) {
 	for rows.Next() {
 		var x CIIntake
 		if err := rows.Scan(&x.ID, &x.Key, &x.Service, &x.Env, &x.Image, &x.Digest, &x.Commit, &x.Stage,
-			&x.Pipeline, &x.Actor, &x.JiraTicket, &x.Reason, &x.TokenID, &x.Status, &x.ReleaseID, &x.Error,
+			&x.Pipeline, &x.Repo, &x.Actor, &x.JiraTicket, &x.Reason, &x.TokenID, &x.Status, &x.ReleaseID, &x.Error,
 			&x.Warning, &x.Attempts, &x.CreatedAt, &x.UpdatedAt); err != nil {
 			return nil, err
 		}

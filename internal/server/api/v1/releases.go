@@ -6,6 +6,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -21,6 +22,7 @@ import (
 	"tide/internal/server/api/respond"
 	"tide/internal/settings"
 	"tide/internal/store/pg"
+	"tide/internal/upstream/repo"
 	"tide/internal/validate"
 
 	"go.uber.org/zap"
@@ -488,7 +490,11 @@ func (a *API) getRelease(c *gin.Context) {
 	out := gin.H{"release": v, "can": can}
 	// The builds behind the images this release moves between, keyed by
 	// digest: the page shows the commit title and pipeline next to each tag.
-	out["builds"] = a.buildsFor(c.Request.Context(), rel)
+	builds := a.buildsFor(c.Request.Context(), rel)
+	out["builds"] = builds
+	// And the commits between them, per item, when the source host is
+	// configured and the pipeline said which repository the image came from.
+	out["changes"] = a.changesFor(c.Request.Context(), rel, builds)
 	// Live view only while it matters; history renders from stored state.
 	recent := rel.FinishedAt != nil && time.Since(*rel.FinishedAt) < 2*time.Hour
 	if withLive && (rel.Status == release.Executing || recent) {
@@ -1075,4 +1081,127 @@ func (a *API) buildsFor(ctx context.Context, rel *release.Release) map[string]*p
 		out[d] = buildOf(builds, d)
 	}
 	return out
+}
+
+// ItemChanges is what changed in the source between the image a service runs
+// and the one this release moves it to. Direction says which way: forward is
+// the ordinary upgrade, rollback means the target is behind what runs.
+// Note names the one reason there is no list, so the page can say it instead
+// of showing an empty box that reads as "nothing changed".
+type ItemChanges struct {
+	Repo      string        `json:"repo,omitempty"`
+	Project   string        `json:"project,omitempty"`
+	From      string        `json:"from,omitempty"`
+	To        string        `json:"to,omitempty"`
+	Direction string        `json:"direction"` // forward | rollback | same
+	Commits   []repo.Change `json:"commits"`
+	Note      string        `json:"note,omitempty"` // notConfigured | noBuild | noRepo | differentRepos | otherHost | unsupported | error
+}
+
+// changesFor asks the source host for the commits between the from and to
+// images of every upgrade in the release. Cached per (project, from, to):
+// the answer never changes, and a release page is opened many times while
+// it executes.
+func (a *API) changesFor(ctx context.Context, rel *release.Release, builds map[string]*plan.BuildInfo) map[int64]*ItemChanges {
+	out := map[int64]*ItemChanges{}
+	var cfg settings.SourceRepo
+	if err := a.Settings.Load(ctx, settings.SectionSourceRepo, &cfg); err != nil && !errors.Is(err, settings.ErrNotConfigured) {
+		zap.L().Warn("release: source repository settings unreadable", zap.Error(err))
+	}
+	for _, it := range rel.Items {
+		if it.Kind != release.KindImage {
+			continue
+		}
+		p, err := rel.ImagePayload(it)
+		if err != nil || p.From == nil {
+			continue
+		}
+		from, to := builds[p.From.Digest], builds[p.To.Digest]
+		ch := &ItemChanges{Direction: "same", Commits: []repo.Change{}}
+		out[it.ID] = ch
+		switch {
+		case !cfg.Configured():
+			ch.Note = "notConfigured"
+			continue
+		case from == nil || to == nil || from.Commit == "" || to.Commit == "":
+			ch.Note = "noBuild"
+			continue
+		case to.Repo == "" || from.Repo == "":
+			ch.Note = "noRepo"
+			continue
+		case to.Repo != from.Repo:
+			ch.Note = "differentRepos"
+			continue
+		}
+		ch.Repo, ch.From, ch.To = to.Repo, from.Commit, to.Commit
+		ch.Project = cfg.ProjectOf(to.Repo)
+		if ch.Project == "" {
+			ch.Note = "otherHost"
+			continue
+		}
+		if from.Commit == to.Commit {
+			continue
+		}
+		forward, err := compareCached(ctx, cfg, ch.Project, from.Commit, to.Commit)
+		if err != nil {
+			ch.Note = noteFor(err)
+			continue
+		}
+		if len(forward) > 0 {
+			ch.Direction, ch.Commits = "forward", forward
+			continue
+		}
+		back, err := compareCached(ctx, cfg, ch.Project, to.Commit, from.Commit)
+		if err != nil {
+			ch.Note = noteFor(err)
+			continue
+		}
+		if len(back) > 0 {
+			ch.Direction, ch.Commits = "rollback", back
+		}
+	}
+	return out
+}
+
+func noteFor(err error) string {
+	if errors.Is(err, repo.ErrCompareUnsupported) {
+		return "unsupported"
+	}
+	zap.L().Warn("release: comparing commits failed", zap.Error(err))
+	return "error"
+}
+
+// compareCache remembers answers for ten minutes. Keyed by host as well as
+// project, so changing the configured host does not serve the old host's
+// answers. Only successes are kept: an error is worth asking about again.
+var compareCache = struct {
+	sync.Mutex
+	m map[string]compareEntry
+}{m: map[string]compareEntry{}}
+
+type compareEntry struct {
+	at      time.Time
+	changes []repo.Change
+}
+
+const compareTTL = 10 * time.Minute
+
+func compareCached(ctx context.Context, cfg settings.SourceRepo, project, from, to string) ([]repo.Change, error) {
+	key := cfg.BaseURL + "|" + project + "|" + from + "|" + to
+	compareCache.Lock()
+	if e, ok := compareCache.m[key]; ok && time.Since(e.at) < compareTTL {
+		compareCache.Unlock()
+		return e.changes, nil
+	}
+	compareCache.Unlock()
+	cctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
+	defer cancel()
+	changes, err := sourceClient(cfg).Compare(cctx, project, from, to)
+	if err != nil {
+		return nil, err
+	}
+	compareCache.Lock()
+	compareCache.m[key] = compareEntry{at: time.Now(), changes: changes}
+	compareCache.Unlock()
+	return changes, nil
 }

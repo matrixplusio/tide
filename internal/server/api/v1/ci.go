@@ -42,8 +42,11 @@ type ciReleaseReq struct {
 	Image  string `json:"image" binding:"max=253" label:"image"`
 	Commit string `json:"commit" binding:"max=64" label:"commit"`
 	// Stage is which job this is about: compile / package / notify.
-	Stage      string `json:"stage" binding:"max=32" label:"stage"`
-	Pipeline   string `json:"pipeline" binding:"max=500" label:"pipeline"`
+	Stage    string `json:"stage" binding:"max=32" label:"stage"`
+	Pipeline string `json:"pipeline" binding:"max=500" label:"pipeline"`
+	// Repo is the source repository the image was built from ($CI_PROJECT_URL).
+	// Optional, and older pipeline components do not send it.
+	Repo       string `json:"repo" binding:"max=500" label:"repo"`
 	Actor      string `json:"actor" binding:"max=100" label:"ciActor"`
 	JiraTicket string `json:"jiraTicket" binding:"max=64" label:"jira"`
 	Reason     string `json:"reason" binding:"max=2000" label:"reason"`
@@ -67,7 +70,7 @@ var ciStageRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 func (r *ciReleaseReq) failed() bool { return r.Status == ciFailed }
 
 func (r *ciReleaseReq) Normalize() {
-	trim(&r.Service, &r.Env, &r.Digest, &r.Image, &r.Commit, &r.Stage, &r.Pipeline, &r.Actor,
+	trim(&r.Service, &r.Env, &r.Digest, &r.Image, &r.Commit, &r.Stage, &r.Pipeline, &r.Repo, &r.Actor,
 		&r.JiraTicket, &r.Reason, &r.Error, &r.Warning)
 	r.Status, r.Stage = strings.ToLower(r.Status), strings.ToLower(r.Stage)
 	if r.Status == "" {
@@ -113,6 +116,7 @@ func (r *ciReleaseReq) Check() error {
 		errs = append(errs, validate.FieldKey("commit", "ci.commitFormat"))
 	}
 	errs = append(errs, validate.HTTPURL("pipeline", r.Pipeline, false, validate.AnyURL))
+	errs = append(errs, validate.HTTPURL("repo", r.Repo, false, validate.AnyURL))
 	if !ciActorRe.MatchString(r.Actor) {
 		errs = append(errs, validate.FieldKey("actor", "ci.actorFormat"))
 	}
@@ -179,7 +183,7 @@ func (a *API) ciRelease(c *gin.Context) {
 	token := ciTokenOf(c)
 	intake, accepted, err := a.CI.Accept(c.Request.Context(), token, ci.Request{
 		Service: req.Service, Env: req.Env, Image: req.Image, Digest: req.Digest, Commit: req.Commit,
-		Stage: req.Stage, Pipeline: req.Pipeline, Actor: req.Actor, JiraTicket: req.JiraTicket,
+		Stage: req.Stage, Pipeline: req.Pipeline, Repo: req.Repo, Actor: req.Actor, JiraTicket: req.JiraTicket,
 		Reason: req.Reason, Key: key, Failed: req.failed(), Detail: req.Error, Warning: req.Warning,
 	})
 	if err != nil {

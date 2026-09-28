@@ -182,6 +182,7 @@ export interface SettingsData {
   system?: SystemSettings | null
   pipeline?: PipelineRepo | null
   apps?: AppsRepo | null
+  sources?: SourceRepo | null
 }
 
 /** The repository holding the service registry the ApplicationSet renders
@@ -231,7 +232,7 @@ export interface PipelineRepo {
   tagPattern?: string
 }
 
-export type SettingsSection = 'catalog' | 'upstreams' | 'environments' | 'notify' | 'oidc' | 'security' | 'release' | 'system' | 'pipeline' | 'apps'
+export type SettingsSection = 'catalog' | 'upstreams' | 'environments' | 'notify' | 'oidc' | 'security' | 'release' | 'system' | 'pipeline' | 'apps' | 'sources'
 
 /** An approval rule and the environments it covers (first match wins). */
 export interface ApprovalPolicy {
@@ -352,4 +353,12 @@ export interface RepoIdentity {
   canWrite?: boolean
   /** The host did not answer; the settings themselves are fine. */
   error?: string
+}
+
+/** Read-only access to the developers' source repositories: one host, one
+ *  token. Which repository an image came from is on its CI intake. */
+export interface SourceRepo {
+  provider?: 'gitlab' | 'gitea'
+  baseUrl: string
+  token: string
 }

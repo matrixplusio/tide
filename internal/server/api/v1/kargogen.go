@@ -310,6 +310,15 @@ func appsRepoClient(cfg settings.AppsRepo) pusher.Pusher {
 	return gitlab.New(cfg.BaseURL, cfg.Project, cfg.Token, false)
 }
 
+// sourceClient reads the developers' repositories: no project bound, because
+// the project comes from each intake's repo URL.
+func sourceClient(cfg settings.SourceRepo) pusher.Reader {
+	if cfg.Host() == settings.ProviderGitea {
+		return gitea.New(cfg.BaseURL, "", cfg.Token, false)
+	}
+	return gitlab.New(cfg.BaseURL, "", cfg.Token, false)
+}
+
 // pushTo picks the client for the configured host.
 func pushTo(cfg settings.PipelineRepo) pusher.Pusher {
 	if cfg.Host() == settings.ProviderGitea {

@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"tide/internal/upstream"
 	"tide/internal/upstream/repo"
@@ -285,4 +286,42 @@ func (c *Client) Whoami(ctx context.Context) (*repo.Identity, error) {
 		Username: me.Username, Name: me.Name,
 		Project: proj.PathWithNamespace, CanWrite: level >= 30,
 	}, nil
+}
+
+// Ping is the cheapest call a token can make: it says the token works on
+// this host, and nothing about what it may touch.
+func (c *Client) Ping(ctx context.Context) error {
+	var me struct {
+		Username string `json:"username"`
+	}
+	return c.do(ctx, http.MethodGet, "/user", nil, &me)
+}
+
+// Compare lists the commits that are in `to` and not in `from`, oldest
+// first, capped at repo.MaxChanges. Empty when the two are the same or when
+// `to` is behind `from` — the caller decides what "behind" means by asking
+// the other way round.
+func (c *Client) Compare(ctx context.Context, project, from, to string) ([]repo.Change, error) {
+	q := url.Values{"from": {from}, "to": {to}, "straight": {"false"}}
+	var out struct {
+		Commits []struct {
+			ID         string    `json:"id"`
+			ShortID    string    `json:"short_id"`
+			Title      string    `json:"title"`
+			AuthorName string    `json:"author_name"`
+			CreatedAt  time.Time `json:"created_at"`
+			WebURL     string    `json:"web_url"`
+		} `json:"commits"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/projects/"+p(project)+"/repository/compare?"+q.Encode(), nil, &out); err != nil {
+		return nil, err
+	}
+	changes := make([]repo.Change, 0, len(out.Commits))
+	for _, x := range out.Commits {
+		changes = append(changes, repo.Change{ID: x.ID, ShortID: x.ShortID, Title: x.Title, Author: x.AuthorName, At: x.CreatedAt, URL: x.WebURL})
+	}
+	if len(changes) > repo.MaxChanges {
+		changes = changes[len(changes)-repo.MaxChanges:]
+	}
+	return changes, nil
 }

@@ -54,6 +54,11 @@ var sections = map[string]sectionDef{
 			var r settings.AppsRepo
 			return redactedOrNil(s.Load(ctx, settings.SectionAppsRepo, &r), &r)
 		}},
+	settings.SectionSourceRepo: {rbac.EnvironmentsManage, func() any { return &settings.SourceRepo{} },
+		func(ctx context.Context, s *settings.Store) (any, error) {
+			var r settings.SourceRepo
+			return redactedOrNil(s.Load(ctx, settings.SectionSourceRepo, &r), &r)
+		}},
 	settings.SectionNotify: {rbac.NotificationsManage, func() any { return &settings.Notify{} },
 		func(ctx context.Context, s *settings.Store) (any, error) {
 			n, err := s.Notify(ctx)
@@ -187,6 +192,22 @@ func (a *API) putSettings(c *gin.Context) {
 			return
 		case !id.CanWrite:
 			respond.Fail(c, errcode.NewKey(errcode.UpstreamCheckFailed, "s.repoReadOnly", id.Username, cfg.Project))
+			return
+		}
+	}
+	// Read-only credential: checked for "does this token work at all", and
+	// deliberately not for write access — it must not have any.
+	if cfg, ok := next.(*settings.SourceRepo); ok {
+		if err := a.Settings.Unmask(ctx, section, cfg); err != nil {
+			respond.Fail(c, err)
+			return
+		}
+		tctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
+		err := sourceClient(*cfg).Ping(tctx)
+		cancel()
+		if err != nil {
+			respond.Fail(c, errcode.New(errcode.UpstreamCheckFailed, "").
+				WithData(gin.H{"error": shorten(err.Error())}))
 			return
 		}
 	}
@@ -461,6 +482,16 @@ func (a *API) validateSection(ctx context.Context, v any) error {
 		if s.Registry != "" && !strings.Contains(s.Registry, "{line}") {
 			add(validate.FieldKey("registry", "s.registryNeedsLine"))
 		}
+	case *settings.SourceRepo:
+		trim(&s.Provider, &s.BaseURL)
+		if s.Provider == "" {
+			s.Provider = settings.ProviderGitLab
+		}
+		if !slices.Contains(settings.Providers, s.Provider) {
+			add(validate.FieldKey("provider", "s.unknownProvider", s.Provider))
+		}
+		add(validate.HTTPURL("baseUrl", s.BaseURL, true, validate.BaseURL))
+		add(validate.Required("token", s.Token, "label.token"))
 	default:
 		return errors.New("unknown settings type")
 	}
