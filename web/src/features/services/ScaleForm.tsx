@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { applyServerError } from '../../lib/forms'
 import type { Deployment, Release } from '../../lib/types'
+import type { Preset } from '../../lib/redo'
 import { Banner, Button, ButtonRow, Form, FormErrorBanner, FormField, Group, GroupHeader, Input, Note, Textarea } from '../../components/ui'
 import { ConfirmSheet, VersionLabel } from '../../components/domain'
 import { useCreateRelease } from '../releases/queries'
@@ -22,13 +23,13 @@ import { mapScaleField, normalizeJira, requiredFields, scaleSchema, type ScaleVa
  * service out of service. The workload, its Service and its routes all stay —
  * a request gets a 503 rather than failing to resolve — but nothing answers.
  */
-export function ScaleForm({ d, canOperate, busy }: { d: Deployment; canOperate: boolean; busy: boolean }) {
+export function ScaleForm({ d, canOperate, busy, preset }: { d: Deployment; canOperate: boolean; busy: boolean; preset?: Preset }) {
   const { t } = useTranslation()
   if (!canOperate) return <Banner tone="warn">{t('forms.noScalePermission', { env: d.env })}</Banner>
-  return <ScaleFormInner d={d} busy={busy} />
+  return <ScaleFormInner d={d} busy={busy} preset={preset} />
 }
 
-function ScaleFormInner({ d, busy }: { d: Deployment; busy: boolean }) {
+function ScaleFormInner({ d, busy, preset }: { d: Deployment; busy: boolean; preset?: Preset }) {
   const { t } = useTranslation()
   const nav = useNavigate()
   const req = requiredFields(useMe().app, d.env)
@@ -38,7 +39,7 @@ function ScaleFormInner({ d, busy }: { d: Deployment; busy: boolean }) {
   const form = useForm<ScaleValues>({
     resolver: zodResolver(scaleSchema(req)),
     mode: 'onTouched',
-    defaultValues: { replicas: '', title: '', jiraTicket: '', reason: '' },
+    defaultValues: { replicas: preset?.replicas ?? '', title: '', jiraTicket: preset?.jiraTicket ?? '', reason: preset?.reason ?? '' },
   })
   const { register, handleSubmit, formState, watch } = form
   const toZero = watch('replicas').trim() === '0'

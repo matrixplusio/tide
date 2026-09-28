@@ -688,6 +688,7 @@ const zhCN = {
   },
   forms: {
     noScalePermission: "你没有在 {{env}} 调整副本数的权限。",
+    presetFrom: '已从 {{id}} 带入相同的选择和说明，请核对后再提交——上一次失败后集群已变，这是一张新单。',
     scaleLabel: "调整副本数",
     scaleHeader: "{{env}} 的副本数",
     replicas: "副本数",

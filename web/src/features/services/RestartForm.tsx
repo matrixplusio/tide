@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { applyServerError } from '../../lib/forms'
 import type { Deployment, Release } from '../../lib/types'
+import type { Preset } from '../../lib/redo'
 import { Banner, Button, ButtonRow, Form, FormErrorBanner, FormField, Group, GroupHeader, Input, Note, Textarea } from '../../components/ui'
 import { ConfirmSheet, VersionLabel } from '../../components/domain'
 import { useCreateRelease } from '../releases/queries'
@@ -16,20 +17,20 @@ import { mapRestartField, normalizeJira, requiredFields, restartSchema, type Res
  * that the running version only picks up on start. Goes through the same
  * release flow as an upgrade: Jira, reason, ten-second confirmation, audit.
  */
-export function RestartForm({ d, canOperate, busy }: { d: Deployment; canOperate: boolean; busy: boolean }) {
+export function RestartForm({ d, canOperate, busy, preset }: { d: Deployment; canOperate: boolean; busy: boolean; preset?: Preset }) {
   const { t } = useTranslation()
   if (!canOperate) return <Banner tone="warn">{t('forms.noRestartPermission', { env: d.env })}</Banner>
-  return <RestartFormInner d={d} busy={busy} />
+  return <RestartFormInner d={d} busy={busy} preset={preset} />
 }
 
-function RestartFormInner({ d, busy }: { d: Deployment; busy: boolean }) {
+function RestartFormInner({ d, busy, preset }: { d: Deployment; busy: boolean; preset?: Preset }) {
   const { t } = useTranslation()
   const nav = useNavigate()
   const req = requiredFields(useMe().app, d.env)
   const create = useCreateRelease()
   const [confirming, setConfirming] = useState<Release | null>(null)
   const [formError, setFormError] = useState<unknown>(null)
-  const form = useForm<RestartValues>({ resolver: zodResolver(restartSchema(req)), mode: 'onTouched', defaultValues: { title: '', jiraTicket: '', reason: '' } })
+  const form = useForm<RestartValues>({ resolver: zodResolver(restartSchema(req)), mode: 'onTouched', defaultValues: { title: '', jiraTicket: preset?.jiraTicket ?? '', reason: preset?.reason ?? '' } })
   const { register, handleSubmit, formState } = form
 
   const onSubmit = handleSubmit(

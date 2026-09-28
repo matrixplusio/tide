@@ -8,6 +8,7 @@ import { itemStatusText } from '../../lib/status'
 import type { Item, ItemKind, ItemLive, Live, Release } from '../../lib/types'
 import { summarizeRollout } from '../../lib/rollout'
 import { changeSummary } from '../../lib/release'
+import { redoLink } from '../../lib/redo'
 import { anomalyText, isNotice } from '../../lib/anomaly'
 import { useCancelRelease, useDecideRelease, useRelease } from './queries'
 import { subjectLabel } from '../../lib/permissions'
@@ -65,7 +66,9 @@ export function ReleaseDetailPage() {
     })
   const cancelOwn = useCancelRelease()
   const toast = useToast()
-  const firstService = items[0]?.payload.service
+  // Re-create from a failed release: same service, environment and inputs,
+  // built fresh. Only a single-item release has one place to go back to.
+  const redo = r ? redoLink(r) : null
 
   return (
     <>
@@ -99,7 +102,7 @@ export function ReleaseDetailPage() {
             {t('detail.cancel')}
           </Button>
         )}
-        {r?.status === 'failed' && firstService && <LinkButton to={`/services/${encodeURIComponent(firstService)}/envs/${encodeURIComponent(r.env)}`}>{t('detail.restart')}</LinkButton>}
+        {r?.status === 'failed' && redo && <LinkButton to={redo}>{t('detail.restart')}</LinkButton>}
       </Toolbar>
       <Page wide>
         {q.isPending && <Loading />}
