@@ -809,3 +809,8 @@ section > .ghead.item-head { border-top: .5px solid var(--sep); margin-top: 24px
 .search-hint { margin-top: 10px; font-size: 11px; color: var(--ink3); }
 .sitem.search-btn { width: 100%; border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; text-align: left; }
 .sitem.search-btn kbd { margin-left: auto; font-size: 10.5px; color: var(--ink3); border: .5px solid var(--sep); border-radius: 4px; padding: 0 5px; font-family: var(--mono); }
+
+/* The CI line under an image: the commit title is what a person reads, the
+   rest is there to click. */
+.build-line { font-size: 12px; color: var(--ink2); }
+.build-line .build-title { color: var(--ink); }

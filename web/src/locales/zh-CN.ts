@@ -688,6 +688,7 @@ const zhCN = {
   },
   forms: {
     noScalePermission: "你没有在 {{env}} 调整副本数的权限。",
+    pipeline: '流水线',
     presetFrom: '已从 {{id}} 带入相同的选择和说明，请核对后再提交——上一次失败后集群已变，这是一张新单。',
     scaleLabel: "调整副本数",
     scaleHeader: "{{env}} 的副本数",
@@ -905,6 +906,7 @@ const zhCN = {
     serviceHealth: '服务状态：{{health}}',
     hasTargetPods: '已有目标版本的 Pod',
     noTargetPods: '没有目标版本的 Pod，旧副本仍在',
+    build: '构建',
     replicasNow: '现在 {{ready}} / {{total}} 个 Pod 就绪',
     gitChanged: 'Git 是否已变更',
     gitPushed: '部署仓已推送新镜像引用，需修复镜像或用旧制品再发一次',

@@ -5,7 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useMe } from '../../app/session'
 import { fmtDuration, fmtTime, sinceMs } from '../../lib/format'
 import { itemStatusText } from '../../lib/status'
-import type { Item, ItemKind, ItemLive, Live, Release } from '../../lib/types'
+import type { BuildInfo, Item, ItemKind, ItemLive, Live, Release } from '../../lib/types'
 import { summarizeRollout } from '../../lib/rollout'
 import { changeSummary } from '../../lib/release'
 import { redoLink } from '../../lib/redo'
@@ -154,7 +154,7 @@ export function ReleaseDetailPage() {
 
             {items.map((it) =>
               (items.length > 1 && !expanded.has(it.id)) || (itemFilter && it.status !== itemFilter) ? null : (
-                <ItemSection key={it.id} it={it} live={q.data?.live?.find((l) => l.itemId === it.id)} release={r} canPods={canPods} onCollapse={items.length > 1 ? () => toggleItem(it.id) : undefined} />
+                <ItemSection key={it.id} it={it} live={q.data?.live?.find((l) => l.itemId === it.id)} release={r} canPods={canPods} onCollapse={items.length > 1 ? () => toggleItem(it.id) : undefined} builds={q.data?.builds ?? undefined} />
               ),
             )}
           </>
@@ -279,7 +279,7 @@ function CancelReleaseModal({ release, onClose }: { release: Release; onClose: (
   )
 }
 
-function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; live?: ItemLive; release: Release; canPods: boolean; onCollapse?: () => void }) {
+function ItemSection({ it, live, release, canPods, onCollapse, builds }: { it: Item; live?: ItemLive; release: Release; canPods: boolean; onCollapse?: () => void; builds?: Record<string, BuildInfo | null> }) {
   const { t } = useTranslation()
   const p = it.payload
   const base = `/services/${encodeURIComponent(p.service)}/envs/${encodeURIComponent(p.env)}`
@@ -391,6 +391,7 @@ function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; liv
                     {it.payload.from.digest}
                   </KV>
                 )}
+                {it.payload.from && <BuildLine b={builds?.[it.payload.from.digest]} />}
                 <KV k={t('detail.to')}>
                   {it.payload.to.version && <b>{it.payload.to.version} </b>}
                   <span className="mono">{it.payload.to.tag}</span>
@@ -398,6 +399,7 @@ function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; liv
                 <KV k="" mono>
                   {it.payload.to.digest}
                 </KV>
+                <BuildLine b={builds?.[it.payload.to.digest]} />
                 <KV k="Freight" mono>
                   {it.payload.freight}
                 </KV>
@@ -795,3 +797,27 @@ function DecideModal({ release, approve, onClose }: { release: Release; approve:
   )
 }
 
+/** The CI side of an image under its tag: commit title, short sha, who, and
+ *  the pipeline. Nothing when CI never reported it — a blank line would say
+ *  "no build" about an image that simply arrived another way. */
+function BuildLine({ b }: { b?: BuildInfo | null }) {
+  const { t } = useTranslation()
+  if (!b || (!b.title && !b.commit)) return null
+  return (
+    <KV k={t('detail.build')}>
+      <span className="build-line">
+        {b.title && <span className="build-title">{b.title}</span>}
+        {b.commit && <span className="mono muted"> {b.commit.slice(0, 8)}</span>}
+        {b.actor && <span className="muted"> · {b.actor}</span>}
+        {b.pipeline && (
+          <>
+            {' · '}
+            <a href={b.pipeline} target="_blank" rel="noreferrer">
+              {t('forms.pipeline')}
+            </a>
+          </>
+        )}
+      </span>
+    </KV>
+  )
+}

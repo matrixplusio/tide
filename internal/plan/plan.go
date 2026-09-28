@@ -56,6 +56,20 @@ type Candidate struct {
 	Current    bool        `json:"current"`
 	VerifiedIn []StageMark `json:"verifiedIn"`
 	CurrentIn  []StageMark `json:"currentIn"`
+	// Build is what CI reported for this image, when it reported anything:
+	// the commit title is what a person picking a tag actually wants to
+	// read, and the tag alone does not say it.
+	Build *BuildInfo `json:"build,omitempty"`
+}
+
+// BuildInfo is the CI side of an image. Filled in by the API from the intake
+// table; the plan itself never reads the database.
+type BuildInfo struct {
+	Commit   string     `json:"commit,omitempty"`
+	Pipeline string     `json:"pipeline,omitempty"`
+	Actor    string     `json:"actor,omitempty"`
+	Title    string     `json:"title,omitempty"`
+	At       *time.Time `json:"at,omitempty"`
 }
 
 type Candidates struct {

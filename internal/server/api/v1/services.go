@@ -18,6 +18,8 @@ import (
 	"tide/internal/store/pg"
 	"tide/internal/upstream/argocd"
 	"tide/internal/upstream/kargo"
+
+	"go.uber.org/zap"
 )
 
 const upstreamTimeout = 20 * time.Second
@@ -295,6 +297,20 @@ func (a *API) listCandidates(c *gin.Context) {
 	}
 	if cands.Items == nil {
 		cands.Items = []plan.Candidate{}
+	}
+	// What CI said about each image — the commit title above all — so a
+	// person picking a tag reads what it is, not only what it is called.
+	// A lookup that fails costs the titles, not the list.
+	digests := make([]string, 0, len(cands.Items))
+	for _, it := range cands.Items {
+		digests = append(digests, it.Digest)
+	}
+	if builds, err := a.PG.CI.BuildsByDigest(ctx, digests); err != nil {
+		zap.L().Warn("candidates: build lookup failed", zap.Error(err))
+	} else {
+		for i := range cands.Items {
+			cands.Items[i].Build = buildOf(builds, cands.Items[i].Digest)
+		}
 	}
 	respond.OK(c, cands)
 }
@@ -693,4 +709,15 @@ func fleetState(svcs []catalog.Service) (stats map[string]*envStat, unhealthy, d
 		}
 	}
 	return stats, unhealthy, drifted, len(seen)
+}
+
+// buildOf is the CI record for a digest as the plan shows it, or nil when CI
+// never reported that image.
+func buildOf(builds map[string]pg.CIBuild, digest string) *plan.BuildInfo {
+	b, ok := builds[digest]
+	if !ok {
+		return nil
+	}
+	at := b.CreatedAt
+	return &plan.BuildInfo{Commit: b.Commit, Pipeline: b.Pipeline, Actor: b.Actor, Title: b.Title, At: &at}
 }
