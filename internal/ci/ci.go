@@ -75,7 +75,9 @@ type Request struct {
 	Stage    string
 	Pipeline string
 	// Repo is the source repository ($CI_PROJECT_URL); optional.
-	Repo       string
+	Repo string
+	// Commits is the history behind the build, newest first; optional.
+	Commits    []pg.CICommit
 	Actor      string
 	JiraTicket string
 	Reason     string
@@ -149,7 +151,7 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 	}
 	in := pg.CIIntake{
 		Key: key, Service: req.Service, Env: req.Env, Image: req.Image, Digest: req.Digest,
-		Commit: req.Commit, Stage: req.Stage, Pipeline: req.Pipeline, Repo: req.Repo, Actor: req.Actor,
+		Commit: req.Commit, Stage: req.Stage, Pipeline: req.Pipeline, Repo: req.Repo, Commits: req.Commits, Actor: req.Actor,
 		JiraTicket: req.JiraTicket, Reason: req.Reason, Warning: req.Warning, TokenID: token.ID,
 	}
 	got, accepted, err := s.PG.CI.Accept(ctx, in)

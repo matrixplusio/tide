@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"tide/internal/server/api/errcode"
 	"tide/internal/server/api/respond"
 	"tide/internal/store/pg"
+	"tide/internal/upstream/repo"
 	"tide/internal/validate"
 )
 
@@ -46,16 +48,27 @@ type ciReleaseReq struct {
 	Pipeline string `json:"pipeline" binding:"max=500" label:"pipeline"`
 	// Repo is the source repository the image was built from ($CI_PROJECT_URL).
 	// Optional, and older pipeline components do not send it.
-	Repo       string `json:"repo" binding:"max=500" label:"repo"`
-	Actor      string `json:"actor" binding:"max=100" label:"ciActor"`
-	JiraTicket string `json:"jiraTicket" binding:"max=64" label:"jira"`
-	Reason     string `json:"reason" binding:"max=2000" label:"reason"`
+	Repo string `json:"repo" binding:"max=500" label:"repo"`
+	// Commits is the last of the history behind the build, newest first.
+	// Capped rather than refused: a pipeline that sends more is trimmed to
+	// what the page would show anyway.
+	Commits    []ciCommitReq `json:"commits" binding:"max=200,dive" label:"commits"`
+	Actor      string        `json:"actor" binding:"max=100" label:"ciActor"`
+	JiraTicket string        `json:"jiraTicket" binding:"max=64" label:"jira"`
+	Reason     string        `json:"reason" binding:"max=2000" label:"reason"`
 	// Error is the failing job's last lines. Kept short enough to read in a
 	// chat message; a pipeline with more to say has a link.
 	Error string `json:"error" binding:"max=4000" label:"error"`
 	// Warning is a build that worked and could not hand over: no token, no
 	// digest. It still counts as succeeded.
 	Warning string `json:"warning" binding:"max=1000" label:"warning"`
+}
+
+type ciCommitReq struct {
+	ID     string `json:"id" binding:"required,max=64"`
+	Title  string `json:"title" binding:"max=200"`
+	Author string `json:"author" binding:"max=100"`
+	At     string `json:"at" binding:"max=40"`
 }
 
 // CI statuses. Anything else is refused rather than guessed at: a typo that
@@ -117,6 +130,12 @@ func (r *ciReleaseReq) Check() error {
 	}
 	errs = append(errs, validate.HTTPURL("pipeline", r.Pipeline, false, validate.AnyURL))
 	errs = append(errs, validate.HTTPURL("repo", r.Repo, false, validate.AnyURL))
+	for i, c := range r.Commits {
+		if !reCommitSHA.MatchString(c.ID) {
+			errs = append(errs, validate.FieldKey(fmt.Sprintf("commits.%d.id", i), "ci.commitFormat"))
+			break
+		}
+	}
 	if !ciActorRe.MatchString(r.Actor) {
 		errs = append(errs, validate.FieldKey("actor", "ci.actorFormat"))
 	}
@@ -183,7 +202,7 @@ func (a *API) ciRelease(c *gin.Context) {
 	token := ciTokenOf(c)
 	intake, accepted, err := a.CI.Accept(c.Request.Context(), token, ci.Request{
 		Service: req.Service, Env: req.Env, Image: req.Image, Digest: req.Digest, Commit: req.Commit,
-		Stage: req.Stage, Pipeline: req.Pipeline, Repo: req.Repo, Actor: req.Actor, JiraTicket: req.JiraTicket,
+		Stage: req.Stage, Pipeline: req.Pipeline, Repo: req.Repo, Commits: req.commits(), Actor: req.Actor, JiraTicket: req.JiraTicket,
 		Reason: req.Reason, Key: key, Failed: req.failed(), Detail: req.Error, Warning: req.Warning,
 	})
 	if err != nil {
@@ -391,4 +410,20 @@ notify-tide-failed:
 func withoutRequest(c *gin.Context) context.Context {
 	ctx := context.WithoutCancel(c.Request.Context())
 	return audit.WithMeta(ctx, audit.Meta{RequestID: c.GetString("request_id"), ClientIP: c.ClientIP()})
+}
+
+// commits is the history as stored: trimmed to what the page shows, titles
+// cut to a line, times parsed leniently — a pipeline's clock format is not a
+// reason to refuse its build.
+func (r *ciReleaseReq) commits() []pg.CICommit {
+	n := len(r.Commits)
+	if n > repo.MaxChanges {
+		n = repo.MaxChanges
+	}
+	out := make([]pg.CICommit, 0, n)
+	for _, c := range r.Commits[:n] {
+		at, _ := time.Parse(time.RFC3339, strings.TrimSpace(c.At))
+		out = append(out, pg.CICommit{ID: strings.TrimSpace(c.ID), Title: strings.TrimSpace(c.Title), Author: strings.TrimSpace(c.Author), At: at})
+	}
+	return out
 }

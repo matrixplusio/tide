@@ -471,7 +471,8 @@ func TestBuildsByDigestFindsTheLatestIntake(t *testing.T) {
 	d2 := "sha256:" + strings.Repeat("2", 64)
 	for i, in := range []pg.CIIntake{
 		{Key: "k1", Service: "svc", Env: "dev", Digest: d1, Commit: "aaaaaaa", Reason: "first", TokenID: tok.ID},
-		{Key: "k2", Service: "svc", Env: "qa", Digest: d1, Commit: "aaaaaaa", Reason: "same image, later", Pipeline: "https://ci.example.com/p/2", TokenID: tok.ID},
+		{Key: "k2", Service: "svc", Env: "qa", Digest: d1, Commit: "aaaaaaa", Reason: "same image, later", Pipeline: "https://ci.example.com/p/2", TokenID: tok.ID,
+			Repo: "https://git.example.com/acme/order-api", Commits: []pg.CICommit{{ID: "aaaaaaa", Title: "head"}, {ID: "9999999", Title: "before"}}},
 		{Key: "k3", Service: "svc", Env: "dev", Digest: d2, Commit: "bbbbbbb", Reason: "other", TokenID: tok.ID},
 	} {
 		if _, _, err := s.CI.Accept(ctx, in); err != nil {
@@ -485,7 +486,7 @@ func TestBuildsByDigestFindsTheLatestIntake(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("want two builds, got %d: %+v", len(got), got)
 	}
-	if b := got[d1]; b.Title != "same image, later" || b.Pipeline == "" || b.Commit != "aaaaaaa" {
+	if b := got[d1]; b.Title != "same image, later" || b.Pipeline == "" || b.Commit != "aaaaaaa" || b.Repo == "" || len(b.Commits) != 2 || b.Commits[1].Title != "before" {
 		t.Errorf("d1 should be the later intake: %+v", b)
 	}
 	if b := got[d2]; b.Title != "other" {

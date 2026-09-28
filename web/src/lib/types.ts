@@ -447,12 +447,11 @@ export interface Change {
  *  a release moves it to. `note` names the one reason there is no list. */
 export interface ItemChanges {
   repo?: string
-  project?: string
   from?: string
   to?: string
   direction: 'forward' | 'rollback' | 'same'
   commits: Change[] | null
-  note?: 'notConfigured' | 'noBuild' | 'noRepo' | 'differentRepos' | 'otherHost' | 'unsupported' | 'error'
+  note?: 'noBuild' | 'noHistory' | 'tooFar'
 }
 
 export interface Candidate {

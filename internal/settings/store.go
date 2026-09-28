@@ -243,44 +243,6 @@ func (a AppsRepo) Configured() bool {
 	return a.BaseURL != "" && a.Project != "" && a.Token != "" && a.Branch != ""
 }
 
-// SourceRepo is read-only access to the developers' source repositories, for
-// listing the commits between two images of a service. One host, one token:
-// which repository a commit lives in comes from the pipeline ($CI_PROJECT_URL
-// on the intake), not from here. A separate credential from the two that
-// write, so it can be read-only and revoked on its own.
-type SourceRepo struct {
-	Provider string `json:"provider,omitempty"`
-	BaseURL  string `json:"baseUrl"`
-	// Token needs read_api (GitLab) or read:repository (Gitea). Nothing here
-	// ever writes.
-	Token string `json:"token" secret:"true"`
-}
-
-func (s SourceRepo) Host() string {
-	if s.Provider == "" {
-		return ProviderGitLab
-	}
-	return s.Provider
-}
-
-func (s SourceRepo) Configured() bool { return s.BaseURL != "" && s.Token != "" }
-
-// ProjectOf turns a repository URL the pipeline reported into the project
-// path this host addresses it by, or "" when the URL is not on this host —
-// a token for one GitLab says nothing about a repository on another.
-func (s SourceRepo) ProjectOf(repoURL string) string {
-	base := strings.TrimRight(s.BaseURL, "/")
-	if base == "" || !strings.HasPrefix(repoURL, base+"/") {
-		return ""
-	}
-	path := strings.Trim(strings.TrimPrefix(repoURL, base+"/"), "/")
-	path = strings.TrimSuffix(path, ".git")
-	if path == "" || !strings.Contains(path, "/") {
-		return ""
-	}
-	return path
-}
-
 // Repository providers Tide can push to.
 const (
 	ProviderGitLab = "gitlab"
@@ -634,7 +596,6 @@ const (
 	SectionSetup        = "setup"
 	SectionPipelineRepo = "pipeline"
 	SectionAppsRepo     = "apps"
-	SectionSourceRepo   = "sources"
 )
 
 var ErrNotConfigured = errors.New("not configured")
