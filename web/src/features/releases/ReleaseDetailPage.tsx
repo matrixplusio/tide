@@ -493,7 +493,11 @@ function ItemSection({ it, live, release, canPods, onCollapse, builds }: { it: I
             <>
               {it.startedAt && (
                 <>
-                  <GroupHeader>{t('detail.deployState')}</GroupHeader>
+                  {/* Said out loud while it moves: a page that updates itself
+                      every few seconds and never says so looks, to the person
+                      watching a bar that has not moved yet, like a page that
+                      has stopped. */}
+                  <GroupHeader right={release.status === 'executing' ? <span className="muted">{t('detail.liveRefresh')}</span> : undefined}>{t('detail.deployState')}</GroupHeader>
                   <RolloutView live={live.live} since={it.status === 'executing' ? restartSince(it) : undefined} sameVersion={it.kind === 'scale'} />
                 </>
               )}

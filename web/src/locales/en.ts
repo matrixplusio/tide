@@ -905,6 +905,7 @@ const en: Messages = {
     hasTargetPods: 'Pods on the target version exist',
     noTargetPods: 'No pods on the target version; the old replicas are still up',
     build: 'Build',
+    liveRefresh: 'Refreshes every 3 s',
     replicasNow: '{{ready}} of {{total}} pods ready now',
     gitChanged: 'Did git change?',
     gitPushed: 'The repo already has the new image reference; fix the image or release an older artifact again',
