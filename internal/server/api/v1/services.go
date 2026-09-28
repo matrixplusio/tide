@@ -719,5 +719,5 @@ func buildOf(builds map[string]pg.CIBuild, digest string) *plan.BuildInfo {
 		return nil
 	}
 	at := b.CreatedAt
-	return &plan.BuildInfo{Commit: b.Commit, Pipeline: b.Pipeline, Actor: b.Actor, Title: b.Title, At: &at}
+	return &plan.BuildInfo{Commit: b.Commit, Pipeline: b.Pipeline, Repo: b.Repo, Actor: b.Actor, Title: b.Title, At: &at}
 }

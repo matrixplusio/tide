@@ -814,3 +814,12 @@ section > .ghead.item-head { border-top: .5px solid var(--sep); margin-top: 24px
    rest is there to click. */
 .build-line { font-size: 12px; color: var(--ink2); }
 .build-line .build-title { color: var(--ink); }
+
+/* Commits between two images on a release. Newest at the top, like a log. */
+.changes { min-width: 0; }
+.changes-h { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.changes-h.warn { color: var(--orange); }
+.changes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.changes-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 12.5px; }
+.changes-list .changes-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.changes-list .muted { font-size: 11.5px; }

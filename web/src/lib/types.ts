@@ -433,6 +433,28 @@ export interface BuildInfo {
   at?: string
 }
 
+/** One commit between two images of a service. */
+export interface Change {
+  id: string
+  shortId: string
+  title: string
+  author?: string
+  at: string
+  url?: string
+}
+
+/** What changed in the source between the image a service runs and the one
+ *  a release moves it to. `note` names the one reason there is no list. */
+export interface ItemChanges {
+  repo?: string
+  project?: string
+  from?: string
+  to?: string
+  direction: 'forward' | 'rollback' | 'same'
+  commits: Change[] | null
+  note?: 'notConfigured' | 'noBuild' | 'noRepo' | 'differentRepos' | 'otherHost' | 'unsupported' | 'error'
+}
+
 export interface Candidate {
   freight: string
   build?: BuildInfo | null

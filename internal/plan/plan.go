@@ -67,6 +67,7 @@ type Candidate struct {
 type BuildInfo struct {
 	Commit   string     `json:"commit,omitempty"`
 	Pipeline string     `json:"pipeline,omitempty"`
+	Repo     string     `json:"repo,omitempty"`
 	Actor    string     `json:"actor,omitempty"`
 	Title    string     `json:"title,omitempty"`
 	At       *time.Time `json:"at,omitempty"`

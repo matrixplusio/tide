@@ -241,6 +241,15 @@ export const pipelineRepoSchema = z.object({
 })
 export type PipelineRepoValues = z.infer<typeof pipelineRepoSchema>
 
+// ---- source repositories (read-only) ------------------------------------------
+
+export const sourceRepoSchema = z.object({
+  provider: z.enum(['gitlab', 'gitea']),
+  baseUrl: baseUrl(),
+  token: secret(i18n.t('sourcerepo.token'), true),
+})
+export type SourceRepoValues = z.infer<typeof sourceRepoSchema>
+
 // ---- service registry repository ----------------------------------------------
 
 export const appsRepoSchema = z.object({

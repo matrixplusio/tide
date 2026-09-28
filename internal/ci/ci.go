@@ -72,8 +72,10 @@ type Request struct {
 	Commit  string
 	// Stage is the job that produced this: compile / package / notify.
 	// Useful mostly when it failed, because it says where.
-	Stage      string
-	Pipeline   string
+	Stage    string
+	Pipeline string
+	// Repo is the source repository ($CI_PROJECT_URL); optional.
+	Repo       string
 	Actor      string
 	JiraTicket string
 	Reason     string
@@ -147,7 +149,7 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 	}
 	in := pg.CIIntake{
 		Key: key, Service: req.Service, Env: req.Env, Image: req.Image, Digest: req.Digest,
-		Commit: req.Commit, Stage: req.Stage, Pipeline: req.Pipeline, Actor: req.Actor,
+		Commit: req.Commit, Stage: req.Stage, Pipeline: req.Pipeline, Repo: req.Repo, Actor: req.Actor,
 		JiraTicket: req.JiraTicket, Reason: req.Reason, Warning: req.Warning, TokenID: token.ID,
 	}
 	got, accepted, err := s.PG.CI.Accept(ctx, in)
@@ -178,7 +180,7 @@ func (s *Service) acceptFailure(ctx context.Context, token *pg.CIToken, req Requ
 	}
 	got, accepted, err := s.PG.CI.Accept(ctx, pg.CIIntake{
 		Key: key, Service: req.Service, Env: req.Env, Commit: req.Commit, Stage: req.Stage,
-		Pipeline: req.Pipeline, Actor: req.Actor, JiraTicket: req.JiraTicket, Reason: req.Reason,
+		Pipeline: req.Pipeline, Repo: req.Repo, Actor: req.Actor, JiraTicket: req.JiraTicket, Reason: req.Reason,
 		TokenID: token.ID, Status: pg.IntakeBuildFailed, Error: req.Detail,
 	})
 	if err != nil {
