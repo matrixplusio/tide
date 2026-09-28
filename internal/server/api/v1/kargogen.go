@@ -300,6 +300,16 @@ func defaultCommitMessage(domain, project string, res kargogen.Result) string {
 	return i18n.T(i18n.Default, "kargogen.commitMessage", what, res.Warehouses, res.Stages)
 }
 
+// appsRepoClient is pushTo for the manifest repository, which has its own
+// credentials on purpose: which repositories Tide can write is meant to be
+// readable off one page, not inherited.
+func appsRepoClient(cfg settings.AppsRepo) pusher.Pusher {
+	if cfg.Host() == settings.ProviderGitea {
+		return gitea.New(cfg.BaseURL, cfg.Project, cfg.Token, false)
+	}
+	return gitlab.New(cfg.BaseURL, cfg.Project, cfg.Token, false)
+}
+
 // pushTo picks the client for the configured host.
 func pushTo(cfg settings.PipelineRepo) pusher.Pusher {
 	if cfg.Host() == settings.ProviderGitea {
