@@ -1489,6 +1489,7 @@ const en: Messages = {
     evtCancelled: 'Cancelled',
     evtBuildFailed: 'Build failed',
     evtBuildWarning: 'Build could not reach Tide',
+    evtBuildStranded: 'Build succeeded, nothing shipped (no CD / no Stage / Kargo found nothing)',
     evtPending: 'Awaiting confirmation (created by CI)',
     saved: 'Notification settings saved',
     nameRequired: 'Enter a name',
