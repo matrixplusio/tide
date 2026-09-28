@@ -36,6 +36,18 @@ func BuildScale(ctx context.Context, hub *catalog.Hub, set *settings.Store, d *c
 	if to < 0 || to > release.MaxReplicas {
 		return nil, errf("pl.replicasRange", to, release.MaxReplicas)
 	}
+	// Before reading the repository: a budget that pins the last Pod is a
+	// reason to stop that costs nothing to find, and it is the one a person
+	// can act on (change the budget) rather than a symptom.
+	c, err := hub.Named(ctx, d.Upstream)
+	if err != nil {
+		return nil, err
+	}
+	if pdb, err := BlockingPDB(ctx, c, d.App, to); err != nil {
+		return nil, err
+	} else if pdb != "" {
+		return nil, errf("pl.pdbBlocks", pdb, to)
+	}
 	var cfg settings.AppsRepo
 	if err := set.Load(ctx, settings.SectionAppsRepo, &cfg); err != nil && !errors.Is(err, settings.ErrNotConfigured) {
 		return nil, err
@@ -70,10 +82,6 @@ func BuildScale(ctx context.Context, hub *catalog.Hub, set *settings.Store, d *c
 	}
 	if from == to {
 		return nil, errf("pl.alreadyAtReplicas", d.Service, d.Env, to)
-	}
-	c, err := hub.Named(ctx, d.Upstream)
-	if err != nil {
-		return nil, err
 	}
 	w, err := scaleTarget(ctx, c, d, doc.Name())
 	if err != nil {

@@ -474,6 +474,7 @@ var zhCNPlan = map[Key]string{
 	"pl.noReplicasField":       "%s 没有写副本数，说明有别的东西在决定它。在这里加一个，等于和那个东西打架，而且没人看着。",
 	"pl.alreadyAtReplicas":     "%s/%s 的副本数已经是 %d 了。",
 	"pl.replicasRange":         "%d 超出 Tide 允许设置的范围（0 到 %d）。",
+	"pl.pdbBlocks":             "PodDisruptionBudget %s 不允许驱逐 %d 个副本里的任何一个，节点将永远 drain 不掉。先改或删掉这个 PDB。",
 	"pl.workloadNotInApp":      "%s 不在 %s 管的资源里，改完之后没有东西可等。",
 	"r.replicasScaleOnly":      "replicas 只用于调整副本数",
 	"r.replicasRequired":       "要说明调到几个副本",
