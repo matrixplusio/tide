@@ -212,10 +212,10 @@ export const useDeleteBinding = () => useInvalidating((id: number) => apiFetch<n
 
 /** Generating reads every upstream fresh, so it is asked for explicitly
  *  rather than on every render. */
-export function useKargoPlan(domain: string, enabled: boolean) {
+export function useKargoPlan(domain: string, project: string, enabled: boolean) {
   return useQuery({
-    queryKey: ['kargo-generate', domain],
-    queryFn: ({ signal }) => apiFetch<KargoPlan>(`/api/v1/kargo/generate?domain=${enc(domain)}`, { signal }),
+    queryKey: ['kargo-generate', domain, project],
+    queryFn: ({ signal }) => apiFetch<KargoPlan>(`/api/v1/kargo/generate?domain=${enc(domain)}&project=${enc(project)}`, { signal }),
     enabled,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
@@ -226,7 +226,7 @@ export function useKargoPlan(domain: string, enabled: boolean) {
  *  left describing a pipeline that half exists. */
 export function usePushKargo() {
   return useMutation({
-    mutationFn: (body: { domain: string; message?: string }) =>
+    mutationFn: (body: { domain: string; project: string; message?: string }) =>
       apiFetch<KargoPushed>('/api/v1/kargo/push', { method: 'POST', body }),
   })
 }

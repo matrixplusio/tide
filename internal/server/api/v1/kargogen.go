@@ -28,11 +28,12 @@ import (
 func (a *API) generateKargo(c *gin.Context) {
 	p := newParams(c)
 	domain := p.text("domain", 128)
+	project := p.text("project", 128)
 	if err := p.err(); err != nil {
 		respond.Fail(c, err)
 		return
 	}
-	res, snap, err := a.kargoPlan(c, domain)
+	res, snap, err := a.kargoPlan(c, domain, project)
 	if err != nil {
 		respond.Fail(c, err)
 		return
@@ -50,11 +51,12 @@ func (a *API) generateKargo(c *gin.Context) {
 func (a *API) downloadKargo(c *gin.Context) {
 	p := newParams(c)
 	domain := p.text("domain", 128)
+	project := p.text("project", 128)
 	if err := p.err(); err != nil {
 		respond.Fail(c, err)
 		return
 	}
-	res, _, err := a.kargoPlan(c, domain)
+	res, _, err := a.kargoPlan(c, domain, project)
 	if err != nil {
 		respond.Fail(c, err)
 		return
@@ -89,7 +91,7 @@ func (a *API) downloadKargo(c *gin.Context) {
 }
 
 // kargoPlan runs the generator over the current catalog.
-func (a *API) kargoPlan(c *gin.Context, domain string) (kargogen.Result, *catalog.Snapshot, error) {
+func (a *API) kargoPlan(c *gin.Context, domain, project string) (kargogen.Result, *catalog.Snapshot, error) {
 	ctx := c.Request.Context()
 	// Fresh: the generated pipeline describes what is deployed right now, and
 	// a stale snapshot would silently leave out a service somebody added
@@ -121,6 +123,7 @@ func (a *API) kargoPlan(c *gin.Context, domain string) (kargogen.Result, *catalo
 	strategy, pattern := repoCfg.Selection()
 	return kargogen.Generate(snap, envs, kargogen.Options{
 		Domain:        domain,
+		Project:       project,
 		ProjectPrefix: !repoCfg.BareDomain,
 		NamePrefix:    repoCfg.ProjectNamePrefix,
 		ImageStrategy: strategy,
@@ -169,7 +172,8 @@ func domainsOf(snap *catalog.Snapshot) []gin.H {
 // telling the same story.
 func (a *API) pushKargo(c *gin.Context) {
 	var req struct {
-		Domain string `json:"domain"`
+		Domain  string `json:"domain"`
+		Project string `json:"project"`
 		// Message overrides the commit message; empty takes the default.
 		Message string `json:"message"`
 	}
@@ -189,7 +193,8 @@ func (a *API) pushKargo(c *gin.Context) {
 		return
 	}
 
-	res, snap, err := a.kargoPlan(c, strings.TrimSpace(req.Domain))
+	domain, project := strings.TrimSpace(req.Domain), strings.TrimSpace(req.Project)
+	res, snap, err := a.kargoPlan(c, domain, project)
 	if err != nil {
 		respond.Fail(c, err)
 		return
@@ -225,9 +230,9 @@ func (a *API) pushKargo(c *gin.Context) {
 
 	message := strings.TrimSpace(req.Message)
 	if message == "" {
-		message = defaultCommitMessage(req.Domain, res)
+		message = defaultCommitMessage(domain, project, res)
 	}
-	commit, err := pushTo(cfg).Push(ctx, cfg.Branch, message, out, pruneScope(prefix, req.Domain, res))
+	commit, err := pushTo(cfg).Push(ctx, cfg.Branch, message, out, pruneScope(prefix, domain, project, res))
 	if err != nil {
 		respond.Fail(c, err)
 		return
@@ -261,11 +266,12 @@ func unreachable(snap *catalog.Snapshot) string {
 // from the old one otherwise, and nothing about the cluster says why.
 //
 // Generating everything owns the whole tree, which is what lets a domain that
-// has no services left disappear. Generating one domain owns exactly the
-// directories it produced — naming their parent instead would delete every
-// other domain in the same commit.
-func pruneScope(prefix, domain string, res kargogen.Result) []string {
-	if domain == "" {
+// has no services left disappear. Generating a part — one domain, one line,
+// or one of each — owns exactly the directories it produced; naming their
+// parent instead would delete every other project in the same commit, and
+// with pruning on the cluster would follow within seconds.
+func pruneScope(prefix, domain, project string, res kargogen.Result) []string {
+	if domain == "" && project == "" {
 		return []string{prefix}
 	}
 	out := make([]string, 0, len(res.Domains))
@@ -281,9 +287,14 @@ func pruneScope(prefix, domain string, res kargogen.Result) []string {
 
 // defaultCommitMessage says what changed in the subject, because a repository
 // full of "update pipeline" tells nobody anything six months later.
-func defaultCommitMessage(domain string, res kargogen.Result) string {
+func defaultCommitMessage(domain, project string, res kargogen.Result) string {
 	what := i18n.T(i18n.Default, "kargogen.commitAll")
-	if domain != "" {
+	switch {
+	case domain != "" && project != "":
+		what = project + "-" + domain
+	case project != "":
+		what = project
+	case domain != "":
 		what = domain
 	}
 	return i18n.T(i18n.Default, "kargogen.commitMessage", what, res.Warehouses, res.Stages)

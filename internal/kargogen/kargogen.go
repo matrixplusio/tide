@@ -68,6 +68,10 @@ func (r Result) Files() []File {
 type Options struct {
 	// Domain limits generation to one business domain; empty does all of them.
 	Domain string
+	// Project limits generation to one business line, on top of Domain: a
+	// domain spans lines (one "shop" in three of them, three Kargo projects),
+	// and generating one Kargo project means naming both.
+	Project string
 	// ImageStrategy and TagPattern decide which tag a warehouse treats as the
 	// newest. Empty falls back to the defaults in withDefaults.
 	ImageStrategy string
@@ -170,6 +174,9 @@ func Generate(snap *catalog.Snapshot, envs settings.Environments, opts Options) 
 		// Filter on the domain as the catalog spells it, not on the prefixed
 		// project name: the picker offers domains.
 		if opts.Domain != "" && svc.Domain != opts.Domain {
+			continue
+		}
+		if opts.Project != "" && svc.Project != opts.Project {
 			continue
 		}
 		name := projectName(svc, opts)

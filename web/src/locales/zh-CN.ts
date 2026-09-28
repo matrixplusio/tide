@@ -466,6 +466,8 @@ const zhCN = {
     note: '只生成文本，不写入任何集群。生成的内容需要提交到仓库、由 Argo CD 同步生效。',
     domain: '业务域',
     allDomains: '全部业务域',
+    line: '业务线',
+    allLines: '全部业务线',
     serviceCount: '{{count}} 个服务',
     generate: '生成',
     generating: '正在读取上游并生成…',

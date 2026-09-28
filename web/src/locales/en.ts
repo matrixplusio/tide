@@ -464,6 +464,8 @@ const en: Messages = {
     note: 'Text only; nothing is written to a cluster. Commit the result and let Argo CD apply it.',
     domain: 'Business domain',
     allDomains: 'All domains',
+    line: 'Business line',
+    allLines: 'All lines',
     serviceCount: '{{count}} services',
     generate: 'Generate',
     generating: 'Reading upstreams and generating…',
