@@ -223,6 +223,8 @@ const zhCN = {
     askAdmin: '请联系管理员',
   },
   live: {
+    openManifest: '查看清单',
+    manifestEmpty: '没有清单：集群里这个名字下没有东西。',
     ready: '已就绪',
     unhealthy: '新版本异常',
     rolling: '滚动更新中',

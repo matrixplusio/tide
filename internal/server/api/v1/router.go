@@ -139,6 +139,10 @@ func Register(r *gin.Engine, d Deps) {
 	h("GET", "/services/:service/envs/:env", needScoped(rbac.ServicesView), a.getEnv)
 	h("GET", "/services/:service/envs/:env/candidates", needScoped(rbac.ServicesView), a.listCandidates)
 	h("GET", "/services/:service/envs/:env/config-diff", needEnv(rbac.ReleasesSync, rbac.ReleasesCreate), a.configDiff)
+	// One resource's manifest, read-only. Behind PodsView because a manifest
+	// and a pod log leak the same kind of thing, so they belong behind the
+	// same door.
+	h("GET", "/services/:service/envs/:env/resource", needEnv(rbac.PodsView), a.resourceManifest)
 	h("GET", "/services/:service/envs/:env/pods/:pod/logs", needEnv(rbac.PodsView), a.podLogs)
 	h("GET", "/services/:service/envs/:env/pods/:pod/events", needEnv(rbac.PodsView), a.podEvents)
 	h("GET", "/releases", needScoped(rbac.ReleasesView), a.listReleases)

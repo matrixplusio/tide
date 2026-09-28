@@ -221,6 +221,8 @@ const en: Messages = {
     askAdmin: 'Ask an administrator',
   },
   live: {
+    openManifest: 'Open the manifest',
+    manifestEmpty: 'No manifest: the cluster has nothing under this name.',
     ready: 'Ready',
     unhealthy: 'The new version is unhealthy',
     rolling: 'Rolling out',

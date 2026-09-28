@@ -339,6 +339,61 @@ func (a *API) configDiff(c *gin.Context) {
 	respond.OK(c, diff)
 }
 
+// resourceManifest returns one of an Application's resources as YAML, so that
+// whoever is looking at a service can read the ConfigMap or the route instead
+// of only being told it exists. Read-only: nothing here writes to a cluster.
+//
+// One resource per request. A whole tree would mean fetching every manifest to
+// render a page where a person reads one of them.
+func (a *API) resourceManifest(c *gin.Context) {
+	p := newParams(c)
+	group := p.match("group", reAPIGroup, "label.apiGroup")
+	version := p.match("version", reAPIVersion, "label.apiVersion")
+	kind := p.match("kind", reAPIKind, "label.apiKind")
+	namespace := p.match("namespace", reDNSLabel, "label.namespace")
+	name := p.match("name", reDNSName, "label.resourceName")
+	_, d, err := a.deployment(c, p, false)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	if kind == "" {
+		p.bad("kind", "p.required", i18n.Key("label.apiKind"))
+	}
+	if name == "" {
+		p.bad("name", "p.required", i18n.Key("label.resourceName"))
+	}
+	if err := p.err(); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	if err := a.requireTarget(c, rbac.PodsView, d.Service, d.Env, d.Service+"/"+kind+"/"+name); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	cl, err := a.Hub.Named(c.Request.Context(), d.Upstream)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), upstreamTimeout)
+	defer cancel()
+	// Argo CD scopes the lookup to the Application, so a name belonging to
+	// another app is refused upstream rather than here.
+	obj, err := cl.ArgoCD.Resource(ctx, d.App, group, version, kind, namespace, name)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	plan.RedactSecret(obj)
+	yaml, err := plan.ManifestYAML(obj)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	respond.OK(c, gin.H{"kind": kind, "name": name, "namespace": namespace, "yaml": yaml})
+}
+
 func (a *API) podLogs(c *gin.Context) {
 	p := newParams(c)
 	pod := p.pod()
@@ -420,6 +475,11 @@ type Pod struct {
 }
 
 type Resource struct {
+	// Group and Version identify the resource to Argo CD's resource endpoint,
+	// which needs all four parts; Kind and Name alone are ambiguous across
+	// API groups.
+	Group     string `json:"group,omitempty"`
+	Version   string `json:"version,omitempty"`
 	Kind      string `json:"kind"`
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
@@ -468,7 +528,7 @@ func (a *API) live(ctx context.Context, d *catalog.Deployment, targets ...string
 		out.Operation = app.Status.OperationState.Phase
 	}
 	for _, res := range app.Status.Resources {
-		rr := Resource{Kind: res.Kind, Name: res.Name, Namespace: res.Namespace, Sync: res.Status}
+		rr := Resource{Group: res.Group, Version: res.Version, Kind: res.Kind, Name: res.Name, Namespace: res.Namespace, Sync: res.Status}
 		if res.Health != nil {
 			rr.Health, rr.Message = res.Health.Status, res.Health.Message
 		}
