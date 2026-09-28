@@ -435,14 +435,6 @@ const zhCN = {
     branchRequired: '分支必填',
     saved: '登记表仓库已保存',
   },
-  sourcerepo: {
-    title: '源码仓库（只读）',
-    intro: '开发方的源码托管。Tide 用它列出两个镜像之间的提交，只读，不写任何东西。每个镜像来自哪个仓库由 CI 上报（repo 字段）决定，这里只填主机和令牌。',
-    baseUrlHint: '只填主机，例如 https://git.example.com。仓库地址来自 CI 上报。',
-    token: '只读令牌',
-    tokenHint: 'GitLab 用 read_api，Gitea 用 read:repository。保存时会验一次能否登录；这个令牌永远不会被用来写。',
-    saved: '源码仓库已保存',
-  },
 
   kargogen: {
     imageName: '镜像条目名',
@@ -922,11 +914,8 @@ const zhCN = {
     srcCapped: '（只列最近 50 个）',
     srcNote: {
       noBuild: '拿不到提交列表：至少一边的镜像没有经 CI 上报，不知道它来自哪个提交',
-      noRepo: '拿不到提交列表：CI 上报里没有源码仓库地址（流水线组件版本较旧）',
-      differentRepos: '两个版本来自不同的源码仓库，不做比对',
-      otherHost: '源码仓库不在配置的主机上，不做比对',
-      unsupported: '这个代码托管还不支持比对提交',
-      error: '向代码托管取提交列表失败，稍后会再试',
+      noHistory: '拿不到提交列表：CI 上报里没带提交历史（流水线组件版本较旧）',
+      tooFar: '两个版本相隔超过 50 个提交，超出 CI 上报的历史范围，不列',
     },
     liveRefresh: '每 3 秒自动刷新',
     replicasNow: '现在 {{ready}} / {{total}} 个 Pod 就绪',

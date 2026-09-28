@@ -6,7 +6,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -490,11 +489,11 @@ func (a *API) getRelease(c *gin.Context) {
 	out := gin.H{"release": v, "can": can}
 	// The builds behind the images this release moves between, keyed by
 	// digest: the page shows the commit title and pipeline next to each tag.
-	builds := a.buildsFor(c.Request.Context(), rel)
+	builds, raw := a.buildsFor(c.Request.Context(), rel)
 	out["builds"] = builds
-	// And the commits between them, per item, when the source host is
-	// configured and the pipeline said which repository the image came from.
-	out["changes"] = a.changesFor(c.Request.Context(), rel, builds)
+	// And the commits between them, per item, worked out from the history
+	// each build carried with it. No credential and no call to any host.
+	out["changes"] = changesFor(rel, raw)
 	// Live view only while it matters; history renders from stored state.
 	recent := rel.FinishedAt != nil && time.Since(*rel.FinishedAt) < 2*time.Hour
 	if withLive && (rel.Status == release.Executing || recent) {
@@ -1054,7 +1053,7 @@ func (a *API) decide(c *gin.Context, approve bool, note string) {
 // release moves from or to. Other kinds carry no image change and get
 // nothing. A failed lookup is an empty map: the release page must not
 // depend on the intake table being reachable.
-func (a *API) buildsFor(ctx context.Context, rel *release.Release) map[string]*plan.BuildInfo {
+func (a *API) buildsFor(ctx context.Context, rel *release.Release) (map[string]*plan.BuildInfo, map[string]pg.CIBuild) {
 	out := map[string]*plan.BuildInfo{}
 	var digests []string
 	for _, it := range rel.Items {
@@ -1075,39 +1074,36 @@ func (a *API) buildsFor(ctx context.Context, rel *release.Release) map[string]*p
 	builds, err := a.PG.CI.BuildsByDigest(ctx, digests)
 	if err != nil {
 		zap.L().Warn("release: build lookup failed", zap.String("release", rel.ID), zap.Error(err))
-		return out
+		return out, nil
 	}
 	for d := range builds {
 		out[d] = buildOf(builds, d)
 	}
-	return out
+	return out, builds
 }
 
 // ItemChanges is what changed in the source between the image a service runs
 // and the one this release moves it to. Direction says which way: forward is
-// the ordinary upgrade, rollback means the target is behind what runs.
-// Note names the one reason there is no list, so the page can say it instead
-// of showing an empty box that reads as "nothing changed".
+// the ordinary upgrade, rollback means the target is behind what runs. Note
+// names the one reason there is no list, so the page can say it instead of
+// showing an empty box that reads as "nothing changed".
 type ItemChanges struct {
 	Repo      string        `json:"repo,omitempty"`
-	Project   string        `json:"project,omitempty"`
 	From      string        `json:"from,omitempty"`
 	To        string        `json:"to,omitempty"`
 	Direction string        `json:"direction"` // forward | rollback | same
 	Commits   []repo.Change `json:"commits"`
-	Note      string        `json:"note,omitempty"` // notConfigured | noBuild | noRepo | differentRepos | otherHost | unsupported | error
+	Note      string        `json:"note,omitempty"` // noBuild | noHistory | tooFar
 }
 
-// changesFor asks the source host for the commits between the from and to
-// images of every upgrade in the release. Cached per (project, from, to):
-// the answer never changes, and a release page is opened many times while
-// it executes.
-func (a *API) changesFor(ctx context.Context, rel *release.Release, builds map[string]*plan.BuildInfo) map[int64]*ItemChanges {
+// changesFor works out, per upgrade in the release, the commits between the
+// two images from the histories their builds carried. Each build brings its
+// last MaxChanges commits, newest first; the running image's commit is found
+// in the target's history and everything above it is what is new. The other
+// way round is a rollback. Neither found means the two are further apart
+// than the history sent, and the page says that rather than guessing.
+func changesFor(rel *release.Release, builds map[string]pg.CIBuild) map[int64]*ItemChanges {
 	out := map[int64]*ItemChanges{}
-	var cfg settings.SourceRepo
-	if err := a.Settings.Load(ctx, settings.SectionSourceRepo, &cfg); err != nil && !errors.Is(err, settings.ErrNotConfigured) {
-		zap.L().Warn("release: source repository settings unreadable", zap.Error(err))
-	}
 	for _, it := range rel.Items {
 		if it.Kind != release.KindImage {
 			continue
@@ -1116,92 +1112,64 @@ func (a *API) changesFor(ctx context.Context, rel *release.Release, builds map[s
 		if err != nil || p.From == nil {
 			continue
 		}
-		from, to := builds[p.From.Digest], builds[p.To.Digest]
+		from, okFrom := builds[p.From.Digest]
+		to, okTo := builds[p.To.Digest]
 		ch := &ItemChanges{Direction: "same", Commits: []repo.Change{}}
 		out[it.ID] = ch
-		switch {
-		case !cfg.Configured():
-			ch.Note = "notConfigured"
-			continue
-		case from == nil || to == nil || from.Commit == "" || to.Commit == "":
+		if !okFrom || !okTo || from.Commit == "" || to.Commit == "" {
 			ch.Note = "noBuild"
-			continue
-		case to.Repo == "" || from.Repo == "":
-			ch.Note = "noRepo"
-			continue
-		case to.Repo != from.Repo:
-			ch.Note = "differentRepos"
 			continue
 		}
 		ch.Repo, ch.From, ch.To = to.Repo, from.Commit, to.Commit
-		ch.Project = cfg.ProjectOf(to.Repo)
-		if ch.Project == "" {
-			ch.Note = "otherHost"
-			continue
-		}
 		if from.Commit == to.Commit {
 			continue
 		}
-		forward, err := compareCached(ctx, cfg, ch.Project, from.Commit, to.Commit)
-		if err != nil {
-			ch.Note = noteFor(err)
+		if i := indexOfCommit(to.Commits, from.Commit); i > 0 {
+			ch.Direction, ch.Commits = "forward", changesOf(to.Commits[:i], to.Repo)
 			continue
 		}
-		if len(forward) > 0 {
-			ch.Direction, ch.Commits = "forward", forward
+		if i := indexOfCommit(from.Commits, to.Commit); i > 0 {
+			ch.Direction, ch.Commits = "rollback", changesOf(from.Commits[:i], from.Repo)
 			continue
 		}
-		back, err := compareCached(ctx, cfg, ch.Project, to.Commit, from.Commit)
-		if err != nil {
-			ch.Note = noteFor(err)
+		// Not found either way. A side with no history at all is the older
+		// pipeline component — something to upgrade; both sides with history
+		// means the two builds are further apart than the window.
+		if len(to.Commits) == 0 || len(from.Commits) == 0 {
+			ch.Note = "noHistory"
 			continue
 		}
-		if len(back) > 0 {
-			ch.Direction, ch.Commits = "rollback", back
-		}
+		ch.Note = "tooFar"
 	}
 	return out
 }
 
-func noteFor(err error) string {
-	if errors.Is(err, repo.ErrCompareUnsupported) {
-		return "unsupported"
+func indexOfCommit(list []pg.CICommit, sha string) int {
+	for i, c := range list {
+		if c.ID == sha {
+			return i
+		}
 	}
-	zap.L().Warn("release: comparing commits failed", zap.Error(err))
-	return "error"
+	return -1
 }
 
-// compareCache remembers answers for ten minutes. Keyed by host as well as
-// project, so changing the configured host does not serve the old host's
-// answers. Only successes are kept: an error is worth asking about again.
-var compareCache = struct {
-	sync.Mutex
-	m map[string]compareEntry
-}{m: map[string]compareEntry{}}
-
-type compareEntry struct {
-	at      time.Time
-	changes []repo.Change
+// changesOf renders history entries for the page, linking each to the
+// repository the pipeline named when it named one.
+func changesOf(list []pg.CICommit, repoURL string) []repo.Change {
+	out := make([]repo.Change, 0, len(list))
+	for _, c := range list {
+		ch := repo.Change{ID: c.ID, ShortID: shortSHA(c.ID), Title: c.Title, Author: c.Author, At: c.At}
+		if repoURL != "" {
+			ch.URL = strings.TrimSuffix(repoURL, "/") + "/-/commit/" + c.ID
+		}
+		out = append(out, ch)
+	}
+	return out
 }
 
-const compareTTL = 10 * time.Minute
-
-func compareCached(ctx context.Context, cfg settings.SourceRepo, project, from, to string) ([]repo.Change, error) {
-	key := cfg.BaseURL + "|" + project + "|" + from + "|" + to
-	compareCache.Lock()
-	if e, ok := compareCache.m[key]; ok && time.Since(e.at) < compareTTL {
-		compareCache.Unlock()
-		return e.changes, nil
+func shortSHA(sha string) string {
+	if len(sha) > 8 {
+		return sha[:8]
 	}
-	compareCache.Unlock()
-	cctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
-	defer cancel()
-	changes, err := sourceClient(cfg).Compare(cctx, project, from, to)
-	if err != nil {
-		return nil, err
-	}
-	compareCache.Lock()
-	compareCache.m[key] = compareEntry{at: time.Now(), changes: changes}
-	compareCache.Unlock()
-	return changes, nil
+	return sha
 }

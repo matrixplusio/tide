@@ -258,17 +258,3 @@ func (c *Client) Whoami(ctx context.Context) (*repo.Identity, error) {
 		Project: proj.FullName, CanWrite: proj.Permissions.Push,
 	}, nil
 }
-
-// Ping says the token works on this host.
-func (c *Client) Ping(ctx context.Context) error {
-	var me struct {
-		Login string `json:"login"`
-	}
-	return c.do(ctx, http.MethodGet, "/user", nil, &me)
-}
-
-// Compare is not written for Gitea yet; the page shows the builds and no
-// list, which is what it showed before there was a Compare at all.
-func (c *Client) Compare(context.Context, string, string, string) ([]repo.Change, error) {
-	return nil, repo.ErrCompareUnsupported
-}

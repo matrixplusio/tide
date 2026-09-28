@@ -433,14 +433,6 @@ const en: Messages = {
     branchRequired: 'The branch is required',
     saved: 'Registry repository saved',
   },
-  sourcerepo: {
-    title: 'Source repositories (read-only)',
-    intro: "The developers' code host. Tide uses it to list the commits between two images; it reads and never writes. Which repository an image came from is on its CI report (repo); only the host and a token go here.",
-    baseUrlHint: 'Host only, e.g. https://git.example.com. Repository URLs come from CI.',
-    token: 'Read-only token',
-    tokenHint: 'read_api on GitLab, read:repository on Gitea. Checked once on save; this token is never handed anything that writes.',
-    saved: 'Source repositories saved',
-  },
 
   kargogen: {
     imageName: 'Image entry name',
@@ -920,11 +912,8 @@ const en: Messages = {
     srcCapped: '(newest 50 only)',
     srcNote: {
       noBuild: 'No commit list: at least one image was not reported by CI, so its commit is unknown',
-      noRepo: 'No commit list: the CI report carried no repository URL (older pipeline component)',
-      differentRepos: 'The two images come from different repositories; not compared',
-      otherHost: 'The repository is not on the configured host; not compared',
-      unsupported: 'Comparing commits is not supported on this host yet',
-      error: 'Could not fetch the commit list from the host; it will be retried',
+      noHistory: 'No commit list: the CI report carried no history (older pipeline component)',
+      tooFar: 'The two images are more than 50 commits apart, beyond the history CI sends; not listed',
     },
     liveRefresh: 'Refreshes every 3 s',
     replicasNow: '{{ready}} of {{total}} pods ready now',

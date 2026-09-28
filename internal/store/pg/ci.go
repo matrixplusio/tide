@@ -3,6 +3,7 @@ package pg
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -54,18 +55,21 @@ type CIIntake struct {
 	Pipeline string `json:"pipeline,omitempty"`
 	// Repo is the source repository the image was built from, when the
 	// pipeline said; see migration 0019.
-	Repo       string    `json:"repo,omitempty"`
-	Actor      string    `json:"actor,omitempty"`
-	JiraTicket string    `json:"jiraTicket,omitempty"`
-	Reason     string    `json:"reason,omitempty"`
-	TokenID    string    `json:"tokenId"`
-	Status     string    `json:"status"`
-	ReleaseID  string    `json:"releaseId,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	Warning    string    `json:"warning,omitempty"`
-	Attempts   int       `json:"attempts"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	Repo string `json:"repo,omitempty"`
+	// Commits is the history the pipeline sent with the build, newest first;
+	// see migration 0020.
+	Commits    []CICommit `json:"commits,omitempty"`
+	Actor      string     `json:"actor,omitempty"`
+	JiraTicket string     `json:"jiraTicket,omitempty"`
+	Reason     string     `json:"reason,omitempty"`
+	TokenID    string     `json:"tokenId"`
+	Status     string     `json:"status"`
+	ReleaseID  string     `json:"releaseId,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	Warning    string     `json:"warning,omitempty"`
+	Attempts   int        `json:"attempts"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
 // CI stores the tokens build pipelines authenticate with and the notifications
@@ -130,20 +134,29 @@ func (r *CI) RevokeToken(ctx context.Context, id string) error {
 }
 
 const ciIntakeCols = `id, idempotency_key, service, env, image, digest, commit_sha, stage, pipeline, repo, ci_actor,
-	jira_ticket, reason, token_id, status, COALESCE(release_id, ''), error, warning, attempts, created_at, updated_at`
+	jira_ticket, reason, token_id, status, COALESCE(release_id, ''), error, warning, attempts, created_at, updated_at, commits`
+
+// CICommit is one entry of the history a pipeline sends with a build.
+type CICommit struct {
+	ID     string    `json:"id"`
+	Title  string    `json:"title"`
+	Author string    `json:"author,omitempty"`
+	At     time.Time `json:"at"`
+}
 
 // CIBuild is what CI said about an image when it handed it over: the commit
 // it was built from, its title, who pushed, and where the pipeline is. One
 // per digest — the latest intake that carried it, whatever environment it
 // was aimed at, because the image is the same wherever it went.
 type CIBuild struct {
-	Digest    string    `json:"digest"`
-	Commit    string    `json:"commit,omitempty"`
-	Pipeline  string    `json:"pipeline,omitempty"`
-	Repo      string    `json:"repo,omitempty"`
-	Actor     string    `json:"actor,omitempty"`
-	Title     string    `json:"title,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	Digest    string     `json:"digest"`
+	Commit    string     `json:"commit,omitempty"`
+	Pipeline  string     `json:"pipeline,omitempty"`
+	Repo      string     `json:"repo,omitempty"`
+	Actor     string     `json:"actor,omitempty"`
+	Title     string     `json:"title,omitempty"`
+	Commits   []CICommit `json:"commits,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
 }
 
 // BuildsByDigest answers "which build is this image" for a set of digests.
@@ -154,7 +167,7 @@ func (r *CI) BuildsByDigest(ctx context.Context, digests []string) (map[string]C
 	if len(digests) == 0 {
 		return out, nil
 	}
-	rows, err := r.db.WithContext(ctx).Raw(`SELECT DISTINCT ON (digest) digest, commit_sha, pipeline, repo, ci_actor, reason, created_at
+	rows, err := r.db.WithContext(ctx).Raw(`SELECT DISTINCT ON (digest) digest, commit_sha, pipeline, repo, ci_actor, reason, created_at, commits
 		FROM ci_intake WHERE digest = ANY($1) AND digest <> ''
 		ORDER BY digest, created_at DESC`, digests).Rows()
 	if err != nil {
@@ -163,9 +176,11 @@ func (r *CI) BuildsByDigest(ctx context.Context, digests []string) (map[string]C
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var b CIBuild
-		if err := rows.Scan(&b.Digest, &b.Commit, &b.Pipeline, &b.Repo, &b.Actor, &b.Title, &b.CreatedAt); err != nil {
+		var commits []byte
+		if err := rows.Scan(&b.Digest, &b.Commit, &b.Pipeline, &b.Repo, &b.Actor, &b.Title, &b.CreatedAt, &commits); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal(commits, &b.Commits)
 		out[b.Digest] = b
 	}
 	return out, rows.Err()
@@ -184,11 +199,11 @@ func (r *CI) Accept(ctx context.Context, in CIIntake) (out *CIIntake, accepted b
 	}
 	res := r.db.WithContext(ctx).Exec(`
 		INSERT INTO ci_intake (idempotency_key, service, env, image, digest, commit_sha, stage, pipeline, ci_actor,
-			jira_ticket, reason, token_id, status, error, warning, repo)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+			jira_ticket, reason, token_id, status, error, warning, repo, commits)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		ON CONFLICT (idempotency_key) DO NOTHING`,
 		in.Key, in.Service, in.Env, in.Image, in.Digest, in.Commit, in.Stage, in.Pipeline, in.Actor,
-		in.JiraTicket, in.Reason, in.TokenID, status, in.Error, in.Warning, in.Repo)
+		in.JiraTicket, in.Reason, in.TokenID, status, in.Error, in.Warning, in.Repo, commitsJSON(in.Commits))
 	if res.Error != nil {
 		return nil, false, res.Error
 	}
@@ -283,11 +298,13 @@ func scanCIIntakes(rows *sql.Rows) ([]CIIntake, error) {
 	out := []CIIntake{}
 	for rows.Next() {
 		var x CIIntake
+		var commits []byte
 		if err := rows.Scan(&x.ID, &x.Key, &x.Service, &x.Env, &x.Image, &x.Digest, &x.Commit, &x.Stage,
 			&x.Pipeline, &x.Repo, &x.Actor, &x.JiraTicket, &x.Reason, &x.TokenID, &x.Status, &x.ReleaseID, &x.Error,
-			&x.Warning, &x.Attempts, &x.CreatedAt, &x.UpdatedAt); err != nil {
+			&x.Warning, &x.Attempts, &x.CreatedAt, &x.UpdatedAt, &commits); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal(commits, &x.Commits) // a row written before 0020 holds '[]'
 		out = append(out, x)
 	}
 	return out, rows.Err()
@@ -302,4 +319,17 @@ func (r *CI) Expired(ctx context.Context, age time.Duration) ([]CIIntake, error)
 		return nil, err
 	}
 	return scanCIIntakes(rows)
+}
+
+// commitsJSON is what goes in the column: always an array, never NULL, so a
+// reader can unmarshal every row the same way.
+func commitsJSON(list []CICommit) []byte {
+	if len(list) == 0 {
+		return []byte("[]")
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		return []byte("[]")
+	}
+	return b
 }

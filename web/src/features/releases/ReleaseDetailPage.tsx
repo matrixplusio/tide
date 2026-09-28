@@ -836,9 +836,6 @@ function ChangeList({ ch }: { ch?: ItemChanges | null }) {
   if (!ch) return null
   const commits = ch.commits ?? []
   if (ch.note) {
-    // Not configured is the operator's business, not the reader's: say
-    // nothing rather than nag on every release.
-    if (ch.note === 'notConfigured') return null
     return (
       <KV k={t('detail.srcChanges')}>
         <span className="muted">{t(`detail.srcNote.${ch.note}`)}</span>
