@@ -458,3 +458,40 @@ func TestAWarningRidesAlongWithAnOrdinaryIntake(t *testing.T) {
 		t.Fatalf("it still waits for its freight: %d %v", len(list), err)
 	}
 }
+
+// A digest is looked up to its build: the latest intake that carried it,
+// whatever environment it was aimed at. Digests CI never saw are absent, not
+// empty — "no build to show" and "a build with nothing in it" must not read
+// the same on the page.
+func TestBuildsByDigestFindsTheLatestIntake(t *testing.T) {
+	s, _ := testdb.Setup(t)
+	ctx := context.Background()
+	tok, _ := token(t, s, "builds")
+	d1 := "sha256:" + strings.Repeat("1", 64)
+	d2 := "sha256:" + strings.Repeat("2", 64)
+	for i, in := range []pg.CIIntake{
+		{Key: "k1", Service: "svc", Env: "dev", Digest: d1, Commit: "aaaaaaa", Reason: "first", TokenID: tok.ID},
+		{Key: "k2", Service: "svc", Env: "qa", Digest: d1, Commit: "aaaaaaa", Reason: "same image, later", Pipeline: "https://ci.example.com/p/2", TokenID: tok.ID},
+		{Key: "k3", Service: "svc", Env: "dev", Digest: d2, Commit: "bbbbbbb", Reason: "other", TokenID: tok.ID},
+	} {
+		if _, _, err := s.CI.Accept(ctx, in); err != nil {
+			t.Fatalf("intake %d: %v", i, err)
+		}
+	}
+	got, err := s.CI.BuildsByDigest(ctx, []string{d1, d2, "sha256:" + strings.Repeat("9", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want two builds, got %d: %+v", len(got), got)
+	}
+	if b := got[d1]; b.Title != "same image, later" || b.Pipeline == "" || b.Commit != "aaaaaaa" {
+		t.Errorf("d1 should be the later intake: %+v", b)
+	}
+	if b := got[d2]; b.Title != "other" {
+		t.Errorf("d2: %+v", b)
+	}
+	if empty, err := s.CI.BuildsByDigest(ctx, nil); err != nil || len(empty) != 0 {
+		t.Errorf("no digests: %v %v", empty, err)
+	}
+}

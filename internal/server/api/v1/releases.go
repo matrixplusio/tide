@@ -22,6 +22,8 @@ import (
 	"tide/internal/settings"
 	"tide/internal/store/pg"
 	"tide/internal/validate"
+
+	"go.uber.org/zap"
 )
 
 type releaseItemReq struct {
@@ -484,6 +486,9 @@ func (a *API) getRelease(c *gin.Context) {
 		return
 	}
 	out := gin.H{"release": v, "can": can}
+	// The builds behind the images this release moves between, keyed by
+	// digest: the page shows the commit title and pipeline next to each tag.
+	out["builds"] = a.buildsFor(c.Request.Context(), rel)
 	// Live view only while it matters; history renders from stored state.
 	recent := rel.FinishedAt != nil && time.Since(*rel.FinishedAt) < 2*time.Hour
 	if withLive && (rel.Status == release.Executing || recent) {
@@ -1037,4 +1042,37 @@ func (a *API) decide(c *gin.Context, approve bool, note string) {
 	_ = started
 	a.Hub.Reset()
 	a.respondRelease(c, rel)
+}
+
+// buildsFor collects what CI reported for every image an upgrade in this
+// release moves from or to. Other kinds carry no image change and get
+// nothing. A failed lookup is an empty map: the release page must not
+// depend on the intake table being reachable.
+func (a *API) buildsFor(ctx context.Context, rel *release.Release) map[string]*plan.BuildInfo {
+	out := map[string]*plan.BuildInfo{}
+	var digests []string
+	for _, it := range rel.Items {
+		if it.Kind != release.KindImage {
+			continue
+		}
+		p, err := rel.ImagePayload(it)
+		if err != nil {
+			continue
+		}
+		if p.To.Digest != "" {
+			digests = append(digests, p.To.Digest)
+		}
+		if p.From != nil && p.From.Digest != "" {
+			digests = append(digests, p.From.Digest)
+		}
+	}
+	builds, err := a.PG.CI.BuildsByDigest(ctx, digests)
+	if err != nil {
+		zap.L().Warn("release: build lookup failed", zap.String("release", rel.ID), zap.Error(err))
+		return out
+	}
+	for d := range builds {
+		out[d] = buildOf(builds, d)
+	}
+	return out
 }

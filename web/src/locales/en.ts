@@ -686,6 +686,7 @@ const en: Messages = {
   },
   forms: {
     noScalePermission: "You do not have permission to change the replica count in {{env}}.",
+    pipeline: 'pipeline',
     presetFrom: 'Pre-filled from {{id}} with the same choices and reason. Check them before submitting: the cluster has changed since that one failed, and this is a new release.',
     scaleLabel: "Change the replica count",
     scaleHeader: "Replicas in {{env}}",
@@ -903,6 +904,7 @@ const en: Messages = {
     serviceHealth: 'Service health: {{health}}',
     hasTargetPods: 'Pods on the target version exist',
     noTargetPods: 'No pods on the target version; the old replicas are still up',
+    build: 'Build',
     replicasNow: '{{ready}} of {{total}} pods ready now',
     gitChanged: 'Did git change?',
     gitPushed: 'The repo already has the new image reference; fix the image or release an older artifact again',

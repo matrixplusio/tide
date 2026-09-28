@@ -245,6 +245,21 @@ function ArtifactOption({ c, env, upstreamNames, name, checked, onSelect }: { c:
           {c.version && <b>{c.version} </b>}
           <span className={c.version ? 'mono muted tag' : 'mono'}>{c.tag}</span>
         </span>
+        {c.build?.title && (
+          <span className="d block build-line">
+            <span className="build-title">{c.build.title}</span>
+            {c.build.commit && <span className="mono muted"> {c.build.commit.slice(0, 8)}</span>}
+            {c.build.actor && <span className="muted"> · {c.build.actor}</span>}
+            {c.build.pipeline && (
+              <>
+                {' · '}
+                <a href={c.build.pipeline} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                  {t('forms.pipeline')}
+                </a>
+              </>
+            )}
+          </span>
+        )}
         {/* digest always visible, never folded */}
         <span className="d mono break block">{c.digest}</span>
         <span className="pills" style={{ marginTop: 4 }}>

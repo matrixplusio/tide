@@ -129,6 +129,44 @@ func (r *CI) RevokeToken(ctx context.Context, id string) error {
 const ciIntakeCols = `id, idempotency_key, service, env, image, digest, commit_sha, stage, pipeline, ci_actor,
 	jira_ticket, reason, token_id, status, COALESCE(release_id, ''), error, warning, attempts, created_at, updated_at`
 
+// CIBuild is what CI said about an image when it handed it over: the commit
+// it was built from, its title, who pushed, and where the pipeline is. One
+// per digest — the latest intake that carried it, whatever environment it
+// was aimed at, because the image is the same wherever it went.
+type CIBuild struct {
+	Digest    string    `json:"digest"`
+	Commit    string    `json:"commit,omitempty"`
+	Pipeline  string    `json:"pipeline,omitempty"`
+	Actor     string    `json:"actor,omitempty"`
+	Title     string    `json:"title,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// BuildsByDigest answers "which build is this image" for a set of digests.
+// Digests CI never reported are simply absent: an image that came from
+// somewhere else has no build to show, and saying nothing is right.
+func (r *CI) BuildsByDigest(ctx context.Context, digests []string) (map[string]CIBuild, error) {
+	out := map[string]CIBuild{}
+	if len(digests) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.WithContext(ctx).Raw(`SELECT DISTINCT ON (digest) digest, commit_sha, pipeline, ci_actor, reason, created_at
+		FROM ci_intake WHERE digest = ANY($1) AND digest <> ''
+		ORDER BY digest, created_at DESC`, digests).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var b CIBuild
+		if err := rows.Scan(&b.Digest, &b.Commit, &b.Pipeline, &b.Actor, &b.Title, &b.CreatedAt); err != nil {
+			return nil, err
+		}
+		out[b.Digest] = b
+	}
+	return out, rows.Err()
+}
+
 // Accept records one notification from a pipeline. The idempotency key is
 // unique in the database, so a retried pipeline returns the first intake
 // instead of releasing twice; accepted reports whether this call created it.

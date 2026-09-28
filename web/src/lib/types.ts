@@ -422,8 +422,20 @@ export interface Release {
   canApprove?: boolean
 }
 
+/** What CI reported for an image: the commit title is the human-readable
+ *  name a tag lacks. Absent when the image did not come through Tide's CI
+ *  endpoint. */
+export interface BuildInfo {
+  commit?: string
+  pipeline?: string
+  actor?: string
+  title?: string
+  at?: string
+}
+
 export interface Candidate {
   freight: string
+  build?: BuildInfo | null
   alias?: string
   image: string
   tag: string
