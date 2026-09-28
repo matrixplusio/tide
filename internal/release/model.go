@@ -269,6 +269,11 @@ const (
 	ChangeDelete = "delete"
 )
 
+// Kinds is every kind a release item can carry. Anything that dispatches on
+// kind — Target, the validators, the executors — has to cover all of them,
+// and the tests pin that against this list.
+var Kinds = []string{KindImage, KindRestart, KindSync, KindScale}
+
 // ResourceChange is one resource a sync would create, update or delete, with
 // a unified diff of its manifest (Secret values are masked by Argo CD).
 type ResourceChange struct {
@@ -420,6 +425,12 @@ func (r *Release) Target(it Item) (Target, error) {
 		return Target{Upstream: p.Upstream, Service: p.Service, Env: p.Env, Digest: p.Current.Digest}, nil
 	case KindSync:
 		p, err := r.SyncPayload(it)
+		if err != nil {
+			return Target{}, err
+		}
+		return Target{Upstream: p.Upstream, Service: p.Service, Env: p.Env, Digest: p.Current.Digest}, nil
+	case KindScale:
+		p, err := it.ScalePayload()
 		if err != nil {
 			return Target{}, err
 		}

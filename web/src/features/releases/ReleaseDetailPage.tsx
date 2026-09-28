@@ -185,7 +185,8 @@ const ANOMALY_SHORT: Record<string, string> = {
   short_soak: 'detail.anomalySoak',
   config_drift: 'detail.anomalyDrift',
 }
-const kindJoin = (k: ItemKind): string => (k === 'image' ? '→' : k === 'restart' ? i18n.t('detail.kindRestart') : i18n.t('detail.kindSync'))
+const kindJoin = (k: ItemKind): string =>
+  k === 'image' ? '→' : k === 'restart' ? i18n.t('detail.kindRestart') : k === 'scale' ? i18n.t('detail.kindScale') : i18n.t('detail.kindSync')
 
 type Ev = { label: string; at?: string; state: 'done' | 'now' | 'todo'; who?: string }
 
@@ -295,7 +296,9 @@ function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; liv
       </div>
       <div className="cols2">
         <div>
-          <GroupHeader>{it.kind === 'restart' ? t('releases.kindRestart') : it.kind === 'sync' ? t('releases.kindSync') : t('detail.change')}</GroupHeader>
+          <GroupHeader>
+            {it.kind === 'restart' ? t('releases.kindRestart') : it.kind === 'sync' ? t('releases.kindSync') : it.kind === 'scale' ? t('releases.kindScale') : t('detail.change')}
+          </GroupHeader>
           <Group>
             {it.kind === 'sync' ? (
               <>
@@ -502,7 +505,7 @@ function WaitingForPods({ live, kind, since }: { live: Live; kind: string; since
   return (
     <Banner tone={parts.some((s) => s.unhealthy) ? 'warn' : 'info'}>
       <div>
-        <b>{kind === 'restart' ? t('detail.waitRestart') : kind === 'sync' ? t('detail.waitSync') : t('detail.waitUpgrade')}</b>
+        <b>{kind === 'restart' ? t('detail.waitRestart') : kind === 'sync' ? t('detail.waitSync') : kind === 'scale' ? t('detail.waitScale') : t('detail.waitUpgrade')}</b>
         {parts.map((s) => (
           <div key={s.name} className="d">
             {t('detail.rolloutLine', { name: s.name, ready: s.targetReady, desired: s.desired })}
