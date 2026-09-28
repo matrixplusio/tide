@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Navigate, NavLink, useLocation } from 'react-router-dom'
 import { isApiError } from '../lib/api'
 import { ErrCode } from '../lib/errcode'
 import { Banner, Button, ErrorState, Loading } from '../components/ui'
-import { LanguageSwitch, UpstreamHealth } from '../components/domain'
+import { LanguageSwitch, SearchPalette, UpstreamHealth } from '../components/domain'
 import { ADMIN_PERMISSIONS, canAny, canView, envScopeText } from '../lib/permissions'
 import { fmtTime } from '../lib/format'
 import type { Me } from '../lib/types'
@@ -18,6 +19,12 @@ import { AppRoutes } from './routes'
 
 const icons: Record<string, ReactNode> = {
   home: <path d="M3 10l9-7 9 7v10a2 2 0 01-2 2H5a2 2 0 01-2-2z" />,
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-3.5-3.5" />
+    </>
+  ),
   svc: (
     <>
       <rect x="3" y="3" width="7" height="7" rx="1.6" />
@@ -160,6 +167,23 @@ function Shell() {
   const canServices = canView(me, 'services.view')
   const services = useServices(canServices)
   const active = useActiveReleaseCount(canView(me, 'releases.view'))
+  // The search palette opens on "/" or Ctrl/Cmd+K from anywhere that is not
+  // a text field: the one gesture a person can make without finding a
+  // control first. Only when the services list is theirs to see.
+  const [searchOpen, setSearchOpen] = useState(false)
+  useEffect(() => {
+    if (!canServices) return
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
+      if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) || (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey)) {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [canServices])
   const logout = useLogout()
   // project → service count. Domains are a filter on the services page, not
   // sidebar entries: a project can have many of them.
@@ -190,6 +214,13 @@ function Shell() {
           )}
         </div>
         <nav className="snav" aria-label={t('nav.main')}>
+          {canServices && (
+            <button type="button" className="sitem search-btn" onClick={() => setSearchOpen(true)} aria-keyshortcuts="/ Control+K Meta+K">
+              <Icon name="search" />
+              {t('nav.search')}
+              <kbd aria-hidden>{t('nav.searchKey')}</kbd>
+            </button>
+          )}
           {items
             .filter((n) => !n.mobileOnly)
             .map((n) => (
@@ -261,6 +292,7 @@ function Shell() {
           )}
         </div>
       </aside>
+      {searchOpen && <SearchPalette services={services.data?.services ?? []} onClose={() => setSearchOpen(false)} />}
 
       <main className="main" id="main">
         <AppBanners />

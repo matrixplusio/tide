@@ -797,3 +797,15 @@ section > .ghead.item-head { border-top: .5px solid var(--sep); margin-top: 24px
 .build { padding: 6px 12px 2px; font-size: 10.5px; color: var(--ink3); font-family: var(--mono);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Search palette: one input, a short list, a hint. The list is buttons so
+   the mouse works; the input owns the arrow keys so the keyboard does. */
+.search-in { width: 100%; font-size: 14px; padding: 9px 12px; }
+.search-hits { list-style: none; margin: 8px 0 0; padding: 0; max-height: 50vh; overflow: auto; }
+.search-hit { display: flex; justify-content: space-between; gap: 12px; width: 100%; border: 0; background: transparent;
+  color: var(--ink); font-size: 13px; padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; text-align: left; }
+.search-hit .muted { color: var(--ink2); font-size: 12px; white-space: nowrap; }
+.search-hit.on, .search-hit:hover { background: var(--sel); }
+.search-none { padding: 12px 10px; color: var(--ink2); font-size: 12.5px; }
+.search-hint { margin-top: 10px; font-size: 11px; color: var(--ink3); }
+.sitem.search-btn { width: 100%; border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.sitem.search-btn kbd { margin-left: auto; font-size: 10.5px; color: var(--ink3); border: .5px solid var(--sep); border-radius: 4px; padding: 0 5px; font-family: var(--mono); }
