@@ -33,6 +33,18 @@ describe('summarizeRollout', () => {
     ]), since)
     expect(s).toMatchObject({ target: 1, targetReady: 0, other: 1, done: false })
   })
+  // A replica change has no target version: the server marks no pod as the
+  // target, and read as a rollout that is "0 of 3 on the new version, 3 on
+  // the old" for the whole time it takes to succeed.
+  it('for a replica change, every pod counts and readiness is the whole story', () => {
+    const three = live([pod('order-api-a', false, '1/1'), pod('order-api-b', false, '1/1'), pod('order-api-c', false, '0/1')])
+    const s = summarizeRollout({ ...r, desired: 3 }, three, undefined, true)
+    expect(s).toMatchObject({ target: 3, targetReady: 2, other: 0, done: false })
+    const ready = live([pod('order-api-a', false, '1/1'), pod('order-api-b', false, '1/1'), pod('order-api-c', false, '1/1')])
+    expect(summarizeRollout({ ...r, desired: 3 }, ready, undefined, true).done).toBe(true)
+    // The same pods without the flag are the misreading this guards against.
+    expect(summarizeRollout({ ...r, desired: 3 }, ready).targetReady).toBe(0)
+  })
   it('without a restart time, extra pods of the same image still mean the rollout is not done', () => {
     const s = summarizeRollout({ ...r, desired: 1 }, live([pod('order-api-a', true, '1/1'), pod('order-api-b', true, '0/1')]))
     expect(s.done).toBe(false)

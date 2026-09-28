@@ -463,7 +463,13 @@ function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; liv
                 <Row>
                   <div className="grow">
                     <div className="t">{live.live.health === 'Healthy' ? t('detail.stillHealthy') : t('detail.serviceHealth', { health: live.live.health })}</div>
-                    <div className="d">{(live.live.pods ?? []).some((x) => x.isTarget) ? t('detail.hasTargetPods') : t('detail.noTargetPods')}</div>
+                    <div className="d">
+                      {it.kind === 'scale'
+                        ? t('detail.replicasNow', { ready: (live.live.pods ?? []).filter((x) => /^(\d+)\/\1$/.test(x.ready || '')).length, total: (live.live.pods ?? []).length })
+                        : (live.live.pods ?? []).some((x) => x.isTarget)
+                          ? t('detail.hasTargetPods')
+                          : t('detail.noTargetPods')}
+                    </div>
                   </div>
                   <Pill tone={live.live.health === 'Healthy' ? 'green' : 'red'}>{live.live.health}</Pill>
                 </Row>
@@ -483,11 +489,11 @@ function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; liv
               {it.startedAt && (
                 <>
                   <GroupHeader>{t('detail.deployState')}</GroupHeader>
-                  <RolloutView live={live.live} since={it.status === 'executing' ? restartSince(it) : undefined} />
+                  <RolloutView live={live.live} since={it.status === 'executing' ? restartSince(it) : undefined} sameVersion={it.kind === 'scale'} />
                 </>
               )}
               <GroupHeader>Pod</GroupHeader>
-              <PodsList live={live.live} base={canPods ? base : undefined} />
+              <PodsList live={live.live} base={canPods ? base : undefined} sameVersion={it.kind === 'scale'} />
               <GroupHeader>{t('detail.resources')}</GroupHeader>
               <ResourcesList live={live.live} />
             </>
@@ -501,14 +507,15 @@ function ItemSection({ it, live, release, canPods, onCollapse }: { it: Item; liv
 /** Kargo is done but the release is not: say what it still waits for. */
 function WaitingForPods({ live, kind, since }: { live: Live; kind: string; since?: string }) {
   const { t } = useTranslation()
-  const parts = (live.rollouts ?? []).map((r) => summarizeRollout(r, live, since)).filter((s) => !s.done)
+  const same = kind === 'scale'
+  const parts = (live.rollouts ?? []).map((r) => summarizeRollout(r, live, since, same)).filter((s) => !s.done)
   return (
     <Banner tone={parts.some((s) => s.unhealthy) ? 'warn' : 'info'}>
       <div>
-        <b>{kind === 'restart' ? t('detail.waitRestart') : kind === 'sync' ? t('detail.waitSync') : kind === 'scale' ? t('detail.waitScale') : t('detail.waitUpgrade')}</b>
+        <b>{kind === 'restart' ? t('detail.waitRestart') : kind === 'sync' ? t('detail.waitSync') : same ? t('detail.waitScale') : t('detail.waitUpgrade')}</b>
         {parts.map((s) => (
           <div key={s.name} className="d">
-            {t('detail.rolloutLine', { name: s.name, ready: s.targetReady, desired: s.desired })}
+            {t(same ? 'detail.replicasLine' : 'detail.rolloutLine', { name: s.name, ready: s.targetReady, desired: s.desired })}
             {s.other > 0 && t('detail.oldRemain', { count: s.other })}
             {s.unhealthy && t('detail.podsUnhealthy')}
           </div>
@@ -536,7 +543,7 @@ function BatchOverview({ items, status, lives, expanded, onToggle, onAll, filter
   const rows = sorted.map((it) => {
     const live = lives?.find((l) => l.itemId === it.id)?.live
     const since = it.status === 'executing' ? restartSince(it) : undefined
-    const rollouts = live ? (live.rollouts ?? []).map((r) => summarizeRollout(r, live, since)) : []
+    const rollouts = live ? (live.rollouts ?? []).map((r) => summarizeRollout(r, live, since, it.kind === 'scale')) : []
     return {
       it,
       ready: rollouts.reduce((n, s) => n + Math.min(s.targetReady, s.desired), 0),

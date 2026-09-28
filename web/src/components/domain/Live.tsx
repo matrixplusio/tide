@@ -7,24 +7,25 @@ import { EmptyState, ErrorState, Group, Pill, Row, StatusDot, type DotState } fr
 import { phaseTone } from './tones'
 import { HealthPill } from './labels'
 
-/** `since`: restart start time; restarted pods run the same image, so age tells old from new. */
-export function RolloutView({ live, since }: { live: Live; since?: string }) {
+/** `since`: restart start time; restarted pods run the same image, so age tells old from new.
+ *  `sameVersion`: a replica change; there is no new version, only a new count. */
+export function RolloutView({ live, since, sameVersion }: { live: Live; since?: string; sameVersion?: boolean }) {
   const { t } = useTranslation()
   const pods = live.pods ?? []
   const rollouts = live.rollouts ?? []
   return (
     <Group>
       {rollouts.map((r) => {
-        const s = summarizeRollout(r, live, since)
+        const s = summarizeRollout(r, live, since, sameVersion)
         const pct = s.desired ? Math.round((Math.min(s.targetReady, s.desired) / s.desired) * 100) : 0
         return (
           <Row key={r.name}>
             <div className="grow">
               <div className="t">
-                {s.done ? t('live.ready') : s.unhealthy ? t('live.unhealthy') : t('live.rolling')} · <span className="mono">{r.name}</span>
+                {s.done ? t('live.ready') : s.unhealthy ? (sameVersion ? t('live.replicasUnhealthy') : t('live.unhealthy')) : sameVersion ? t('live.scaling') : t('live.rolling')} · <span className="mono">{r.name}</span>
               </div>
               <div className="d">
-                {t('live.targetReady', { ready: s.targetReady, desired: s.desired })}
+                {t(sameVersion ? 'live.replicasReady' : 'live.targetReady', { ready: s.targetReady, desired: s.desired })}
                 {s.target > s.targetReady && t('live.notReady', { count: s.target - s.targetReady })}
                 {s.other > 0 && t('live.oldRemain', { count: s.other })}
               </div>
@@ -42,10 +43,10 @@ export function RolloutView({ live, since }: { live: Live; since?: string }) {
       {pods.length > 0 && (
         <Row>
           <div className="grow">
-            <div className="d">{t('live.podLegend')}</div>
+            <div className="d">{sameVersion ? t('live.podLegendSame') : t('live.podLegend')}</div>
             <div className="pods">
               {pods.map((p) => (
-                <span key={p.name} className={`podbar ${p.isTarget ? 'new' : 'old'}`} title={`${p.name} ${p.status || p.health}`} />
+                <span key={p.name} className={`podbar ${sameVersion || p.isTarget ? 'new' : 'old'}`} title={`${p.name} ${p.status || p.health}`} />
               ))}
             </div>
           </div>
@@ -61,7 +62,7 @@ function podState(health: string): DotState {
 }
 
 /** Pods link to their logs and events only when `base` is given (the viewer has pods.view). */
-export function PodsList({ live, base }: { live: Live; base?: string }) {
+export function PodsList({ live, base, sameVersion }: { live: Live; base?: string; sameVersion?: boolean }) {
   const { t } = useTranslation()
   const pods = live.pods ?? []
   return (
@@ -73,7 +74,7 @@ export function PodsList({ live, base }: { live: Live; base?: string }) {
           <div className="grow">
             <div className="t mono ellipsis">{p.name}</div>
             <div className="d">
-              {t('live.podLine', { version: p.isTarget ? t('live.targetVersion') : t('live.otherVersion'), status: p.status || p.health, ready: p.ready, restarts: p.restarts || 0 })}
+              {t('live.podLine', { version: sameVersion ? t('live.currentVersion') : p.isTarget ? t('live.targetVersion') : t('live.otherVersion'), status: p.status || p.health, ready: p.ready, restarts: p.restarts || 0 })}
               {p.message ? ` · ${p.message}` : ''}
             </div>
           </div>

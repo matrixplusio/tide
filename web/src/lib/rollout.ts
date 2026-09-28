@@ -28,11 +28,17 @@ function podReady(p: Pod): boolean {
  *
  * `since` is for restarts, where old and new pods run the same image: only
  * pods created at or after it count as the new generation.
+ *
+ * `sameVersion` is for a replica change: nothing about the pods changes but
+ * their number, so every pod is the target. Without it the server's
+ * isTarget — computed against a target artifact the change does not have —
+ * is false for all of them, and a scale to 3 reads as "0 of 3 on the new
+ * version, 3 still on the old" for as long as it takes to succeed.
  */
-export function summarizeRollout(r: Rollout, live: Live, since?: string): RolloutSummary {
+export function summarizeRollout(r: Rollout, live: Live, since?: string, sameVersion = false): RolloutSummary {
   const pods = (live.pods ?? []).filter((p) => p.name.startsWith(`${r.name}-`))
   const cutoff = since ? Date.parse(since) : NaN
-  const isNew = (p: Pod) => (Number.isNaN(cutoff) ? p.isTarget : !!p.createdAt && Date.parse(p.createdAt) >= cutoff - 1000)
+  const isNew = (p: Pod) => (sameVersion ? true : Number.isNaN(cutoff) ? p.isTarget : !!p.createdAt && Date.parse(p.createdAt) >= cutoff - 1000)
   const target = pods.filter(isNew)
   const targetReady = target.filter(podReady).length
   const other = pods.length - target.length
