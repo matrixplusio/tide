@@ -462,10 +462,16 @@ textarea.input { resize: vertical; min-height: 54px; }
 /* modal / confirmation sheet */
 .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.28); display: grid; place-items: center; z-index: 50; padding: 16px;
   animation: fade var(--dur-micro-slow) var(--ease-out); }
-.sheet { background: var(--grouped); border-radius: var(--r-xl); width: min(720px, 100%); max-height: 90vh; overflow: auto;
+.sheet { position: relative; background: var(--grouped); border-radius: var(--r-xl); width: min(720px, 100%); max-height: 90vh; overflow: auto;
   box-shadow: 0 20px 60px rgba(0,0,0,.3), 0 0 0 .5px var(--sep); animation: rise var(--dur-layout) var(--ease-out); }
 .sheet:focus-visible { outline: none; }
-.sheet-h { padding: 16px 18px 4px; }
+/* The only way out of a read-only sheet: it has no footer buttons, and
+   clicking the backdrop is deliberately inert. */
+.sheet-x { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: transparent; color: var(--text3); font-size: 20px; line-height: 1; cursor: pointer; }
+.sheet-x:hover { background: var(--fill); color: var(--ink); }
+/* Right padding keeps a long title from running under the button. */
+.sheet-h { padding: 16px 44px 4px 18px; }
 .sheet-h h2 { margin: 0; font-size: 15px; }
 .sheet-b { padding: 4px 18px 18px; }
 .anomaly { display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; background: var(--orange-bg); color: var(--ink); }
