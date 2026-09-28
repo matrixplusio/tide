@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -17,6 +18,7 @@ export interface ModalProps {
 // Esc closes, Tab is trapped inside, focus returns to the trigger on close.
 // Clicking the backdrop does nothing on purpose: it would throw away input.
 export function Modal({ title, subtitle, onClose, children, closeOnEsc = true, width = 560 }: ModalProps) {
+  const { t } = useTranslation()
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const onCloseRef = useRef(onClose)
@@ -31,7 +33,11 @@ export function Modal({ title, subtitle, onClose, children, closeOnEsc = true, w
     // and focusing then handing focus back to the trigger would blur the
     // first field and fire its on-blur validation before anyone typed.
     const frame = requestAnimationFrame(() => {
-      const first = root?.querySelector<HTMLElement>('[data-autofocus]') ?? root?.querySelector<HTMLElement>(FOCUSABLE)
+      // The close button is skipped here and only here: it is last in the
+      // DOM, so on a read-only sheet it would be the first focusable thing
+      // and open with a focus ring on "dismiss". Tab still reaches it.
+      const first = root?.querySelector<HTMLElement>('[data-autofocus]')
+        ?? [...(root?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].find((el) => !el.classList.contains('sheet-x'))
       ;(first ?? root)?.focus()
     })
     const prevOverflow = document.body.style.overflow
@@ -62,6 +68,10 @@ export function Modal({ title, subtitle, onClose, children, closeOnEsc = true, w
           {subtitle && <div className="muted" style={{ marginTop: 2 }}>{subtitle}</div>}
         </div>
         <div className="sheet-b">{children}</div>
+        {/* Last in the DOM, placed top-right by CSS: a dialog that opens on a
+            form must still put the caret in the first field, and the focus
+            rules here take the first focusable element in document order. */}
+        <button type="button" className="sheet-x" onClick={onClose} aria-label={t('common.close')}>&times;</button>
       </div>
     </div>,
     document.body,

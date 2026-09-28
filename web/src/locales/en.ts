@@ -67,6 +67,7 @@ const en: Messages = {
     passwordRules: 'Password requirements',
     ruleMet: ' (met)',
     ruleUnmet: ' (not met)',
+    close: 'Close',
     closeToast: 'Dismiss',
     back: 'Back to {{what}}',
     networkError: 'Network error: cannot reach Tide',

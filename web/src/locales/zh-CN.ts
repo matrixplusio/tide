@@ -69,6 +69,7 @@ const zhCN = {
     passwordRules: '密码要求',
     ruleMet: '（已满足）',
     ruleUnmet: '（未满足）',
+    close: '关闭',
     closeToast: '关闭通知',
     back: '返回 {{what}}',
     networkError: '网络错误，无法连接到 Tide',

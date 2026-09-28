@@ -16,7 +16,7 @@ export function ResourceModal({ service, env, pick, onClose }: { service: string
     <Modal title={`${pick.kind} / ${pick.name}`} subtitle={pick.namespace} onClose={onClose} width={860}>
       {q.isPending && <Loading />}
       {q.error && <ErrorState error={q.error} />}
-      {/* .yaml has no height cap: inside a modal a long manifest would push the close button off screen. */}
+      {/* The manifest scrolls inside its own box, not the sheet: the close button is the only way out of this sheet, and it must not scroll away. */}
       {q.data && q.data.yaml !== '' && <pre className="yaml" style={{ maxHeight: '60vh', overflow: 'auto' }}>{q.data.yaml}</pre>}
       {q.data && q.data.yaml === '' && <EmptyState>{t('live.manifestEmpty')}</EmptyState>}
     </Modal>
