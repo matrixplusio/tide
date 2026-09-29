@@ -457,6 +457,10 @@ type ItemLive struct {
 	Promotion *PromotionView `json:"promotion,omitempty"`
 	Live      *Live          `json:"live,omitempty"`
 	Error     string         `json:"error,omitempty"`
+	// SupersededBy is a later release on the same service and environment.
+	// The live state is then that release's doing, and measuring it against
+	// this item's target reads as a rollout stuck at zero.
+	SupersededBy string `json:"supersededBy,omitempty"`
 }
 
 func (a *API) getRelease(c *gin.Context) {
@@ -517,6 +521,9 @@ func (a *API) getRelease(c *gin.Context) {
 					return
 				}
 				il := ItemLive{ItemID: it.ID}
+				if it.Status != release.ItemExecuting {
+					il.SupersededBy, _ = a.PG.Releases.SupersededBy(ctx, it.ID, tg.Service, tg.Env)
+				}
 				tag := ""
 				if pl, err := rel.ImagePayload(it); err == nil {
 					tag = pl.To.Tag

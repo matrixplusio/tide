@@ -195,18 +195,18 @@ func Register(r *gin.Engine, d Deps) {
 
 	// CI tokens are credentials that can start a release, so issuing and
 	// revoking them is a settings-administrator job.
-	h("GET", "/ci/tokens", need(rbac.SettingsManage), a.listCITokens)
-	h("POST", "/ci/tokens", need(rbac.SettingsManage), a.createCIToken)
-	h("DELETE", "/ci/tokens/:token", need(rbac.SettingsManage), a.revokeCIToken)
+	h("GET", "/ci/tokens", need(rbac.CIManage, rbac.SettingsManage), a.listCITokens)
+	h("POST", "/ci/tokens", need(rbac.CIManage, rbac.SettingsManage), a.createCIToken)
+	h("DELETE", "/ci/tokens/:token", need(rbac.CIManage, rbac.SettingsManage), a.revokeCIToken)
 	h("GET", "/ci/intakes", needScoped(rbac.ReleasesView), a.listCIIntakes)
-	h("GET", "/ci/snippet", need(rbac.SettingsManage), a.ciSnippet)
+	h("GET", "/ci/snippet", need(rbac.CIManage, rbac.SettingsManage), a.ciSnippet)
 
 	// Generating a Kargo pipeline reads the catalog and writes nothing, but it
 	// is an environment-wiring job and belongs with upstreams and the catalog.
-	h("GET", "/kargo/generate", need(rbac.EnvironmentsManage), a.generateKargo)
-	h("GET", "/kargo/generate.zip", need(rbac.EnvironmentsManage), a.downloadKargo)
-	h("POST", "/kargo/push", need(rbac.EnvironmentsManage), a.pushKargo)
-	h("GET", "/kargo/identity", need(rbac.EnvironmentsManage), a.kargoRepoIdentity)
+	h("GET", "/kargo/generate", need(rbac.PipelinesGenerate, rbac.EnvironmentsManage), a.generateKargo)
+	h("GET", "/kargo/generate.zip", need(rbac.PipelinesGenerate, rbac.EnvironmentsManage), a.downloadKargo)
+	h("POST", "/kargo/push", need(rbac.PipelinesGenerate, rbac.EnvironmentsManage), a.pushKargo)
+	h("GET", "/kargo/identity", need(rbac.PipelinesGenerate, rbac.EnvironmentsManage), a.kargoRepoIdentity)
 }
 
 // auditMeta puts request id and client IP into the request context so every

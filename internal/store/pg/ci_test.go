@@ -496,3 +496,90 @@ func TestBuildsByDigestFindsTheLatestIntake(t *testing.T) {
 		t.Errorf("no digests: %v %v", empty, err)
 	}
 }
+
+// The key is the digest, and unchanged source builds the same digest again,
+// so a re-run pipeline reports under a key Tide already holds. An intake that
+// failed starts over — once, however many replicas answer at the same time —
+// and one that did not keeps its state but gains the history it lacked.
+func TestSameImageReportedAgain(t *testing.T) {
+	s, _ := testdb.Setup(t)
+	ctx := context.Background()
+	tok, _ := token(t, s, "g")
+	digest := func(c string) string { return "sha256:" + strings.Repeat(c, 64) }
+	hist := []pg.CICommit{{ID: strings.Repeat("a", 40), Title: "fix: something"}}
+
+	// Failed: starts over as waiting, with the new report's fields.
+	failed := pg.CIIntake{Key: digest("d"), Service: "svc", Env: "dev", Digest: digest("d"), TokenID: tok.ID, Pipeline: "p/1"}
+	first, _, err := s.CI.Accept(ctx, failed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CI.Resolve(ctx, first.ID, pg.IntakeFailed, "", "stage not found"); err != nil {
+		t.Fatal(err)
+	}
+	rerun := failed
+	rerun.Pipeline, rerun.Commits = "p/2", hist
+	var wg sync.WaitGroup
+	accepts := make(chan bool, 8)
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, ok, err := s.CI.Accept(ctx, rerun)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			accepts <- ok
+		}()
+	}
+	wg.Wait()
+	close(accepts)
+	n := 0
+	for ok := range accepts {
+		if ok {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("a failed intake was restarted %d times, want once", n)
+	}
+	got, err := s.CI.IntakeByKey(ctx, failed.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != first.ID || got.Status != pg.IntakeWaiting || got.Error != "" || got.Attempts != 0 || got.Pipeline != "p/2" || len(got.Commits) != 1 {
+		t.Fatalf("restarted intake: %+v", got)
+	}
+	if !got.CreatedAt.After(first.CreatedAt) {
+		t.Fatal("created_at was not reset: the worker would expire it at once")
+	}
+
+	// Released: stays released; the missing history is filled in, once.
+	done := pg.CIIntake{Key: digest("e"), Service: "svc", Env: "dev", Digest: digest("e"), TokenID: tok.ID}
+	in, _, err := s.CI.Accept(ctx, done)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := s.Releases.Create(ctx, alice, input("svc", "dev"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CI.Resolve(ctx, in.ID, pg.IntakeReleased, rel.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	withHist := done
+	withHist.Commits, withHist.Repo = hist, "https://git.example.com/acme/svc"
+	got, accepted, err := s.CI.Accept(ctx, withHist)
+	if err != nil || accepted {
+		t.Fatalf("released intake accepted again: accepted=%v %v", accepted, err)
+	}
+	if got.Status != pg.IntakeReleased || got.ReleaseID != rel.ID || len(got.Commits) != 1 || got.Repo != withHist.Repo {
+		t.Fatalf("released intake after a re-run: %+v", got)
+	}
+	other := withHist
+	other.Commits = []pg.CICommit{{ID: strings.Repeat("b", 40)}, {ID: strings.Repeat("c", 40)}}
+	if got, _, _ = s.CI.Accept(ctx, other); len(got.Commits) != 1 {
+		t.Fatalf("a history already there was replaced: %+v", got.Commits)
+	}
+}

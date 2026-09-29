@@ -1,4 +1,4 @@
-import { can } from '../../lib/permissions'
+import { canAny } from '../../lib/permissions'
 import type { Me, Permission } from '../../lib/types'
 
 // Secondary navigation of the admin console. Kept out of the lazy chunk: the
@@ -8,7 +8,9 @@ import type { Me, Permission } from '../../lib/types'
 export interface AdminItem {
   path: string
   label: string
-  perm: Permission
+  // Any one of these opens it. A page split off a broader permission keeps
+  // answering to that one too, so nobody loses a page by the split.
+  perms: readonly Permission[]
   hint: string
 }
 
@@ -16,35 +18,35 @@ export const ADMIN_GROUPS: readonly { label: string; items: readonly AdminItem[]
   {
     label: 'admin.navAccess',
     items: [
-      { path: 'users', label: 'admin.navUsers', perm: 'users.manage', hint: 'admin.navUsersHint' },
-      { path: 'groups', label: 'admin.navGroups', perm: 'users.manage', hint: 'admin.navGroupsHint' },
-      { path: 'roles', label: 'admin.navRoles', perm: 'roles.manage', hint: 'admin.navRolesHint' },
+      { path: 'users', label: 'admin.navUsers', perms: ['users.manage'], hint: 'admin.navUsersHint' },
+      { path: 'groups', label: 'admin.navGroups', perms: ['users.manage'], hint: 'admin.navGroupsHint' },
+      { path: 'roles', label: 'admin.navRoles', perms: ['roles.manage'], hint: 'admin.navRolesHint' },
     ],
   },
   {
     label: 'admin.navRelease',
     items: [
-      { path: 'environments', label: 'admin.navEnvironments', perm: 'environments.manage', hint: 'admin.navEnvironmentsHint' },
-      { path: 'upstreams', label: 'admin.navUpstreams', perm: 'environments.manage', hint: 'admin.navUpstreamsHint' },
-      { path: 'catalog', label: 'admin.navCatalog', perm: 'environments.manage', hint: 'admin.navCatalogHint' },
-      { path: 'kargo', label: 'admin.navKargo', perm: 'environments.manage', hint: 'admin.navKargoHint' },
-      { path: 'release', label: 'admin.navPolicy', perm: 'settings.manage', hint: 'admin.navPolicyHint' },
-      { path: 'notify', label: 'admin.navNotify', perm: 'notifications.manage', hint: 'admin.navNotifyHint' },
-      { path: 'ci', label: 'admin.navCI', perm: 'settings.manage', hint: 'admin.navCIHint' },
+      { path: 'environments', label: 'admin.navEnvironments', perms: ['environments.manage'], hint: 'admin.navEnvironmentsHint' },
+      { path: 'upstreams', label: 'admin.navUpstreams', perms: ['environments.manage'], hint: 'admin.navUpstreamsHint' },
+      { path: 'catalog', label: 'admin.navCatalog', perms: ['environments.manage'], hint: 'admin.navCatalogHint' },
+      { path: 'kargo', label: 'admin.navKargo', perms: ['pipelines.generate', 'environments.manage'], hint: 'admin.navKargoHint' },
+      { path: 'release', label: 'admin.navPolicy', perms: ['settings.manage'], hint: 'admin.navPolicyHint' },
+      { path: 'notify', label: 'admin.navNotify', perms: ['notifications.manage'], hint: 'admin.navNotifyHint' },
+      { path: 'ci', label: 'admin.navCI', perms: ['ci.manage', 'settings.manage'], hint: 'admin.navCIHint' },
     ],
   },
   {
     label: 'admin.navSystem',
     items: [
-      { path: 'security', label: 'admin.navSecurity', perm: 'settings.manage', hint: 'admin.navSecurityHint' },
-      { path: 'sso', label: 'admin.navSso', perm: 'settings.manage', hint: 'admin.navSsoHint' },
-      { path: 'general', label: 'admin.navGeneral', perm: 'settings.manage', hint: 'admin.navGeneralHint' },
+      { path: 'security', label: 'admin.navSecurity', perms: ['settings.manage'], hint: 'admin.navSecurityHint' },
+      { path: 'sso', label: 'admin.navSso', perms: ['settings.manage'], hint: 'admin.navSsoHint' },
+      { path: 'general', label: 'admin.navGeneral', perms: ['settings.manage'], hint: 'admin.navGeneralHint' },
     ],
   },
 ]
 
 export function adminItemsFor(me: Pick<Me, 'permissions'>): AdminItem[] {
-  return ADMIN_GROUPS.flatMap((g) => g.items.filter((i) => can(me, i.perm)))
+  return ADMIN_GROUPS.flatMap((g) => g.items.filter((i) => canAny(me, i.perms)))
 }
 
 export function firstAdminPath(me: Pick<Me, 'permissions'>): string | null {

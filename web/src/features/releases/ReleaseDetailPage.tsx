@@ -491,7 +491,15 @@ function ItemSection({ it, live, release, canPods, onCollapse, builds, changes }
           )}
         </div>
         <div>
-          {live?.live && release.status !== 'confirming' && (
+          {/* What runs now is the later release's doing. Measured against
+              this item's target it reads as a rollout stuck at zero, which
+              is how a finished release came to look broken. */}
+          {live?.supersededBy && (
+            <Note>
+              {t('detail.supersededBy')} <Link to={`/releases/${live.supersededBy}`}>{live.supersededBy}</Link>
+            </Note>
+          )}
+          {live?.live && !live.supersededBy && release.status !== 'confirming' && (
             <>
               {it.startedAt && (
                 <>
@@ -552,7 +560,8 @@ function BatchOverview({ items, status, lives, expanded, onToggle, onAll, filter
   const { t } = useTranslation()
   const sorted = [...items].sort((a, b) => a.sequence - b.sequence || a.payload.service.localeCompare(b.payload.service)).filter((it) => !filter || it.status === filter)
   const rows = sorted.map((it) => {
-    const live = lives?.find((l) => l.itemId === it.id)?.live
+    const il = lives?.find((l) => l.itemId === it.id)
+    const live = il?.supersededBy ? undefined : il?.live
     const since = it.status === 'executing' ? restartSince(it) : undefined
     const rollouts = live ? (live.rollouts ?? []).map((r) => summarizeRollout(r, live, since, it.kind === 'scale')) : []
     return {

@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { useMe } from '../../app/session'
-import { can } from '../../lib/permissions'
+import { canAny } from '../../lib/permissions'
 import type { Permission } from '../../lib/types'
 import { Chev, Group, GroupHeader, Page, Row, Toolbar } from '../../components/ui'
 import { ADMIN_GROUPS, firstAdminPath } from './nav'
@@ -24,7 +24,7 @@ function isNarrow(): boolean {
 export default function AdminRoutes() {
   const { t } = useTranslation()
   const me = useMe()
-  const guard = (perm: Permission, el: ReactNode) => (can(me, perm) ? el : <Navigate to="/admin" replace />)
+  const guard = (perms: Permission | readonly Permission[], el: ReactNode) => (canAny(me, typeof perms === 'string' ? [perms] : perms) ? el : <Navigate to="/admin" replace />)
   const first = firstAdminPath(me)
 
   return (
@@ -45,10 +45,10 @@ export default function AdminRoutes() {
           <Route path="environments" element={guard('environments.manage', <EnvironmentsPage />)} />
           <Route path="upstreams" element={guard('environments.manage', <UpstreamsPage />)} />
           <Route path="catalog" element={guard('environments.manage', <CatalogPage />)} />
-          <Route path="kargo" element={guard('environments.manage', <KargoGenPage />)} />
+          <Route path="kargo" element={guard(['pipelines.generate', 'environments.manage'], <KargoGenPage />)} />
           <Route path="release" element={guard('settings.manage', <ReleasePolicyPage />)} />
           <Route path="notify" element={guard('notifications.manage', <NotifyPage />)} />
-          <Route path="ci" element={guard('settings.manage', <CIPage />)} />
+          <Route path="ci" element={guard(['ci.manage', 'settings.manage'], <CIPage />)} />
           <Route path="security" element={guard('settings.manage', <SecurityPage />)} />
           <Route path="sso" element={guard('settings.manage', <SsoPage />)} />
           <Route path="general" element={guard('settings.manage', <GeneralPage />)} />
@@ -65,7 +65,7 @@ function AdminNavItems() {
   return (
     <>
       {ADMIN_GROUPS.map((g) => {
-        const items = g.items.filter((i) => can(me, i.perm))
+        const items = g.items.filter((i) => canAny(me, i.perms))
         if (items.length === 0) return null
         return (
           <div key={g.label}>
@@ -92,7 +92,7 @@ function AdminIndexPage() {
       <Toolbar title={t('nav.admin')} />
       <Page>
         {ADMIN_GROUPS.map((g) => {
-          const items = g.items.filter((i) => can(me, i.perm))
+          const items = g.items.filter((i) => canAny(me, i.perms))
           if (items.length === 0) return null
           return (
             <div key={g.label}>

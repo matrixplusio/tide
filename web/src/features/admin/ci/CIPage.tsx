@@ -26,7 +26,9 @@ import {
   useToast,
 } from '../../../components/ui'
 import { AdminToolbar } from '../AdminToolbar'
-import { useCISnippet, useCITokens, useCreateCIToken, useRevokeCIToken, useSettings } from '../queries'
+import { useMe } from '../../../app/session'
+import { canView } from '../../../lib/permissions'
+import { useCISnippet, useCITokens, useCreateCIToken, useRevokeCIToken } from '../queries'
 import { ciTokenSchema, type CITokenValues } from '../schemas'
 import type { CIToken } from '../types'
 import { IntakeList } from './IntakeList'
@@ -36,6 +38,10 @@ import { IntakeList } from './IntakeList'
 export function CIPage() {
   const { t } = useTranslation()
   const [creating, setCreating] = useState(false)
+  // The reports are releases' business and answer to releases.view; issuing
+  // tokens does not bring it, and a refusal in the middle of the page says
+  // nothing the absence of the list does not.
+  const seesIntakes = canView(useMe(), 'releases.view')
   return (
     <>
       <AdminToolbar title={t('ci.title')} sub={t('ci.sub')}>
@@ -47,8 +53,12 @@ export function CIPage() {
         <Note style={{ paddingTop: 0, marginBottom: 8 }}>{t('ci.note')}</Note>
         <TokenList />
         <SnippetSection />
-        <GroupHeader>{t('ci.intakes')}</GroupHeader>
-        <IntakeList />
+        {seesIntakes && (
+          <>
+            <GroupHeader>{t('ci.intakes')}</GroupHeader>
+            <IntakeList />
+          </>
+        )}
       </Page>
       {creating && <CreateTokenModal onClose={() => setCreating(false)} />}
     </>
@@ -190,8 +200,9 @@ function CreateTokenModal({ onClose }: { onClose: () => void }) {
 function SnippetSection() {
   const { t } = useTranslation()
   const toast = useToast()
-  const settings = useSettings()
-  const envs = settings.data?.environments?.items ?? []
+  // From the session, not the settings: issuing tokens does not come with
+  // reading the environments' configuration.
+  const envs = useMe().environments
   const [env, setEnv] = useState('')
   const chosen = env || envs[0]?.name || ''
   const snippet = useCISnippet(chosen)

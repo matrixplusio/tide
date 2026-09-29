@@ -23,6 +23,13 @@ const (
 	EnvironmentsManage  Permission = "environments.manage"
 	NotificationsManage Permission = "notifications.manage"
 	SettingsManage      Permission = "settings.manage"
+	// PipelinesGenerate and CIManage are day-to-day work split off the two
+	// above, so operations can be given them without the rest: generating
+	// and pushing the Kargo pipelines is not choosing the repository or its
+	// token, and issuing a CI token is not deciding which environments CI may
+	// release into. The broader permission still covers each of them.
+	PipelinesGenerate Permission = "pipelines.generate"
+	CIManage          Permission = "ci.manage"
 
 	PodsView        Permission = "pods.view"
 	ReleasesCreate  Permission = "releases.create"
@@ -63,6 +70,8 @@ var Catalog = []Def{
 	{EnvironmentsManage, "perm.environmentsManage.name", "perm.environmentsManage.desc", ScopeGlobal},
 	{NotificationsManage, "perm.notificationsManage.name", "perm.notificationsManage.desc", ScopeGlobal},
 	{SettingsManage, "perm.settingsManage.name", "perm.settingsManage.desc", ScopeGlobal},
+	{PipelinesGenerate, "perm.pipelinesGenerate.name", "perm.pipelinesGenerate.desc", ScopeGlobal},
+	{CIManage, "perm.ciManage.name", "perm.ciManage.desc", ScopeGlobal},
 	{PodsView, "perm.podsView.name", "perm.podsView.desc", ScopeEnv},
 	{ReleasesCreate, "perm.releasesCreate.name", "perm.releasesCreate.desc", ScopeEnv},
 	{ReleasesRestart, "perm.releasesRestart.name", "perm.releasesRestart.desc", ScopeEnv},
@@ -81,7 +90,7 @@ func Lookup(p Permission) (Def, bool) {
 }
 
 // ManagePermissions are the ones that open the admin console.
-var ManagePermissions = []Permission{UsersManage, RolesManage, EnvironmentsManage, NotificationsManage, SettingsManage}
+var ManagePermissions = []Permission{UsersManage, RolesManage, EnvironmentsManage, NotificationsManage, SettingsManage, PipelinesGenerate, CIManage}
 
 const (
 	TierDevelopment = "development"

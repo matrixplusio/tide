@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button, EmptyState, ErrorState, Group, GroupHeader, Loading, Note, Page, Select, Toolbar, useToast } from '../../../components/ui'
 import { useServices } from '../../services/queries'
+import { useMe } from '../../../app/session'
+import { can } from '../../../lib/permissions'
 import { useKargoPlan, usePushKargo, useSettings } from '../queries'
 import type { KargoFile } from '../types'
 import { PipelineRepoForm } from './PipelineRepoForm'
@@ -30,9 +32,12 @@ export function KargoGenPage() {
   const q = useKargoPlan(domain, project, asked)
   const result = q.data?.result
 
-  const settings = useSettings()
-  const repo = settings.data?.pipeline
-  const canPush = !!(repo?.baseUrl && repo.project && repo.token)
+  // The repository's settings are someone else's to read and change: this
+  // page is also open to whoever may only generate and push.
+  const me = useMe()
+  const configures = can(me, 'environments.manage')
+  const settings = useSettings(configures)
+  const canPush = !!q.data?.pushable
   const push = usePushKargo()
 
   // The picker has to be usable before anything has been generated, so the
@@ -212,8 +217,12 @@ export function KargoGenPage() {
           </>
         )}
 
-        <PipelineRepoForm initial={repo} />
-        <AppsRepoForm initial={settings.data?.apps} />
+        {configures && (
+          <>
+            <PipelineRepoForm initial={settings.data?.pipeline} />
+            <AppsRepoForm initial={settings.data?.apps} />
+          </>
+        )}
       </Page>
     </>
   )

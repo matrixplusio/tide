@@ -334,6 +334,8 @@ export interface KargoPlan {
   /** Every business domain in the catalog, for the picker. */
   domains: { name: string; services: number }[]
   at: string
+  /** The pipeline repository is configured, so the push can be tried. */
+  pushable: boolean
 }
 
 export interface KargoPushed {

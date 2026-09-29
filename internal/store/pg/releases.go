@@ -609,6 +609,18 @@ func (r *Releases) EverDeployed(ctx context.Context, service, env string) (bool,
 	return ok, err
 }
 
+// SupersededBy names the newest release that, after this item, ran or is
+// running something on the same service and environment; empty when none
+// has. Item ids only grow, and one service and environment has one item in
+// flight at a time, so a larger id is a later change.
+func (r *Releases) SupersededBy(ctx context.Context, itemID int64, service, env string) (string, error) {
+	var id string
+	err := r.db.WithContext(ctx).Raw(`SELECT release_id FROM release_items
+		WHERE id > $1 AND payload->>'service' = $2 AND payload->>'env' = $3 AND status IN ('executing', 'succeeded')
+		ORDER BY id DESC LIMIT 1`, itemID, service, env).Scan(&id).Error
+	return id, err
+}
+
 // CountToday returns today's (Asia/Shanghai) releases and how many succeeded.
 // CountToday counts today's releases (Asia/Shanghai). services limits the
 // count to releases touching them; nil counts everything, an empty list

@@ -464,3 +464,39 @@ func TestOnlyADeployedChangeInvalidatesTheCatalog(t *testing.T) {
 		t.Errorf("finishing a release must invalidate the catalog: %d → %d", before, got)
 	}
 }
+
+// A later change on the same service and environment supersedes an item's
+// live view; one elsewhere, or one that never ran, does not.
+func TestSupersededByIsTheLaterChangeOnTheSameTarget(t *testing.T) {
+	s, owner := testdb.Setup(t)
+	ctx := context.Background()
+	done := func(id, status string) {
+		t.Helper()
+		if err := owner.Exec(`UPDATE release_items SET status = $2 WHERE release_id = $1`, id, status).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk := func(service, env, status string) *release.Release {
+		t.Helper()
+		rel, err := s.Releases.Create(ctx, alice, input(service, env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		done(rel.ID, status)
+		return rel
+	}
+	first := mk("svc", "dev", "succeeded")
+	mk("svc", "qa", "succeeded")    // another environment
+	mk("other", "dev", "succeeded") // another service
+	mk("svc", "dev", "cancelled")   // never ran
+	if got, err := s.Releases.SupersededBy(ctx, first.Items[0].ID, "svc", "dev"); err != nil || got != "" {
+		t.Fatalf("nothing supersedes it yet: %q %v", got, err)
+	}
+	second := mk("svc", "dev", "succeeded")
+	if got, _ := s.Releases.SupersededBy(ctx, first.Items[0].ID, "svc", "dev"); got != second.ID {
+		t.Fatalf("superseded by %q, want %s", got, second.ID)
+	}
+	if got, _ := s.Releases.SupersededBy(ctx, second.Items[0].ID, "svc", "dev"); got != "" {
+		t.Fatalf("the latest is superseded by %q", got)
+	}
+}

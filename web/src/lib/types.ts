@@ -18,10 +18,13 @@ export type Permission =
   | 'environments.manage'
   | 'notifications.manage'
   | 'settings.manage'
+  | 'pipelines.generate'
+  | 'ci.manage'
   | 'pods.view'
   | 'releases.create'
   | 'releases.restart'
   | 'releases.sync'
+  | 'releases.scale'
   | 'releases.cancel_any'
 
 export type Tier = 'development' | 'testing' | 'staging' | 'production'
@@ -557,6 +560,8 @@ export interface ItemLive {
   promotion?: PromotionView
   live?: Live
   error?: string
+  /** A later release on the same service and environment. */
+  supersededBy?: string
 }
 
 export interface AuditEntry {

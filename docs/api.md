@@ -143,7 +143,7 @@ Prometheus 文本格式，不走信封。由 `server.metrics` 开关（默认开
 
 每个接口声明所需权限（见 `docs/designs/admin-console.md` §3）。全局权限不足返回 1003；环境权限在处理时按目标环境检查，同样返回 1003，并写审计 `permission.denied`。
 
-`Permission = "services.view" | "releases.view" | "audit.view" | "users.manage" | "roles.manage" | "environments.manage" | "notifications.manage" | "settings.manage" | "pods.view" | "releases.create" | "releases.restart" | "releases.sync" | "releases.cancel_any"`
+`Permission = "services.view" | "releases.view" | "audit.view" | "users.manage" | "roles.manage" | "environments.manage" | "notifications.manage" | "settings.manage" | "pipelines.generate" | "ci.manage" | "pods.view" | "releases.create" | "releases.restart" | "releases.sync" | "releases.scale" | "releases.cancel_any"`
 
 `Tier = "development" | "testing" | "staging" | "production"`
 
@@ -224,12 +224,15 @@ Application 去向。`applications > 0 && kept == 0` 表示服务目录的配置
 环境不归这个上游管（正常，平台类应用会落在这里）。
 
 ### `GET /api/v1/kargo/generate?domain=`
-权限 environments.manage。按业务域生成 Kargo 流水线配置，**只返回文本，不写任何地方**。
+权限 pipelines.generate 或 environments.manage。按业务域生成 Kargo 流水线配置，**只返回文本，不写任何地方**。
 `domain` 为空时生成全部。
 
 → `{ result: { domains: [{name, services, warehouses, stages, files: [{path, yaml}]}],
 skipped: [{service, env?, reason}], services, warehouses, stages, fileCount },
-domains: [{name, services}], at }`
+domains: [{name, services}], at, pushable }`
+
+`pushable` 表示流水线仓库已配置、可以推送。页面据此决定推送按钮，不去读设置：
+只有 pipelines.generate 的人读不到仓库配置。
 
 生成结果**按业务域分组**：业务域就是一个 Kargo Project，也是人 review 的单位。
 
@@ -242,7 +245,7 @@ domains: [{name, services}], at }`
 同上，返回 zip 文件（`application/zip`，**不走信封**）。范围内没有可生成的内容时返回 1004。
 
 ### `POST /api/v1/kargo/push`
-权限 environments.manage。`{ domain?, message? }` → `{ commit: {id, short_id, web_url}, branch, files, result }`
+权限 pipelines.generate 或 environments.manage。`{ domain?, message? }` → `{ commit: {id, short_id, web_url}, branch, files, result }`
 
 把生成的内容**一次提交**到「流水线仓库」设置里配置的仓库，写 git 不写集群。支持 GitLab
 和 Gitea，两家的接口差别关在各自的客户端里：GitLab 要纯文本、没有 upsert，Gitea 要
@@ -335,6 +338,8 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
 
 ### `GET /api/v1/releases/:id?live=false`
 `id` 形如 `REL-20260917-003`。→ `{ release: ReleaseView, can: { confirm, cancel, pods }, live?: ItemLive[] }`；`can` 已按条目服务的项目 / 类型判断（确认只给发起人本人）。错误：3001。
+`ItemLive.supersededBy`：这个条目之后，同一服务同一环境又有别的发布单执行过，值是最新那张的 id。
+这时 `live` 是那张单造成的状态，不能再拿本条目的目标去比。
 
 ### `POST /api/v1/releases/:id/confirm`
 `{ digests: string[] }`（必须与发布单各条目的 digest 集合完全一致：升级取目标 digest，重启取当前运行的 digest；未知的不计入）→ `ReleaseView`。
@@ -398,6 +403,9 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
   流水线是绿的，不报就没人知道。它仍算 `succeeded`，正常走 CD，同时单独发一条通知。
 - `Idempotency-Key` 头可选。成功默认取 `digest`；**失败没有 digest，必须自己带**，
   建议 `<pipeline-id>-<job-name>`。同一个键只处理一次，重跑流水线是安全的。
+  例外：源码没变时重新构建会得到同一个 digest。原来那条如果是 `failed`（当时 Tide 没能发出去，
+  比如 Stage 还没建好），这次通知让它**从头再来一次**，`accepted=true`；其他状态不动，只在
+  原来那条没带 `commits` 时补上。
 - → `{ …intake, "accepted": bool }`。`accepted=false` 表示这是一次重复通知，返回的是原来那条。
 - 成功时立刻返回，**不等制品**：Kargo 的 Warehouse 还没扫到时 intake 停在 `waiting`，
   后台每 20 秒重试，30 分钟没等到标记 `expired`。收到通知时 Tide 会让对应 Warehouse
@@ -417,11 +425,11 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
 `failed` 是 Tide 拿到镜像却没能发出去，`build_failed` 是根本没构建出东西，两者不同。
 
 ### `GET /api/v1/ci/tokens` · `POST /api/v1/ci/tokens` · `DELETE /api/v1/ci/tokens/:token`
-令牌管理（`settings.manage`）。POST `{ name }` → `{ token, secret }`，**`secret` 只在这里出现一次**，
+令牌管理（`ci.manage` 或 `settings.manage`）。POST `{ name }` → `{ token, secret }`，**`secret` 只在这里出现一次**，
 库里只存哈希。DELETE 是撤销（不删行），撤销后立刻 2030。
 
 ### `GET /api/v1/ci/snippet?env=`
-生成可直接粘贴的流水线步骤（`settings.manage`）→ `{ env, mode, url, variable, snippet }`。
+生成可直接粘贴的流水线步骤（`ci.manage` 或 `settings.manage`）→ `{ env, mode, url, variable, snippet }`。
 片段里**不含令牌**，令牌由 GitLab 变量提供。
 
 ## 审计
