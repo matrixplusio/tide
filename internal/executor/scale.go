@@ -199,7 +199,7 @@ func (x Scale) Execute(ctx context.Context, it *release.Item) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	msg := fmt.Sprintf("chore(scale): %s 的 %s 环境副本数 %d → %d", p.Service, p.Env, p.From, p.To)
+	msg := fmt.Sprintf("调整副本数：%s 的 %s 环境 %d → %d", p.Service, p.Env, p.From, p.To)
 	commit, err := x.client(cfg).Push(ctx, cfg.Branch, msg, []repo.File{{Path: p.Path, Content: text}}, nil)
 	if err != nil {
 		return "", err
