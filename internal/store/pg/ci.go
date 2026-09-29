@@ -38,6 +38,10 @@ const (
 	// IntakeFailed: that one means Tide had an image and could not release
 	// it. Nothing was ever built here, so nothing is waited for.
 	IntakeBuildFailed = "build_failed"
+	// IntakeRejected is a report Tide refused before taking it in: an
+	// unknown environment, one that takes no CI releases, a service not
+	// deployed there. Kept so the refusal can be seen; never worked on.
+	IntakeRejected = "rejected"
 )
 
 // CIIntake is one notification from a pipeline, kept until Tide can turn it
@@ -282,13 +286,29 @@ func (r *CI) Waiting(ctx context.Context, limit int) ([]CIIntake, error) {
 }
 
 // ListIntakes returns one page of intakes, newest first, and the total.
-func (r *CI) ListIntakes(ctx context.Context, status string, page, pageSize int) ([]CIIntake, int64, error) {
+// IntakeFilter narrows ListIntakes; empty fields match everything. Service
+// matches any part of the name, because what somebody has in hand is usually
+// the name the pipeline used, and the question is often which name Tide
+// knows it by.
+type IntakeFilter struct {
+	Status  string
+	Service string
+	Env     string
+}
+
+func (r *CI) ListIntakes(ctx context.Context, f IntakeFilter, page, pageSize int) ([]CIIntake, int64, error) {
 	// "?" throughout, because the paging parameters below use it and GORM
 	// binds the two styles independently: a "$1" here would leave the first
 	// "?" to swallow the status, and LIMIT would be handed a string.
 	where, args := "1=1", []any{}
-	if status != "" {
-		where, args = "status = ?", []any{status}
+	if f.Status != "" {
+		where, args = where+" AND status = ?", append(args, f.Status)
+	}
+	if f.Service != "" {
+		where, args = where+` AND service ILIKE ? ESCAPE '\'`, append(args, likePattern(f.Service))
+	}
+	if f.Env != "" {
+		where, args = where+" AND env = ?", append(args, f.Env)
 	}
 	var total int64
 	if err := r.db.WithContext(ctx).Raw(`SELECT count(*) FROM ci_intake WHERE `+where, args...).Scan(&total).Error; err != nil {

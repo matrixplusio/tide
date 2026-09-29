@@ -28,7 +28,7 @@ var (
 	reIdemKey    = regexp.MustCompile(`^[A-Za-z0-9._:@/-]{1,200}$`)
 	reTokenID    = regexp.MustCompile(`^[0-9a-f-]{36}$`)
 	ciActorRe    = regexp.MustCompile(`^[^\x00-\x1f]{0,100}$`)
-	intakeStates = []string{pg.IntakeWaiting, pg.IntakeReleased, pg.IntakeFailed, pg.IntakeExpired, pg.IntakeBuildFailed}
+	intakeStates = []string{pg.IntakeWaiting, pg.IntakeReleased, pg.IntakeFailed, pg.IntakeExpired, pg.IntakeBuildFailed, pg.IntakeRejected}
 )
 
 type ciReleaseReq struct {
@@ -206,6 +206,11 @@ func (a *API) ciRelease(c *gin.Context) {
 		Reason: req.Reason, Key: key, Failed: req.failed(), Detail: req.Error, Warning: req.Warning,
 	})
 	if err != nil {
+		// A refusal that was written down says where: the record is what
+		// somebody looks at to see why the build went nowhere.
+		if intake != nil {
+			err = errcode.From(err).WithData(gin.H{"intakeId": intake.ID})
+		}
 		respond.Fail(c, err)
 		return
 	}
@@ -242,13 +247,13 @@ type ciIntakeView struct {
 
 func (a *API) listCIIntakes(c *gin.Context) {
 	p := newParams(c)
-	status := p.enum("status", intakeStates)
+	f := pg.IntakeFilter{Status: p.enum("status", intakeStates), Service: p.text("service", 128), Env: p.text("env", 64)}
 	page, size := p.page()
 	if err := p.err(); err != nil {
 		respond.Fail(c, err)
 		return
 	}
-	items, total, err := a.PG.CI.ListIntakes(c.Request.Context(), status, page, size)
+	items, total, err := a.PG.CI.ListIntakes(c.Request.Context(), f, page, size)
 	if err != nil {
 		respond.Fail(c, err)
 		return

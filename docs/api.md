@@ -420,9 +420,12 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
   失败只要环境名存在就收：3020 回答的是「这个环境接不接 CI 发的版」，而失败根本没在申请发版。
   否则恰好是那些没开自动发布的环境，构建坏了反而最安静。
 
-### `GET /api/v1/ci/intakes?status=&page=&page_size=`
-收到的通知与结果（`releases.view`）。`status` ∈ `waiting` / `released` / `failed` / `expired` / `build_failed`。
+### `GET /api/v1/ci/intakes?status=&service=&env=&page=&page_size=`
+收到的通知与结果（`releases.view`）。`service` 匹配服务名的任意一部分（不区分大小写，按字面匹配），`env` 精确匹配，可与 `status` 组合。`status` ∈ `waiting` / `released` / `failed` / `expired` / `build_failed` / `rejected`。
 `failed` 是 Tide 拿到镜像却没能发出去，`build_failed` 是根本没构建出东西，两者不同。
+`rejected` 是上报在入库前就被拒了（环境不存在、环境没开 CI、服务未部署到该环境、该环境不直接收镜像）：
+仍然留一条记录写明原因，并发「构建成功但没发出去」通知，因为流水线这边吞掉了非 2xx，没有这条记录就哪里都看不到。
+拒收的错误响应 `data` 里带 `intakeId`。拒收记录不占用 digest 这个幂等键，原因修好后重跑会按新上报处理。
 
 ### `GET /api/v1/ci/tokens` · `POST /api/v1/ci/tokens` · `DELETE /api/v1/ci/tokens/:token`
 令牌管理（`ci.manage` 或 `settings.manage`）。POST `{ name }` → `{ token, secret }`，**`secret` 只在这里出现一次**，

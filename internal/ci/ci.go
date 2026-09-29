@@ -107,7 +107,7 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 	}
 	env, ok := envs.Named(req.Env)
 	if !ok {
-		return nil, false, fmt.Errorf("%w: %s", ErrEnvUnknown, req.Env)
+		return s.reject(ctx, token, req, fmt.Errorf("%w: %s", ErrEnvUnknown, req.Env))
 	}
 	// A build that failed is recorded and announced, and that is all. None
 	// of the checks below apply to it: every one of them asks whether an
@@ -123,7 +123,7 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 		return s.acceptFailure(ctx, token, req)
 	}
 	if env.CIMode() == settings.CIOff {
-		return nil, false, fmt.Errorf("%w: %s", ErrCIDisabled, req.Env)
+		return s.reject(ctx, token, req, fmt.Errorf("%w: %s", ErrCIDisabled, req.Env))
 	}
 	// Whatever has been built, however old, and never a build: a pipeline is
 	// waiting on this reply. A mistyped service name is worth catching here
@@ -132,7 +132,7 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 	// minute after a restart into every pipeline failing to notify, so an
 	// unanswerable question is not asked.
 	if snap := s.Hub.Cached(); snap != nil && deploymentIn(snap, req.Service, req.Env) == nil {
-		return nil, false, fmt.Errorf("%w: %s → %s", ErrNotDeployed, req.Service, req.Env)
+		return s.reject(ctx, token, req, fmt.Errorf("%w: %s → %s", ErrNotDeployed, req.Service, req.Env))
 	}
 	// A stage fed by another stage cannot receive a freshly built image: the
 	// freight has to be promoted into it. Accepting anyway buys a half-hour
@@ -143,7 +143,7 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 	// upstream could not be reached, and an upstream Tide cannot read is no
 	// reason to fail somebody's pipeline.
 	if c, _, _, direct := s.warehousesFor(ctx, req.Service, req.Env); c != nil && !direct {
-		return nil, false, fmt.Errorf("%w: %s", ErrNotDirect, req.Env)
+		return s.reject(ctx, token, req, fmt.Errorf("%w: %s", ErrNotDirect, req.Env))
 	}
 	key := req.Key
 	if key == "" {
@@ -168,6 +168,63 @@ func (s *Service) Accept(ctx context.Context, token *pg.CIToken, req Request) (*
 		}
 	}
 	return got, accepted, nil
+}
+
+// reject records a report that was turned away, announces it, and still
+// returns the refusal. The pipeline's notify step swallows a non-2xx and
+// stays green, so without a record here a refused build left no trace
+// anywhere: the developer saw green, Tide showed nothing.
+//
+// The key is its own, never the digest. Holding the digest would make the
+// re-run after the cause is fixed look like a retry of this refusal and be
+// answered with it, which is the very thing a re-run is for getting past.
+// A pipeline re-run while still misconfigured records another refusal;
+// each one is a build somebody expected to go somewhere.
+func (s *Service) reject(ctx context.Context, token *pg.CIToken, req Request, cause error) (*pg.CIIntake, bool, error) {
+	if s.PG == nil {
+		return nil, false, cause
+	}
+	var snap *catalog.Snapshot
+	if s.Hub != nil {
+		snap = s.Hub.Cached()
+	}
+	reason := rejectReason(snap, req, cause)
+	in, _, err := s.PG.CI.Accept(ctx, pg.CIIntake{
+		Key: fmt.Sprintf("rejected:%s:%s:%d", req.Service, req.Env, time.Now().UnixNano()), Service: req.Service, Env: req.Env,
+		Image: req.Image, Digest: req.Digest, Commit: req.Commit, Stage: req.Stage, Pipeline: req.Pipeline, Repo: req.Repo,
+		Commits: req.Commits, Actor: req.Actor, JiraTicket: req.JiraTicket, Reason: req.Reason, TokenID: token.ID,
+		Status: pg.IntakeRejected, Error: reason, Warning: req.Warning,
+	})
+	if err != nil {
+		// The refusal is the answer the pipeline is owed; failing to write
+		// it down is not a reason to answer something else.
+		zap.L().Warn("ci: could not record a refused report", zap.String("service", req.Service), zap.Error(err))
+		return nil, false, cause
+	}
+	_ = s.PG.Audit.Write(ctx, Actor(token), "ci.rejected", req.Service, req.JiraTicket, map[string]any{
+		"env": req.Env, "digest": req.Digest, "commit": req.Commit, "pipeline": req.Pipeline, "reason": reason,
+	})
+	s.announce(ctx, req, notify.EventBuildStranded, reason)
+	return in, false, cause
+}
+
+// rejectReason says what to go and fix, as specifically as the catalog
+// allows: "not deployed" alone does not tell a missing service from a
+// missing environment, and those are fixed in different places.
+func rejectReason(snap *catalog.Snapshot, req Request, cause error) string {
+	switch {
+	case errors.Is(cause, ErrEnvUnknown):
+		return i18n.T(i18n.Default, "ci.envUnknown") + "：" + req.Env
+	case errors.Is(cause, ErrCIDisabled):
+		return i18n.T(i18n.Default, "ci.disabledHere") + "：" + req.Env
+	case errors.Is(cause, ErrNotDirect):
+		return i18n.T(i18n.Default, "ci.notDirect")
+	case errors.Is(cause, ErrNotDeployed):
+		if r := strandedReason(snap, req.Service, req.Env, ""); r != "" {
+			return r
+		}
+	}
+	return cause.Error()
 }
 
 // acceptFailure records a build that produced nothing and announces it. The

@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fmtTime } from '../../../lib/format'
-import { EmptyState, ErrorState, Group, Loading, Pager, Row, Segmented, StatusDot } from '../../../components/ui'
+import { useMe } from '../../../app/session'
+import { EmptyState, ErrorState, Group, Input, Loading, Pager, Row, Segmented, Select, StatusDot } from '../../../components/ui'
 import { INTAKES_PAGE_SIZE, useCIIntakes } from '../queries'
 import type { IntakeStatus } from '../types'
 
@@ -13,6 +14,7 @@ const FILTERS = [
   ['failed', 'ci.filterFailed'],
   ['expired', 'ci.filterExpired'],
   ['build_failed', 'ci.filterBuildFailed'],
+  ['rejected', 'ci.filterRejected'],
 ] as const
 
 // A waiting intake is not a problem: a warehouse discovers an image on its own
@@ -23,6 +25,8 @@ const DOT: Record<IntakeStatus, 'ok' | 'off' | 'warn' | 'bad'> = {
   failed: 'bad',
   expired: 'bad',
   build_failed: 'bad',
+  // Refused before Tide took it in: the build is green and went nowhere.
+  rejected: 'bad',
 }
 
 const STATUS_LABELS: Record<IntakeStatus, string> = {
@@ -31,13 +35,27 @@ const STATUS_LABELS: Record<IntakeStatus, string> = {
   failed: 'ci.stFailed',
   expired: 'ci.stExpired',
   build_failed: 'ci.stBuildFailed',
+  rejected: 'ci.stRejected',
 }
 
 export function IntakeList() {
   const { t } = useTranslation()
+  const envs = useMe().environments
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
-  const intakes = useCIIntakes({ status: status || undefined, page })
+  const [env, setEnv] = useState('')
+  // What is typed, and what is asked for: a query per keystroke would page
+  // through results nobody reads while the name is half written.
+  const [typed, setTyped] = useState('')
+  const [service, setService] = useState('')
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setService(typed.trim())
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(id)
+  }, [typed])
+  const intakes = useCIIntakes({ status: status || undefined, service: service || undefined, env: env || undefined, page })
   const list = intakes.data?.items ?? []
 
   const statusLabel = (s: IntakeStatus) => t(STATUS_LABELS[s])
@@ -51,6 +69,17 @@ export function IntakeList() {
           options={FILTERS.map(([v, k]) => [v, t(k)] as const)}
           onChange={(v) => {
             setStatus(v)
+            setPage(1)
+          }}
+        />
+        <Input appearance="filled" type="search" aria-label={t('ci.byService')} placeholder={t('ci.servicePlaceholder')} value={typed} onChange={(e) => setTyped(e.target.value)} />
+        <Select
+          appearance="filled"
+          aria-label={t('ci.byEnv')}
+          value={env}
+          options={[['', t('ci.allEnvs')], ...envs.map((e): [string, string] => [e.name, e.displayName ? `${e.displayName} ${e.name}` : e.name])]}
+          onChange={(e) => {
+            setEnv(e.target.value)
             setPage(1)
           }}
         />

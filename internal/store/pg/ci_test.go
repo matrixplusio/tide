@@ -365,7 +365,7 @@ func TestListIntakesFiltersByStatus(t *testing.T) {
 		}
 	}
 
-	all, total, err := s.CI.ListIntakes(ctx, "", 1, 20)
+	all, total, err := s.CI.ListIntakes(ctx, pg.IntakeFilter{}, 1, 20)
 	if err != nil {
 		t.Fatalf("unfiltered: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestListIntakesFiltersByStatus(t *testing.T) {
 		t.Fatalf("unfiltered: %d rows, total %d", len(all), total)
 	}
 
-	waiting, total, err := s.CI.ListIntakes(ctx, "waiting", 1, 20)
+	waiting, total, err := s.CI.ListIntakes(ctx, pg.IntakeFilter{Status: "waiting"}, 1, 20)
 	if err != nil {
 		t.Fatalf("filtered: %v", err)
 	}
@@ -387,12 +387,37 @@ func TestListIntakesFiltersByStatus(t *testing.T) {
 	}
 
 	// Paging on top of the filter: the same two parameters, one page smaller.
-	page, total, err := s.CI.ListIntakes(ctx, "waiting", 2, 1)
+	page, total, err := s.CI.ListIntakes(ctx, pg.IntakeFilter{Status: "waiting"}, 2, 1)
 	if err != nil {
 		t.Fatalf("filtered page 2: %v", err)
 	}
 	if len(page) != 1 || total != 2 {
 		t.Fatalf("filtered page 2: %d rows, total %d", len(page), total)
+	}
+
+	// Service by any part of the name, taken literally; env exactly; both
+	// together with status.
+	for _, in := range []pg.CIIntake{
+		{Key: "k-a", Service: "acme-order_api", Env: "qa", Digest: "d1", TokenID: tok.ID},
+		{Key: "k-b", Service: "shop-order-api", Env: "dev", Digest: "d2", TokenID: tok.ID},
+	} {
+		if _, _, err := s.CI.Accept(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		f    pg.IntakeFilter
+		want int64
+	}{
+		{pg.IntakeFilter{Service: "order"}, 2},
+		{pg.IntakeFilter{Service: "ORDER", Env: "qa"}, 1},
+		{pg.IntakeFilter{Service: "r_a"}, 1}, // "_" is a character, not a wildcard
+		{pg.IntakeFilter{Service: "%"}, 0},
+		{pg.IntakeFilter{Env: "dev", Status: "waiting"}, 3},
+	} {
+		if _, total, err := s.CI.ListIntakes(ctx, c.f, 1, 20); err != nil || total != c.want {
+			t.Errorf("%+v: total %d, want %d (%v)", c.f, total, c.want, err)
+		}
 	}
 }
 
@@ -431,7 +456,7 @@ func TestABuildFailureIsBornFinished(t *testing.T) {
 	if err != nil || again {
 		t.Fatalf("a re-run announced itself twice: %v %v", again, err)
 	}
-	if got, _, err := s.CI.ListIntakes(ctx, pg.IntakeBuildFailed, 1, 10); err != nil || len(got) != 1 {
+	if got, _, err := s.CI.ListIntakes(ctx, pg.IntakeFilter{Status: pg.IntakeBuildFailed}, 1, 10); err != nil || len(got) != 1 {
 		t.Fatalf("build_failed must be filterable: %d %v", len(got), err)
 	}
 }
