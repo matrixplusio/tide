@@ -191,7 +191,8 @@ func (r *CI) BuildsByDigest(ctx context.Context, digests []string) (map[string]C
 // instead of releasing twice; accepted reports whether this call created it.
 // in.Status chooses the state it is recorded in: empty means a build that
 // succeeded and is now waiting for its freight, IntakeBuildFailed means one
-// that never produced anything and is already over.
+// that never produced anything and is already over. A key seen before is
+// not always the same answer again; see again.
 func (r *CI) Accept(ctx context.Context, in CIIntake) (out *CIIntake, accepted bool, err error) {
 	status := in.Status
 	if status == "" {
@@ -207,11 +208,52 @@ func (r *CI) Accept(ctx context.Context, in CIIntake) (out *CIIntake, accepted b
 	if res.Error != nil {
 		return nil, false, res.Error
 	}
+	accepted = res.RowsAffected == 1
+	if !accepted && status == IntakeWaiting {
+		if accepted, err = r.again(ctx, in); err != nil {
+			return nil, false, err
+		}
+	}
 	got, err := r.IntakeByKey(ctx, in.Key)
 	if err != nil {
 		return nil, false, err
 	}
-	return got, res.RowsAffected == 1, nil
+	return got, accepted, nil
+}
+
+// again is a successful build reported under a key Tide has seen before —
+// which, the key being the digest, is the same image built again. Source
+// that did not change builds byte for byte the same image, so this is how a
+// pipeline re-run arrives.
+//
+// An intake that failed starts over as if new: whatever stopped it (a stage
+// not created yet, Kargo not answering) may be fixed now, and answering with
+// the old failure forever would leave that image unreleasable while the
+// pipeline shows green. created_at and attempts are reset because the
+// worker's timeout and back-off count from them. Any other state is left
+// alone — that is what the key is for — except that a history the first
+// report did not carry is kept, since it describes the same image.
+func (r *CI) again(ctx context.Context, in CIIntake) (bool, error) {
+	res := r.db.WithContext(ctx).Exec(`
+		UPDATE ci_intake SET status = 'waiting', release_id = NULL, error = '', attempts = 0,
+			created_at = now(), updated_at = now(), image = $2, commit_sha = $3, stage = $4, pipeline = $5,
+			ci_actor = $6, jira_ticket = $7, reason = $8, token_id = $9, warning = $10, repo = $11, commits = $12
+		WHERE idempotency_key = $1 AND status = 'failed'`,
+		in.Key, in.Image, in.Commit, in.Stage, in.Pipeline, in.Actor, in.JiraTicket, in.Reason, in.TokenID,
+		in.Warning, in.Repo, commitsJSON(in.Commits))
+	if res.Error != nil {
+		return false, res.Error
+	}
+	if res.RowsAffected == 1 {
+		return true, nil
+	}
+	if len(in.Commits) == 0 {
+		return false, nil
+	}
+	return false, r.db.WithContext(ctx).Exec(`
+		UPDATE ci_intake SET commits = $2, repo = CASE WHEN repo = '' THEN $3 ELSE repo END, updated_at = now()
+		WHERE idempotency_key = $1 AND commits = '[]'::jsonb`,
+		in.Key, commitsJSON(in.Commits), in.Repo).Error
 }
 
 func (r *CI) IntakeByKey(ctx context.Context, key string) (*CIIntake, error) {

@@ -54,7 +54,7 @@ export function homePath(me: Pick<Me, 'permissions' | 'canView'>): string {
   return '/profile'
 }
 
-export const ADMIN_PERMISSIONS: readonly Permission[] = ['users.manage', 'roles.manage', 'environments.manage', 'notifications.manage', 'settings.manage']
+export const ADMIN_PERMISSIONS: readonly Permission[] = ['users.manage', 'roles.manage', 'environments.manage', 'notifications.manage', 'settings.manage', 'pipelines.generate', 'ci.manage']
 
 // Holds catalogue keys, not words: read them through permissionLabel.
 export const PERMISSION_LABELS: Record<Permission, string> = {
@@ -66,10 +66,13 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'environments.manage': 'perm.environmentsManage',
   'notifications.manage': 'perm.notificationsManage',
   'settings.manage': 'perm.settingsManage',
+  'pipelines.generate': 'perm.pipelinesGenerate',
+  'ci.manage': 'perm.ciManage',
   'pods.view': 'perm.podsView',
   'releases.create': 'perm.releasesCreate',
   'releases.restart': 'perm.releasesRestart',
   'releases.sync': 'perm.releasesSync',
+  'releases.scale': 'perm.releasesScale',
   'releases.cancel_any': 'perm.releasesCancelAny',
 }
 

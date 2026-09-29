@@ -287,6 +287,25 @@ func TestAPIContract(t *testing.T) {
 	if restartResp.Code == errcode.Forbidden {
 		t.Fatalf("restarter must pass the permission check: %s", restartResp.Msg)
 	}
+	// Generating pipelines and issuing CI tokens are split off the settings
+	// permissions: granted alone they open those pages and nothing else.
+	expect(t, opsClient.do("GET", "/api/v1/ci/tokens", nil), errcode.Forbidden)
+	expect(t, opsClient.do("GET", "/api/v1/kargo/generate", nil), errcode.Forbidden)
+	expect(t, c.do("POST", "/api/v1/roles", map[string]any{"id": "pipeliner", "name": "运维", "permissions": []string{"pipelines.generate", "ci.manage"}}), errcode.OK)
+	expect(t, c.do("POST", "/api/v1/role-bindings", map[string]any{"roleId": "pipeliner", "subject": "user:" + ops.Sub, "envs": []string{"*"}}), errcode.OK)
+	expect(t, opsClient.do("GET", "/api/v1/ci/tokens", nil), errcode.OK)
+	expect(t, opsClient.do("POST", "/api/v1/ci/tokens", map[string]string{"name": "ops-token"}), errcode.OK)
+	// No environments exist here, so these answer something other than OK;
+	// what matters is that the answer is not a refusal.
+	for _, path := range []string{"/api/v1/ci/snippet", "/api/v1/kargo/generate"} {
+		if got := opsClient.do("GET", path, nil); got.Code == errcode.Forbidden {
+			t.Fatalf("%s refused a holder of the split permission: %s", path, got.Msg)
+		}
+	}
+	expect(t, opsClient.do("GET", "/api/v1/settings", nil), errcode.Forbidden)
+	expect(t, opsClient.do("PUT", "/api/v1/settings/pipeline", map[string]any{"baseUrl": "https://git.example.com"}), errcode.Forbidden)
+	expect(t, opsClient.do("PUT", "/api/v1/settings/environments", map[string]any{"items": []any{}}), errcode.Forbidden)
+	expect(t, opsClient.do("GET", "/api/v1/settings/catalog/labels", nil), errcode.Forbidden)
 	// Disabling ends the session.
 	expect(t, c.do("PUT", opsPath+"/disabled", map[string]any{"disabled": true}), errcode.OK)
 	expect(t, opsClient.do("GET", "/api/v1/me", nil), errcode.Unauthorized)

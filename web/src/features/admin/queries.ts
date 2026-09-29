@@ -9,9 +9,10 @@ const enc = encodeURIComponent
 
 export const SETTINGS_KEY = ['settings'] as const
 
-export function useSettings() {
+export function useSettings(enabled = true) {
   return useQuery({
     queryKey: SETTINGS_KEY,
+    enabled,
     queryFn: ({ signal }) => apiFetch<SettingsData>('/api/v1/settings', { signal }),
     // Forms are seeded from this; a background refetch must not clobber input.
     refetchOnWindowFocus: false,

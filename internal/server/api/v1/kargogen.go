@@ -38,10 +38,18 @@ func (a *API) generateKargo(c *gin.Context) {
 		respond.Fail(c, err)
 		return
 	}
+	// pushable is here, not read off the settings by the page: whoever may
+	// generate need not be allowed to read the repository's configuration.
+	var cfg settings.PipelineRepo
+	if err := a.Settings.Load(c.Request.Context(), settings.SectionPipelineRepo, &cfg); err != nil && !errors.Is(err, settings.ErrNotConfigured) {
+		respond.Fail(c, err)
+		return
+	}
 	respond.OK(c, gin.H{
-		"result":  res,
-		"domains": domainsOf(snap),
-		"at":      snap.At,
+		"result":   res,
+		"domains":  domainsOf(snap),
+		"at":       snap.At,
+		"pushable": cfg.Configured(),
 	})
 }
 
