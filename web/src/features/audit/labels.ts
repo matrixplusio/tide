@@ -57,6 +57,7 @@ export const actionLabel: Record<string, string> = {
 
   // CI-triggered releases
   'ci.intake': 'CI reported an image',
+  'ci.rejected': 'CI report refused',
   'kargo.push': 'Pushed a generated pipeline',
   'ci.token.create': 'CI token issued',
   'ci.token.revoke': 'CI token revoked',

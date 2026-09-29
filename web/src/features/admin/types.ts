@@ -261,7 +261,7 @@ export interface CIToken {
   revokedAt?: string | null
 }
 
-export type IntakeStatus = 'waiting' | 'released' | 'failed' | 'expired' | 'build_failed'
+export type IntakeStatus = 'waiting' | 'released' | 'failed' | 'expired' | 'build_failed' | 'rejected'
 
 /** One notification from a pipeline and what became of it. */
 export interface CIIntake {

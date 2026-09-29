@@ -78,9 +78,11 @@ export function useRevokeCIToken() {
 
 export const INTAKES_PAGE_SIZE = 20
 
-export function useCIIntakes(f: { status?: string; page: number }) {
+export function useCIIntakes(f: { status?: string; service?: string; env?: string; page: number }) {
   const q = new URLSearchParams({ page: String(f.page), page_size: String(INTAKES_PAGE_SIZE) })
   if (f.status) q.set('status', f.status)
+  if (f.service) q.set('service', f.service)
+  if (f.env) q.set('env', f.env)
   return useQuery({
     queryKey: ['ci-intakes', f],
     queryFn: ({ signal }) => apiFetch<Paged<CIIntake>>(`/api/v1/ci/intakes?${q}`, { signal }),
