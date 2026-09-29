@@ -358,7 +358,9 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
 ### `POST /api/v1/releases/:id/cancel`
 `{ reason?: string }`（≤ 500）→ `ReleaseView`。错误：1003、3001、3005。
 
-`ReleaseView = Release & { confirmableAt?, expiresAt?, automatic }`，倒计时以服务端时间 `now` 计算。
+`ReleaseView = Release & { confirmableAt?, expiresAt?, automatic, ciToken? }`，倒计时以服务端时间 `now` 计算。
+CI 建的单：`createdBy` 是 `ci:<令牌id>`（据此区分人和 CI），`createdByName` 是上报里的 `actor`（触发流水线的人，为空时退回令牌名），`ciToken` 是令牌名。
+详情里的 `changes`（按条目）`note` 取值：`firstDeploy`（没有正在运行的上一版可比）、`noBuild`、`noHistory`、`tooFar`。
 `Release.source` 是 `"ui"`（默认）或 `"ci"`。`automatic` 表示**没有人放行**（CI 建的单且确认主体就是那个令牌）；
 它是推断出来的，成立的前提是令牌只能打 `/ci/releases`，够不到确认端点。
 

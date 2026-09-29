@@ -867,6 +867,7 @@ const en: Messages = {
     confirmed: 'Confirmed',
     autoReleased: 'Released automatically',
     fromCI: 'triggered by CI',
+    fromCIToken: 'triggered by CI (token {{token}})',
     rejected: 'Rejected',
     approving: 'Awaiting approval',
     approved: 'Approved',
@@ -915,6 +916,7 @@ const en: Messages = {
     srcCapped: '(newest 50 only)',
     srcHidden: '({{n}} merge/build commits hidden)',
     srcNote: {
+      firstDeploy: 'First deployment: nothing running to compare with',
       noBuild: 'No commit list: at least one image was not reported by CI, so its commit is unknown',
       noHistory: 'No commit list: the CI report carried no history (older pipeline component)',
       tooFar: 'The two images are more than 50 commits apart, beyond the history CI sends; not listed',

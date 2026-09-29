@@ -58,4 +58,11 @@ func TestChangesForReadsTheTwoHistories(t *testing.T) {
 	if got := changesFor(rel("old", "unknown"), builds)[7]; got.Note != "noBuild" {
 		t.Errorf("unknown image: %+v", got)
 	}
+	first := &release.Release{Items: []release.Item{{ID: 8, Kind: release.KindImage, Payload: func() json.RawMessage {
+		p, _ := json.Marshal(release.ImagePayload{Service: "s", Env: "dev", To: release.Artifact{Digest: "new"}})
+		return p
+	}()}}}
+	if got := changesFor(first, builds)[8]; got == nil || got.Note != "firstDeploy" {
+		t.Errorf("first deployment: %+v", got)
+	}
 }
