@@ -408,6 +408,8 @@ export interface Release {
   source?: 'ui' | 'ci'
   /** Released without a person confirming it. */
   automatic?: boolean
+  /** For a CI release: the token it came in through. createdByName is the person who ran the pipeline. */
+  ciToken?: string
   status: ReleaseStatus
   submittedAt?: string
   confirmedAt?: string

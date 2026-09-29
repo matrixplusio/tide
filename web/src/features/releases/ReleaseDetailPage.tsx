@@ -120,7 +120,7 @@ export function ReleaseDetailPage() {
                   <KV k={t('detail.env')}>{r.env}</KV>
                   <KV k={t('detail.creator')}>
                     {r.createdByName}
-                    {r.source === 'ci' && <span className="muted"> · {t('detail.fromCI')}</span>}
+                    {r.source === 'ci' && <span className="muted"> · {r.ciToken ? t('detail.fromCIToken', { token: r.ciToken }) : t('detail.fromCI')}</span>}
                   </KV>
                   <KV k={t('detail.reason')}>
                     <span className="prewrap">{r.reason}</span>

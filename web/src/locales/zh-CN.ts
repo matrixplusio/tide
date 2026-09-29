@@ -869,6 +869,7 @@ const zhCN = {
     confirmed: '已确认',
     autoReleased: '自动放行',
     fromCI: '由 CI 触发',
+    fromCIToken: '由 CI 触发（令牌 {{token}}）',
     rejected: '已拒绝',
     approving: '审批中',
     approved: '已审批',
@@ -917,6 +918,7 @@ const zhCN = {
     srcCapped: '（只列最近 50 个）',
     srcHidden: '（另有 {{n}} 个合并/构建提交已隐藏）',
     srcNote: {
+      firstDeploy: '首次部署，没有可对比的上一版',
       noBuild: '拿不到提交列表：至少一边的镜像没有经 CI 上报，不知道它来自哪个提交',
       noHistory: '拿不到提交列表：CI 上报里没带提交历史（流水线组件版本较旧）',
       tooFar: '两个版本相隔超过 50 个提交，超出 CI 上报的历史范围，不列',

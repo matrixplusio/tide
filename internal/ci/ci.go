@@ -607,6 +607,12 @@ func (s *Service) submit(ctx context.Context, in pg.CIIntake, env settings.Envir
 	if err != nil {
 		return nil, err
 	}
+	// The person who ran the pipeline, by name; the token stays the identity.
+	// Everything that tells CI from a person — automatic release, who may
+	// confirm, "mine" — reads the subject, which is still ci:<token>.
+	if in.Actor != "" {
+		actor.Name = in.Actor
+	}
 	rel, err := s.PG.Releases.Create(ctx, actor, input)
 	if err != nil {
 		return nil, err

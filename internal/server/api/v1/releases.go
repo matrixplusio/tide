@@ -313,6 +313,9 @@ type ReleaseView struct {
 	// CanApprove: the viewer is an approver who has not decided yet.
 	CanApprove bool       `json:"canApprove"`
 	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+	// CIToken names the token a CI release came in through. The creator is
+	// the person who ran the pipeline; this is where it came from.
+	CIToken string `json:"ciToken,omitempty"`
 }
 
 func view(r *release.Release, policy settings.ReleasePolicy) ReleaseView {
@@ -336,11 +339,32 @@ func (a *API) views(c *gin.Context, list []release.Release) ([]ReleaseView, erro
 	out := make([]ReleaseView, len(list))
 	u := currentUser(c)
 	groups := slices.Concat(u.Groups, u.LocalGroups)
+	var tokens map[string]string
 	for i := range list {
 		out[i] = view(&list[i], policy)
 		out[i].CanApprove = canApprove(&list[i], u.Sub, groups)
+		if id, ok := strings.CutPrefix(list[i].CreatedBy, "ci:"); ok {
+			if tokens == nil {
+				tokens = a.ciTokenNames(c.Request.Context())
+			}
+			out[i].CIToken = tokens[id]
+		}
 	}
 	return out, nil
+}
+
+// ciTokenNames maps token ids to names, revoked ones included: a release
+// outlives the token it came in through. Empty on error; the name is a label.
+func (a *API) ciTokenNames(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	list, err := a.PG.CI.ListTokens(ctx)
+	if err != nil {
+		return out
+	}
+	for _, t := range list {
+		out[t.ID] = t.Name
+	}
+	return out
 }
 
 func (a *API) view(c *gin.Context, r *release.Release) (ReleaseView, error) {
@@ -1100,7 +1124,7 @@ type ItemChanges struct {
 	To        string        `json:"to,omitempty"`
 	Direction string        `json:"direction"` // forward | rollback | same
 	Commits   []repo.Change `json:"commits"`
-	Note      string        `json:"note,omitempty"` // noBuild | noHistory | tooFar
+	Note      string        `json:"note,omitempty"` // firstDeploy | noBuild | noHistory | tooFar
 }
 
 // changesFor works out, per upgrade in the release, the commits between the
@@ -1116,7 +1140,14 @@ func changesFor(rel *release.Release, builds map[string]pg.CIBuild) map[int64]*I
 			continue
 		}
 		p, err := rel.ImagePayload(it)
-		if err != nil || p.From == nil {
+		if err != nil {
+			continue
+		}
+		// Said rather than left blank: an empty space where the commits go
+		// reads as the feature not working, when there is simply nothing
+		// running to compare with.
+		if p.From == nil {
+			out[it.ID] = &ItemChanges{Direction: "same", Commits: []repo.Change{}, Note: "firstDeploy"}
 			continue
 		}
 		from, okFrom := builds[p.From.Digest]
