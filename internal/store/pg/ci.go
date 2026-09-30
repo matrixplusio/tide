@@ -230,10 +230,10 @@ func (r *CI) Accept(ctx context.Context, in CIIntake) (out *CIIntake, accepted b
 // that did not change builds byte for byte the same image, so this is how a
 // pipeline re-run arrives.
 //
-// An intake that failed starts over as if new: whatever stopped it (a stage
-// not created yet, Kargo not answering) may be fixed now, and answering with
-// the old failure forever would leave that image unreleasable while the
-// pipeline shows green. created_at and attempts are reset because the
+// An intake that failed or expired starts over as if new: whatever stopped
+// it (a stage not created yet, a warehouse watching the wrong repository,
+// Kargo not answering) may be fixed now, and answering with the old outcome
+// forever would leave that image unreleasable while the pipeline shows green. created_at and attempts are reset because the
 // worker's timeout and back-off count from them. Any other state is left
 // alone — that is what the key is for — except that a history the first
 // report did not carry is kept, since it describes the same image.
@@ -242,7 +242,7 @@ func (r *CI) again(ctx context.Context, in CIIntake) (bool, error) {
 		UPDATE ci_intake SET status = 'waiting', release_id = NULL, error = '', attempts = 0,
 			created_at = now(), updated_at = now(), image = $2, commit_sha = $3, stage = $4, pipeline = $5,
 			ci_actor = $6, jira_ticket = $7, reason = $8, token_id = $9, warning = $10, repo = $11, commits = $12
-		WHERE idempotency_key = $1 AND status = 'failed'`,
+		WHERE idempotency_key = $1 AND status IN ('failed', 'expired')`,
 		in.Key, in.Image, in.Commit, in.Stage, in.Pipeline, in.Actor, in.JiraTicket, in.Reason, in.TokenID,
 		in.Warning, in.Repo, commitsJSON(in.Commits))
 	if res.Error != nil {

@@ -177,11 +177,18 @@ func rolloutStatus(ws []workload, target release.Artifact) ItemStatus {
 	runs := false
 	var waiting []string
 	for _, w := range ws {
-		if failed, why := rolloutFailed(w.kind, w.obj); failed {
-			return ItemStatus{Done: true, Error: fmt.Sprintf("%s/%s: %s", w.kind, w.name, why)}
-		}
-		if runsArtifact(w.obj, target) {
+		// A verdict only counts once the workload's spec is this release's.
+		// Until the sync lands, whatever Kubernetes last concluded is about
+		// the version before — and a Deployment that was already broken (a
+		// new service still on its placeholder image, say) carries a
+		// deadline it exceeded long ago, which read here failed a release a
+		// second after its promotion, before the new pods even existed.
+		onTarget := runsArtifact(w.obj, target)
+		if onTarget {
 			runs = true
+			if failed, why := rolloutFailed(w.kind, w.obj); failed {
+				return ItemStatus{Done: true, Error: fmt.Sprintf("%s/%s: %s", w.kind, w.name, why)}
+			}
 		}
 		if ok, why := rolloutComplete(w.kind, w.obj); !ok {
 			waiting = append(waiting, fmt.Sprintf("%s/%s: %s", w.kind, w.name, why))

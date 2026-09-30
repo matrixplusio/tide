@@ -107,3 +107,32 @@ func TestAWorkloadStillOnTheOldVersionIsNotDone(t *testing.T) {
 		t.Errorf("it must say what is missing: %q", got.Waiting)
 	}
 }
+
+// A Deployment that was already broken before the release — a new service
+// still on its placeholder image — carries a deadline it exceeded long ago.
+// Until the sync puts the target in its spec, that verdict is about the old
+// version, and reading it failed a release a second after its promotion,
+// before the new pods existed. Once the target is in, a real deadline still
+// fails it.
+func TestAnOldRolloutsDeadlineIsNotThisReleasesFailure(t *testing.T) {
+	exceeded := func(obj map[string]any) map[string]any {
+		obj["status"].(map[string]any)["conditions"] = []any{map[string]any{
+			"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded",
+			"message": `ReplicaSet "cart-5d9c68d5c8" has timed out progressing.`,
+		}}
+		return obj
+	}
+	before := exceeded(deploy("registry.example.com/acme-dev/cart:PLACEHOLDER", 1, 1, 0, 1, 0))
+	got := rolloutStatus([]workload{{kind: "Deployment", name: "cart", obj: before}}, target)
+	if got.Done {
+		t.Fatalf("the old version's deadline failed this release: %+v", got)
+	}
+	if !strings.Contains(got.Waiting, "no workload runs") {
+		t.Errorf("it must be waiting for the sync: %q", got.Waiting)
+	}
+
+	after := exceeded(deploy(newImage, 1, 1, 0, 1, 0))
+	if got := rolloutStatus([]workload{{kind: "Deployment", name: "cart", obj: after}}, target); !got.Done || got.Success {
+		t.Fatalf("a deadline on the target version must still fail it: %+v", got)
+	}
+}
