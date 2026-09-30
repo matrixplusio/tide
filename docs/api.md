@@ -405,8 +405,8 @@ CI 建的单：`createdBy` 是 `ci:<令牌id>`（据此区分人和 CI），`cre
   流水线是绿的，不报就没人知道。它仍算 `succeeded`，正常走 CD，同时单独发一条通知。
 - `Idempotency-Key` 头可选。成功默认取 `digest`；**失败没有 digest，必须自己带**，
   建议 `<pipeline-id>-<job-name>`。同一个键只处理一次，重跑流水线是安全的。
-  例外：源码没变时重新构建会得到同一个 digest。原来那条如果是 `failed`（当时 Tide 没能发出去，
-  比如 Stage 还没建好），这次通知让它**从头再来一次**，`accepted=true`；其他状态不动，只在
+  例外：源码没变时重新构建会得到同一个 digest。原来那条如果是 `failed` 或 `expired`（当时 Tide 没能发出去，
+  比如 Stage 还没建好、Warehouse 订阅错了地址），这次通知让它**从头再来一次**，`accepted=true`；其他状态不动，只在
   原来那条没带 `commits` 时补上。
 - → `{ …intake, "accepted": bool }`。`accepted=false` 表示这是一次重复通知，返回的是原来那条。
 - 成功时立刻返回，**不等制品**：Kargo 的 Warehouse 还没扫到时 intake 停在 `waiting`，

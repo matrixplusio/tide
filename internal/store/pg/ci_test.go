@@ -580,6 +580,20 @@ func TestSameImageReportedAgain(t *testing.T) {
 		t.Fatal("created_at was not reset: the worker would expire it at once")
 	}
 
+	// Expired — the freight never showed up, say a warehouse watching the
+	// wrong repository — starts over the same way.
+	stale := pg.CIIntake{Key: digest("f"), Service: "svc", Env: "dev", Digest: digest("f"), TokenID: tok.ID}
+	gone, _, err := s.CI.Accept(ctx, stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CI.Resolve(ctx, gone.ID, pg.IntakeExpired, "", "waited 30m"); err != nil {
+		t.Fatal(err)
+	}
+	if got, accepted, err := s.CI.Accept(ctx, stale); err != nil || !accepted || got.Status != pg.IntakeWaiting {
+		t.Fatalf("an expired intake did not start over: accepted=%v %+v %v", accepted, got, err)
+	}
+
 	// Released: stays released; the missing history is filled in, once.
 	done := pg.CIIntake{Key: digest("e"), Service: "svc", Env: "dev", Digest: digest("e"), TokenID: tok.ID}
 	in, _, err := s.CI.Accept(ctx, done)

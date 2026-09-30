@@ -130,8 +130,13 @@ func (x Restart) Poll(ctx context.Context, it *release.Item) (ItemStatus, error)
 		if err != nil {
 			return ItemStatus{}, fmt.Errorf("%s/%s: %w", w.Kind, w.Name, err)
 		}
-		if failed, why := rolloutFailed(w.Kind, obj); failed {
-			return ItemStatus{Done: true, Error: fmt.Sprintf("%s/%s: %s", w.Kind, w.Name, why)}, nil
+		// Same reasoning as for an image: before the restart annotation is on
+		// the template, a deadline the workload already exceeded belongs to
+		// the rollout before this one.
+		if restartedAt(obj) != "" {
+			if failed, why := rolloutFailed(w.Kind, obj); failed {
+				return ItemStatus{Done: true, Error: fmt.Sprintf("%s/%s: %s", w.Kind, w.Name, why)}, nil
+			}
 		}
 		if done, why := rolledOut(w.Kind, obj); !done {
 			waiting = append(waiting, fmt.Sprintf("%s/%s: %s", w.Kind, w.Name, why))
