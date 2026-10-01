@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMe } from '../../app/session'
 import { can } from '../../lib/permissions'
@@ -24,6 +24,25 @@ export function ServicesPage() {
   const nav = useNavigate()
   const [params, setParams] = useSearchParams()
   const q = params.get('q') ?? ''
+  // The box holds its own text and the URL follows it. Bound straight to the
+  // URL, every keystroke went out to the router and came back a render later,
+  // and React, seeing a value it had not typed, put the caret at the end —
+  // editing the middle of a name took one click per character.
+  const [text, setText] = useState(q)
+  // What this box wrote to the URL. The URL trails the typing, so the q a
+  // render sees is often an earlier keystroke; only a q the box did not
+  // write (a link, the palette) is somebody else's and replaces the text.
+  const written = useRef(new Set([q]))
+  useEffect(() => {
+    if (written.current.has(q)) return
+    written.current = new Set([q])
+    setText(q)
+  }, [q])
+  const onSearch = (v: string) => {
+    written.current.add(v)
+    setText(v)
+    set('q', v)
+  }
   const dims = me.app.dimensions
   const domain = params.get('domain') ?? ''
   const project = params.get('project') ?? ''
@@ -108,7 +127,7 @@ export function ServicesPage() {
               return <Segmented key={d.key} label={d.name} value={value} options={[['', t('services.all')], ...options]} onChange={(v) => set(d.key, v)} />
             return <Select key={d.key} appearance="filled" aria-label={d.name} value={value} options={[['', t('services.allOf', { what: d.name })], ...options]} onChange={(e) => set(d.key, e.target.value)} />
           })}
-          <Input appearance="filled" type="search" className="filter-text" aria-label={t('services.searchLabel')} placeholder={t('services.searchPlaceholder')} value={q} autoFocus onChange={(e) => set('q', e.target.value)} />
+          <Input appearance="filled" type="search" className="filter-text" aria-label={t('services.searchLabel')} placeholder={t('services.searchPlaceholder')} value={text} autoFocus onChange={(e) => onSearch(e.target.value)} />
           {scoped && (
             <Button size="small" variant="quiet" onClick={clearScope}>
               {t('services.clearFilters')}
