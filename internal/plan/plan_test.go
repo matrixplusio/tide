@@ -121,3 +121,27 @@ func TestRequestedFreight(t *testing.T) {
 		t.Fatalf("dev: %v", got)
 	}
 }
+
+// After a warehouse changes repository, Kargo keeps the freight it found
+// under the old one, same tag and digest, and may still call it available.
+// The promotion looks the image up by the stage's current repository and
+// errors; such freight must be told apart before anyone can pick it.
+func TestFreightFromADroppedRepositoryIsStale(t *testing.T) {
+	var s kargo.Stage
+	if err := json.Unmarshal([]byte(`{"spec":{"promotionTemplate":{"spec":{"vars":[
+		{"name":"gitRepo","value":"https://git.example.com/acme/apps.git"},
+		{"name":"imageRepo","value":"registry.example.com/acme-dev/acme-cart"}]}}}}`), &s); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Var("imageRepo"); got != "registry.example.com/acme-dev/acme-cart" {
+		t.Fatalf("imageRepo var: %q", got)
+	}
+	if s.Var("missing") != "" {
+		t.Fatal("an unset var must read empty")
+	}
+	old := kargo.Freight{Images: []kargo.Image{{RepoURL: "registry.example.com/acme-dev/cart", Tag: "t1", Digest: "sha256:aa"}}}
+	cur := kargo.Freight{Images: []kargo.Image{{RepoURL: "registry.example.com/acme-dev/acme-cart", Tag: "t1", Digest: "sha256:aa"}}}
+	if carries(old, s.Var("imageRepo")) || !carries(cur, s.Var("imageRepo")) {
+		t.Fatal("only freight under the stage's repository can be promoted")
+	}
+}

@@ -470,6 +470,8 @@ export interface Candidate {
   builtAt?: string
   createdAt?: string
   available: boolean
+  /** Set when the freight came from a repository the warehouse no longer watches: it cannot be promoted. */
+  stale?: string
   current: boolean
   verifiedIn: { stage: string; since?: string }[] | null
   currentIn: { stage: string; since?: string }[] | null

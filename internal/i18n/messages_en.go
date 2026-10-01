@@ -452,6 +452,7 @@ var enPlan = map[Key]string{
 	"pl.freightAlreadyRunning": "Artifact %s is already running in %s",
 	"pl.freightBlocked":        "Artifact %s cannot go to %s: %s",
 	"pl.freightNotPromoted":    "Artifact %s cannot go to %s right now (Kargo has not promoted it)",
+	"pl.freightStale":          "Artifact %s comes from %s, a repository the warehouse no longer watches; the pipeline looks images up by the current one and cannot promote it. Pick the same version from the current repository",
 	"pl.freightUnknown":        "Artifact %s does not exist, has been cleaned up, or is not from the registry %s uses",
 	"pl.freightUnverified":     "Artifact %s has not been verified in %s, so it cannot go to %s",
 	"pl.freightUnverifiedGate": "Artifact %s (%s) has not been verified in %s, so it cannot go to %s",
