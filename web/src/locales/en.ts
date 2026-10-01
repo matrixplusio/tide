@@ -772,6 +772,8 @@ const en: Messages = {
     runningIn: 'running in {{stage}}',
     unverifiedPill: 'unverified, cannot pick',
     unavailablePill: 'cannot pick',
+    stalePill: 'old repository',
+    staleTitle: 'This artifact comes from {{repo}}, a repository the warehouse no longer watches; the pipeline cannot promote it. Pick the same version from the current repository',
     warehouses: ' (Kargo warehouse: {{list}})',
     warehousesShort: ' ({{list}})',
   },

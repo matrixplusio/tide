@@ -266,6 +266,7 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
 → `Candidates { deployment, upstreamStages, warehouses, direct, items, availableCount, totalCount }`。
 只列该 Stage 的 `requestedFreight` 里声明的 Warehouse 产出的制品（同一 Kargo 项目里的其他 Warehouse 不出现）；
 `upstreamStages` 为空、`direct=true` 表示该环境直接使用 CI 制品。
+旧仓库的制品：Stage 的晋级变量 `imageRepo` 是晋级时取镜像用的仓库。制品里没有这个仓库的镜像（Warehouse 改过订阅地址后留下的旧制品，tag 和 digest 可能都相同），标 `available=false`、`stale=<旧仓库>`，建单时拒绝（3007）。CI 按 digest 找制品时只认非旧仓库的那份。
 跨站点验证：环境配置了 `promotesFrom`，且该服务在来源环境属于另一个 Kargo 项目（通常是另一个站点）时，返回 `gate = { env, upstream, project, stage, label, problem? }`：
 - 到来源 Kargo 查 Freight，按镜像 digest 匹配在来源 Stage 的 `verifiedIn`；匹配不到的候选 `available=false`，匹配到的在 `verifiedIn` 追加 `{ stage: label, since: verifiedAt }`（最短验证时长也按它计算），`label` 同时加入 `upstreamStages`。
 - 该服务没部署到来源环境、来源不受 Kargo 管理或读取失败时写入 `problem`，所有候选不可用（失败即拒绝）。

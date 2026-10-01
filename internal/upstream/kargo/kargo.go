@@ -156,6 +156,14 @@ type Stage struct {
 				RequiredSoakTime string   `json:"requiredSoakTime"`
 			} `json:"sources"`
 		} `json:"requestedFreight"`
+		PromotionTemplate struct {
+			Spec struct {
+				Vars []struct {
+					Name  string `json:"name"`
+					Value string `json:"value"`
+				} `json:"vars"`
+			} `json:"spec"`
+		} `json:"promotionTemplate"`
 	} `json:"spec"`
 	Status struct {
 		FreightHistory []struct {
@@ -198,6 +206,16 @@ func (s *Stage) UpstreamStages() []string {
 		out = append(out, rf.Sources.Stages...)
 	}
 	return out
+}
+
+// Var is a variable the stage hands its promotion steps; empty when unset.
+func (s *Stage) Var(name string) string {
+	for _, v := range s.Spec.PromotionTemplate.Spec.Vars {
+		if v.Name == name {
+			return v.Value
+		}
+	}
+	return ""
 }
 
 // Warehouses returns the warehouses this stage takes freight from, and

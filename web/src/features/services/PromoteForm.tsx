@@ -236,7 +236,7 @@ function ArtifactOption({ c, env, upstreamNames, name, checked, onSelect }: { c:
     <label
       htmlFor={id}
       className={`art ${checked ? 'on' : ''} ${disabled ? 'disabled' : ''}`}
-      title={!c.available ? (upstreamNames.length ? t('forms.notVerifiedTitle', { stages: upstreamNames.join(' / '), env }) : t('forms.notPromotable')) : ''}
+      title={c.stale ? t('forms.staleTitle', { repo: c.stale }) : !c.available ? (upstreamNames.length ? t('forms.notVerifiedTitle', { stages: upstreamNames.join(' / '), env }) : t('forms.notPromotable')) : ''}
     >
       <input id={id} type="radio" className="sr-only" name={name} value={c.freight} checked={checked} disabled={disabled} onChange={onSelect} />
       <span className="radio" aria-hidden="true" />
@@ -274,7 +274,7 @@ function ArtifactOption({ c, env, upstreamNames, name, checked, onSelect }: { c:
             .map((x) => (
               <Pill key={x.stage}>{t('forms.runningIn', { stage: x.stage })}</Pill>
             ))}
-          {!c.available && <Pill>{upstreamNames.length ? t('forms.unverifiedPill') : t('forms.unavailablePill')}</Pill>}
+          {!c.available && <Pill>{c.stale ? t('forms.stalePill') : upstreamNames.length ? t('forms.unverifiedPill') : t('forms.unavailablePill')}</Pill>}
         </span>
       </span>
       <span className="v nowrap">{fmtTime(c.createdAt)}</span>

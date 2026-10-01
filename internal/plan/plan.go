@@ -56,6 +56,12 @@ type Candidate struct {
 	Current    bool        `json:"current"`
 	VerifiedIn []StageMark `json:"verifiedIn"`
 	CurrentIn  []StageMark `json:"currentIn"`
+	// Stale is the repository of freight found under a subscription the
+	// warehouse has since dropped. Kargo keeps such freight and may even call
+	// it available, but the promotion looks the image up by the repository
+	// the stage uses now, finds nothing, and errors with a reflection message
+	// nobody can read. Unavailable here so it cannot be picked.
+	Stale string `json:"stale,omitempty"`
 	// Build is what CI reported for this image, when it reported anything:
 	// the commit title is what a person picking a tag actually wants to
 	// read, and the tag alone does not say it.
@@ -130,9 +136,15 @@ func List(ctx context.Context, hub *catalog.Hub, d *catalog.Deployment, gate *Ga
 	if all || gate != nil {
 		src = everything
 	}
+	// The repository the promotion will look the image up by. Generated
+	// stages carry it; one that does not is not second-guessed.
+	repo := stage.Var("imageRepo")
 	for _, f := range src {
 		cand := toCandidate(f, d)
 		cand.Available = avail[f.Metadata.Name]
+		if repo != "" && !carries(f, repo) {
+			cand.Available, cand.Stale = false, cand.Image
+		}
 		if img, err := hub.Inspect(ctx, c, cand.Image, cand.Digest); err == nil {
 			cand.Version, cand.BuiltAt = img.Version(), img.Created
 		}
@@ -145,6 +157,10 @@ func List(ctx context.Context, hub *catalog.Hub, d *catalog.Deployment, gate *Ga
 		}
 	}
 	return out, nil
+}
+
+func carries(f kargo.Freight, repo string) bool {
+	return slices.ContainsFunc(f.Images, func(img kargo.Image) bool { return img.RepoURL == repo })
 }
 
 func requested(stage *kargo.Stage, list []kargo.Freight) []kargo.Freight {
@@ -201,6 +217,9 @@ func Build(ctx context.Context, hub *catalog.Hub, sys settings.ReleasePolicy, d 
 	}
 	if target == nil {
 		return nil, errf("pl.freightUnknown", short(freight), d.Env)
+	}
+	if target.Stale != "" {
+		return nil, errf("pl.freightStale", short(freight), target.Stale)
 	}
 	if !target.Available && gate != nil && !slices.ContainsFunc(target.VerifiedIn, func(m StageMark) bool { return m.Stage == gate.Label }) {
 		if gate.Problem != "" {

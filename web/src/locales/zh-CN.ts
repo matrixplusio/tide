@@ -774,6 +774,8 @@ const zhCN = {
     runningIn: '{{stage}} 运行中',
     unverifiedPill: '未验证，不可选',
     unavailablePill: '不可选',
+    stalePill: '旧仓库',
+    staleTitle: '这份制品来自 Warehouse 以前订阅的仓库 {{repo}}，当前流水线无法晋级它。请选同一版本的新仓库制品',
     warehouses: '（Kargo Warehouse：{{list}}）',
     warehousesShort: '（{{list}}）',
   },

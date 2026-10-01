@@ -707,7 +707,9 @@ func (s *Service) freightFor(ctx context.Context, d *catalog.Deployment, gate *p
 	if err != nil {
 		return "", err
 	}
-	i := slices.IndexFunc(cands.Items, func(c plan.Candidate) bool { return c.Digest == digest })
+	// The same image can sit in two freights after a warehouse changed its
+	// repository; only the one under the current repository can be promoted.
+	i := slices.IndexFunc(cands.Items, func(c plan.Candidate) bool { return c.Digest == digest && c.Stale == "" })
 	if i < 0 {
 		return "", errWaiting
 	}

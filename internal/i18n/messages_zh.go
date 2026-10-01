@@ -457,6 +457,7 @@ var zhCNPlan = map[Key]string{
 	"pl.freightAlreadyRunning": "制品 %s 已经在 %s 运行",
 	"pl.freightBlocked":        "制品 %s 不能发布到 %s：%s",
 	"pl.freightNotPromoted":    "制品 %s 当前不能发布到 %s（Kargo 未放行）",
+	"pl.freightStale":          "制品 %s 来自 Warehouse 以前订阅的仓库 %s，当前流水线按新仓库取镜像，无法晋级它。请选同一版本的新仓库制品",
 	"pl.freightUnknown":        "制品 %s 不存在、已被清理，或不属于 %s 使用的制品仓库",
 	"pl.freightUnverified":     "制品 %s 还没有在 %s 验证过，不能发布到 %s",
 	"pl.freightUnverifiedGate": "制品 %s（%s）还没有在 %s 验证过，不能发布到 %s",
