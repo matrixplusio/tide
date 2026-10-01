@@ -127,10 +127,12 @@ func TestRequestedFreight(t *testing.T) {
 // The promotion looks the image up by the stage's current repository and
 // errors; such freight must be told apart before anyone can pick it.
 func TestFreightFromADroppedRepositoryIsStale(t *testing.T) {
+	// Shaped as the generator writes it: the vars ride on the step that
+	// calls the shared task, not on the template.
 	var s kargo.Stage
-	if err := json.Unmarshal([]byte(`{"spec":{"promotionTemplate":{"spec":{"vars":[
+	if err := json.Unmarshal([]byte(`{"spec":{"promotionTemplate":{"spec":{"steps":[{"task":{"name":"promote"},"vars":[
 		{"name":"gitRepo","value":"https://git.example.com/acme/apps.git"},
-		{"name":"imageRepo","value":"registry.example.com/acme-dev/acme-cart"}]}}}}`), &s); err != nil {
+		{"name":"imageRepo","value":"registry.example.com/acme-dev/acme-cart"}]}]}}}}`), &s); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.Var("imageRepo"); got != "registry.example.com/acme-dev/acme-cart" {

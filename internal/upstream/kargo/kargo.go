@@ -158,10 +158,10 @@ type Stage struct {
 		} `json:"requestedFreight"`
 		PromotionTemplate struct {
 			Spec struct {
-				Vars []struct {
-					Name  string `json:"name"`
-					Value string `json:"value"`
-				} `json:"vars"`
+				Vars  []StageVar `json:"vars"`
+				Steps []struct {
+					Vars []StageVar `json:"vars"`
+				} `json:"steps"`
 			} `json:"spec"`
 		} `json:"promotionTemplate"`
 	} `json:"spec"`
@@ -208,11 +208,25 @@ func (s *Stage) UpstreamStages() []string {
 	return out
 }
 
-// Var is a variable the stage hands its promotion steps; empty when unset.
+// StageVar is one name/value a stage passes to its promotion.
+type StageVar struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// Var is a variable the stage hands its promotion; empty when unset. Read
+// from the template and from each step, because a step that calls a task
+// (which is how generated stages pass imageRepo) carries its own.
 func (s *Stage) Var(name string) string {
-	for _, v := range s.Spec.PromotionTemplate.Spec.Vars {
-		if v.Name == name {
-			return v.Value
+	lists := [][]StageVar{s.Spec.PromotionTemplate.Spec.Vars}
+	for _, st := range s.Spec.PromotionTemplate.Spec.Steps {
+		lists = append(lists, st.Vars)
+	}
+	for _, list := range lists {
+		for _, v := range list {
+			if v.Name == name {
+				return v.Value
+			}
 		}
 	}
 	return ""
