@@ -105,7 +105,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         if: steps.meta.outputs.publish == 'true'
         with:
           subject-name: ${{ env.IMAGE }}
@@ -182,7 +182,7 @@ jobs:
             exit 1
           }
 
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/tide_*
 
