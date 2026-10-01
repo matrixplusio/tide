@@ -14,7 +14,7 @@ RUN CI=true pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
 
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 # Passed by the release workflow; a plain `docker build` produces a binary
 # that honestly reports itself as "dev".
 ARG VERSION=""
