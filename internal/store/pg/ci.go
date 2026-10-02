@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -198,6 +199,7 @@ func (r *CI) BuildsByDigest(ctx context.Context, digests []string) (map[string]C
 // that never produced anything and is already over. A key seen before is
 // not always the same answer again; see again.
 func (r *CI) Accept(ctx context.Context, in CIIntake) (out *CIIntake, accepted bool, err error) {
+	in.Key = ScopedKey(in.Service, in.Env, in.Key)
 	status := in.Status
 	if status == "" {
 		status = IntakeWaiting
@@ -223,6 +225,20 @@ func (r *CI) Accept(ctx context.Context, in CIIntake) (out *CIIntake, accepted b
 		return nil, false, err
 	}
 	return got, accepted, nil
+}
+
+// ScopedKey is the idempotency key as stored: the pipeline's key within one
+// service and environment. The pipeline's key is the digest, and the same
+// image is reported to dev and then to qa (one commit, a build cache, a
+// byte-for-byte equal image): keyed on the digest alone, the qa report came
+// back as dev's intake with 200 and was never released. Neither name can
+// contain "/", so the three parts cannot run into each other. Migration
+// 0023 brought the rows written before this into the same form.
+func ScopedKey(service, env, key string) string {
+	if strings.HasPrefix(key, service+"/"+env+"/") {
+		return key
+	}
+	return service + "/" + env + "/" + key
 }
 
 // again is a successful build reported under a key Tide has seen before —

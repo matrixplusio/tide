@@ -133,7 +133,7 @@ func TestCIIntakeResolvesOnce(t *testing.T) {
 	if err := s.CI.Resolve(ctx, in.ID, pg.IntakeFailed, "", "too late"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.CI.IntakeByKey(ctx, digest)
+	got, err := s.CI.IntakeByKey(ctx, pg.ScopedKey("svc", "dev", digest))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +569,7 @@ func TestSameImageReportedAgain(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("a failed intake was restarted %d times, want once", n)
 	}
-	got, err := s.CI.IntakeByKey(ctx, failed.Key)
+	got, err := s.CI.IntakeByKey(ctx, pg.ScopedKey(failed.Service, failed.Env, failed.Key))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,5 +620,56 @@ func TestSameImageReportedAgain(t *testing.T) {
 	other.Commits = []pg.CICommit{{ID: strings.Repeat("b", 40)}, {ID: strings.Repeat("c", 40)}}
 	if got, _, _ = s.CI.Accept(ctx, other); len(got.Commits) != 1 {
 		t.Fatalf("a history already there was replaced: %+v", got.Commits)
+	}
+}
+
+// One commit and a build cache make the same image twice: reported to dev,
+// then to qa, under the same digest. Keyed on the digest alone the qa report
+// came back as dev's intake and was never released. The key is per service
+// and environment now; within one environment a retry is still a retry.
+func TestTheSameImageInTwoEnvironmentsIsTwoIntakes(t *testing.T) {
+	s, owner := testdb.Setup(t)
+	ctx := context.Background()
+	tok, _ := token(t, s, "h")
+	digest := "sha256:" + strings.Repeat("9", 64)
+	in := func(service, env string) pg.CIIntake {
+		return pg.CIIntake{Key: digest, Service: service, Env: env, Digest: digest, TokenID: tok.ID}
+	}
+	dev, ok, err := s.CI.Accept(ctx, in("svc", "dev"))
+	if err != nil || !ok {
+		t.Fatalf("dev: %v %v", ok, err)
+	}
+	qa, ok, err := s.CI.Accept(ctx, in("svc", "qa"))
+	if err != nil || !ok || qa.ID == dev.ID || qa.Env != "qa" {
+		t.Fatalf("qa came back as dev's intake: ok=%v %+v %v", ok, qa, err)
+	}
+	// Two services built from one repository can share an image, too.
+	if other, ok, err := s.CI.Accept(ctx, in("other", "dev")); err != nil || !ok || other.ID == dev.ID {
+		t.Fatalf("another service: ok=%v %+v %v", ok, other, err)
+	}
+	if again, ok, err := s.CI.Accept(ctx, in("svc", "qa")); err != nil || ok || again.ID != qa.ID {
+		t.Fatalf("a retry in qa must be the same intake: ok=%v %+v %v", ok, again, err)
+	}
+
+	// The migration's statement, run over a row in the old form and over one
+	// already in the new: the first gains its scope, the second is left alone.
+	var legacy int64
+	if err := owner.Raw(`INSERT INTO ci_intake (idempotency_key, service, env, digest, token_id, status)
+		VALUES ('sha256:legacy', 'my_svc', 'dev', 'sha256:legacy', ?, 'released') RETURNING id`, tok.ID).Scan(&legacy).Error; err != nil {
+		t.Fatal(err)
+	}
+	migrate := `UPDATE ci_intake SET idempotency_key = service || '/' || env || '/' || idempotency_key
+		WHERE left(idempotency_key, length(service) + length(env) + 2) <> service || '/' || env || '/'`
+	for range 2 {
+		if err := owner.Exec(migrate).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var keys []string
+	if err := owner.Raw(`SELECT idempotency_key FROM ci_intake WHERE id IN (?, ?) ORDER BY id`, dev.ID, legacy).Scan(&keys).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 || keys[0] != "svc/dev/"+digest || keys[1] != "my_svc/dev/sha256:legacy" {
+		t.Fatalf("keys after the migration, run twice: %v", keys)
 	}
 }
