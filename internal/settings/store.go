@@ -176,6 +176,16 @@ type PipelineRepo struct {
 	// does not match — without saying that is why. So the annotations have to
 	// move first.
 	ProjectNamePrefix string `json:"projectNamePrefix,omitempty"`
+	// Name is the upstream this configuration serves; empty means the first
+	// upstream, which is what a configuration written before there was more
+	// than one keeps meaning. One Kargo reads one repository, so a second
+	// upstream — another site's Argo CD and Kargo — has its own entry in
+	// Others, and a push never writes one site's stages where the other
+	// site's Kargo would apply them. See For.
+	Name string `json:"name,omitempty"`
+	// Others are the entries for the remaining upstreams, each with Name
+	// set. Matched by Name when secrets are kept across a save.
+	Others []PipelineRepo `json:"others,omitempty"`
 }
 
 // AppsRepo is the repository holding the service registry the ApplicationSet
@@ -215,6 +225,13 @@ type AppsRepo struct {
 	// usually protected — so the token's role has to be one the protection
 	// admits, which is not the same question as its scope.
 	Token string `json:"token" secret:"true"`
+}
+
+func owner(name, first string) string {
+	if name == "" {
+		return first
+	}
+	return name
 }
 
 // DefaultRegistryPath is where a line's registry sits when nothing says
@@ -306,6 +323,24 @@ func (p PipelineRepo) Host() string {
 		return ProviderGitLab
 	}
 	return p.Provider
+}
+
+// For is the pipeline repository serving upstream; first is the first
+// upstream's name, which an entry without a Name serves. The zero value
+// when none does: pushing one site's stages to the other's repository is
+// the thing this exists to prevent, so there is no fallback.
+func (p PipelineRepo) For(upstream, first string) PipelineRepo {
+	if owner(p.Name, first) == upstream {
+		p.Others = nil
+		return p
+	}
+	for _, o := range p.Others {
+		if o.Name == upstream {
+			o.Others = nil
+			return o
+		}
+	}
+	return PipelineRepo{}
 }
 
 // Configured reports whether a push can even be attempted.

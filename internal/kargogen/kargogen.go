@@ -72,6 +72,13 @@ type Options struct {
 	// domain spans lines (one "shop" in three of them, three Kargo projects),
 	// and generating one Kargo project means naming both.
 	Project string
+	// Upstream limits the pipeline to the environments one Argo CD and
+	// Kargo serve. A service is deployed across sites — dev and qa at one,
+	// uat and prod at another — and each site's Kargo applies only its own
+	// stages; given the other's it would create stages for Applications it
+	// does not have. Empty takes every environment, as before there was a
+	// second site.
+	Upstream string
 	// ImageStrategy and TagPattern decide which tag a warehouse treats as the
 	// newest. Empty falls back to the defaults in withDefaults.
 	ImageStrategy string
@@ -178,6 +185,11 @@ func Generate(snap *catalog.Snapshot, envs settings.Environments, opts Options) 
 		}
 		if opts.Project != "" && svc.Project != opts.Project {
 			continue
+		}
+		if opts.Upstream != "" {
+			if svc = onUpstream(svc, opts.Upstream); len(svc.Envs) == 0 {
+				continue
+			}
 		}
 		name := projectName(svc, opts)
 		byDomain[name] = append(byDomain[name], svc)
@@ -472,4 +484,17 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// onUpstream is svc with only the environments upstream serves. A copy: the
+// snapshot is shared with every other reader.
+func onUpstream(svc catalog.Service, upstream string) catalog.Service {
+	envs := make(map[string]*catalog.Deployment, len(svc.Envs))
+	for e, d := range svc.Envs {
+		if d != nil && d.Upstream == upstream {
+			envs[e] = d
+		}
+	}
+	svc.Envs = envs
+	return svc
 }

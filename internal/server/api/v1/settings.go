@@ -157,17 +157,21 @@ func (a *API) putSettings(c *gin.Context) {
 			respond.Fail(c, err)
 			return
 		}
-		tctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
-		id, err := pushTo(*cfg).Whoami(tctx)
-		cancel()
-		switch {
-		case err != nil:
-			respond.Fail(c, errcode.New(errcode.UpstreamCheckFailed, "").
-				WithData(gin.H{"error": shorten(err.Error())}))
-			return
-		case !id.CanWrite:
-			respond.Fail(c, errcode.NewKey(errcode.UpstreamCheckFailed, "s.repoReadOnly", id.Username, cfg.Project))
-			return
+		// Every upstream's entry: a token that cannot write is found now,
+		// not at the first push for the site it belongs to.
+		for _, e := range append([]settings.PipelineRepo{*cfg}, cfg.Others...) {
+			tctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
+			id, err := pushTo(e).Whoami(tctx)
+			cancel()
+			switch {
+			case err != nil:
+				respond.Fail(c, errcode.New(errcode.UpstreamCheckFailed, "").
+					WithData(gin.H{"error": shorten(err.Error())}))
+				return
+			case !id.CanWrite:
+				respond.Fail(c, errcode.NewKey(errcode.UpstreamCheckFailed, "s.repoReadOnly", id.Username, e.Project))
+				return
+			}
 		}
 	}
 	// The same check for the manifest repository: the first thing this token
@@ -402,40 +406,11 @@ func (a *API) validateSection(ctx context.Context, v any) error {
 			add(validate.FieldKey("announcement.text", "s.announceTextRequired"))
 		}
 	case *settings.PipelineRepo:
-		trim(&s.Provider, &s.BaseURL, &s.Project, &s.Branch, &s.PathPrefix, &s.ProjectNamePrefix)
-		// A Kargo project's name is a namespace name, and this goes in front
-		// of it. Checked here rather than at generation, where the answer is
-		// a few hundred objects Kubernetes refuses one at a time.
-		if s.ProjectNamePrefix != "" && !reProjectPrefix.MatchString(s.ProjectNamePrefix) {
-			add(validate.FieldKey("projectNamePrefix", "s.projectPrefixFormat"))
+		var ups settings.Upstreams
+		if err := a.Settings.Load(ctx, settings.SectionUpstreams, &ups); err != nil && !errors.Is(err, settings.ErrNotConfigured) {
+			return err
 		}
-		if s.Provider == "" {
-			s.Provider = settings.ProviderGitLab
-		}
-		if !slices.Contains(settings.Providers, s.Provider) {
-			add(validate.FieldKey("provider", "s.unknownProvider", s.Provider))
-		}
-		add(validate.HTTPURL("baseUrl", s.BaseURL, true, validate.BaseURL))
-		// "owner/repo": Gitea addresses the two halves separately, and GitLab
-		// wants the whole path with its namespace. Neither works without one.
-		if s.Project == "" {
-			add(validate.FieldKey("project", "s.projectRequired"))
-		} else if !strings.Contains(strings.Trim(s.Project, "/"), "/") {
-			add(validate.FieldKey("project", "s.projectPath"))
-		}
-		add(validate.Required("token", s.Token, "label.token"))
-		s.PathPrefix = strings.Trim(s.PathPrefix, "/")
-		trim(&s.ImageStrategy, &s.TagPattern)
-		if s.ImageStrategy != "" && !slices.Contains(settings.ImageStrategies, s.ImageStrategy) {
-			add(validate.FieldKey("imageStrategy", "s.unknownStrategy", s.ImageStrategy))
-		}
-		// A pattern that does not compile is refused here rather than in
-		// Kargo, where it surfaces as a warehouse that discovers nothing.
-		if s.TagPattern != "" {
-			if _, err := regexp.Compile(s.TagPattern); err != nil {
-				add(validate.FieldKey("tagPattern", "s.badTagPattern"))
-			}
-		}
+		validatePipelineRepo(s, ups, add)
 	case *settings.AppsRepo:
 		trim(&s.Provider, &s.BaseURL, &s.Project, &s.Branch, &s.Registry, &s.LineDimension)
 		if s.Provider == "" {
@@ -983,3 +958,117 @@ func validateApprovals(s *settings.ReleasePolicy, envs settings.Environments, ad
 // reProjectPrefix: lower-case alphanumerics and hyphens, starting with a
 // letter and ending in the hyphen that separates it from the project name.
 var reProjectPrefix = regexp.MustCompile(`^[a-z]([a-z0-9-]*[a-z0-9])?-$`)
+
+// validatePipelineRepo checks the entry for the first upstream and every
+// other one, then that no two can write over each other.
+//
+// Two entries pushing to the same repository and branch must sit in
+// directories neither of which contains the other: a push for everything
+// owns its whole directory and deletes what it did not generate, so an
+// entry at the root (or above another) would delete the other site's
+// pipelines in the same commit, and with pruning on, out of that site's
+// Kargo seconds later.
+func validatePipelineRepo(s *settings.PipelineRepo, ups settings.Upstreams, add func(*validate.FieldError)) {
+	validatePipelineEntry(s, add)
+	first := ""
+	if len(ups.Items) > 0 {
+		first = ups.Items[0].Name
+	}
+	s.Name = strings.TrimSpace(s.Name)
+	if s.Name != "" {
+		if _, ok := ups.Named(s.Name); !ok {
+			add(validate.FieldKey("name", "s.unknownUpstream", s.Name))
+		}
+	}
+	owners := map[string]bool{settingsOwner(s.Name, first): true}
+	type target struct {
+		field, key, prefix string
+	}
+	targets := []target{{"pathPrefix", pipelineTarget(*s), s.PathPrefix}}
+	for i := range s.Others {
+		o := &s.Others[i]
+		prefix := fmt.Sprintf("others.%d.", i)
+		o.Others = nil
+		validatePipelineEntry(o, func(e *validate.FieldError) {
+			if e != nil {
+				e.Field = prefix + e.Field
+			}
+			add(e)
+		})
+		o.Name = strings.TrimSpace(o.Name)
+		switch _, known := ups.Named(o.Name); {
+		case o.Name == "":
+			add(validate.FieldKey(prefix+"name", "s.upstreamRequired"))
+		case !known:
+			add(validate.FieldKey(prefix+"name", "s.unknownUpstream", o.Name))
+		case owners[o.Name]:
+			add(validate.FieldKey(prefix+"name", "s.upstreamTwice", o.Name))
+		}
+		owners[o.Name] = true
+		targets = append(targets, target{prefix + "pathPrefix", pipelineTarget(*o), o.PathPrefix})
+	}
+	for i := range targets {
+		for j := 0; j < i; j++ {
+			if targets[i].key == targets[j].key && pathsOverlap(targets[i].prefix, targets[j].prefix) {
+				add(validate.FieldKey(targets[i].field, "s.pipelineOverlap"))
+			}
+		}
+	}
+}
+
+// pipelineTarget is the repository and branch an entry writes to.
+func pipelineTarget(p settings.PipelineRepo) string {
+	return strings.ToLower(strings.TrimRight(p.BaseURL, "/")) + "|" + strings.Trim(p.Project, "/") + "|" + p.Branch
+}
+
+// pathsOverlap reports whether one directory is the other or contains it;
+// "" is the root and contains everything.
+func pathsOverlap(a, b string) bool {
+	a, b = strings.Trim(a, "/"), strings.Trim(b, "/")
+	return a == "" || b == "" || a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
+}
+
+func settingsOwner(name, first string) string {
+	if name == "" {
+		return first
+	}
+	return name
+}
+
+// validatePipelineEntry checks one pipeline repository entry.
+func validatePipelineEntry(s *settings.PipelineRepo, add func(*validate.FieldError)) {
+	trim(&s.Provider, &s.BaseURL, &s.Project, &s.Branch, &s.PathPrefix, &s.ProjectNamePrefix)
+	// A Kargo project's name is a namespace name, and this goes in front
+	// of it. Checked here rather than at generation, where the answer is
+	// a few hundred objects Kubernetes refuses one at a time.
+	if s.ProjectNamePrefix != "" && !reProjectPrefix.MatchString(s.ProjectNamePrefix) {
+		add(validate.FieldKey("projectNamePrefix", "s.projectPrefixFormat"))
+	}
+	if s.Provider == "" {
+		s.Provider = settings.ProviderGitLab
+	}
+	if !slices.Contains(settings.Providers, s.Provider) {
+		add(validate.FieldKey("provider", "s.unknownProvider", s.Provider))
+	}
+	add(validate.HTTPURL("baseUrl", s.BaseURL, true, validate.BaseURL))
+	// "owner/repo": Gitea addresses the two halves separately, and GitLab
+	// wants the whole path with its namespace. Neither works without one.
+	if s.Project == "" {
+		add(validate.FieldKey("project", "s.projectRequired"))
+	} else if !strings.Contains(strings.Trim(s.Project, "/"), "/") {
+		add(validate.FieldKey("project", "s.projectPath"))
+	}
+	add(validate.Required("token", s.Token, "label.token"))
+	s.PathPrefix = strings.Trim(s.PathPrefix, "/")
+	trim(&s.ImageStrategy, &s.TagPattern)
+	if s.ImageStrategy != "" && !slices.Contains(settings.ImageStrategies, s.ImageStrategy) {
+		add(validate.FieldKey("imageStrategy", "s.unknownStrategy", s.ImageStrategy))
+	}
+	// A pattern that does not compile is refused here rather than in
+	// Kargo, where it surfaces as a warehouse that discovers nothing.
+	if s.TagPattern != "" {
+		if _, err := regexp.Compile(s.TagPattern); err != nil {
+			add(validate.FieldKey("tagPattern", "s.badTagPattern"))
+		}
+	}
+}

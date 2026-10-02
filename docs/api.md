@@ -223,13 +223,13 @@ Application 去向。`applications > 0 && kept == 0` 表示服务目录的配置
 上游不是空的，`noEnv` 说明环境维度取不到（通常是环境 label 配错），`otherEnv` 是解析出的
 环境不归这个上游管（正常，平台类应用会落在这里）。
 
-### `GET /api/v1/kargo/generate?domain=`
+### `GET /api/v1/kargo/generate?upstream=&domain=`
 权限 pipelines.generate 或 environments.manage。按业务域生成 Kargo 流水线配置，**只返回文本，不写任何地方**。
-`domain` 为空时生成全部。
+`domain` 为空时生成全部。`upstream` 选上游（一套 Argo CD + Kargo），为空取第一个上游。只生成该上游负责的环境：同一个服务的 dev/qa 在一个站点、uat/prod 在另一个站点时，各站点只拿到自己的 Stage，另一站点的环境不会出现。
 
 → `{ result: { domains: [{name, services, warehouses, stages, files: [{path, yaml}]}],
 skipped: [{service, env?, reason}], services, warehouses, stages, fileCount },
-domains: [{name, services}], at, pushable }`
+domains: [{name, services}], at, pushable, upstream, upstreams }`
 
 `pushable` 表示流水线仓库已配置、可以推送。页面据此决定推送按钮，不去读设置：
 只有 pipelines.generate 的人读不到仓库配置。
@@ -241,16 +241,16 @@ domains: [{name, services}], at, pushable }`
   第一个环境 `sources.direct: true`（CI 推的新镜像只能落在 direct 的环境）
 - 生成不了的逐条进 `skipped` 并说明原因，不静默跳过
 
-### `GET /api/v1/kargo/generate.zip?domain=`
+### `GET /api/v1/kargo/generate.zip?upstream=&domain=`
 同上，返回 zip 文件（`application/zip`，**不走信封**）。范围内没有可生成的内容时返回 1004。
 
 ### `POST /api/v1/kargo/push`
-权限 pipelines.generate 或 environments.manage。`{ domain?, message? }` → `{ commit: {id, short_id, web_url}, branch, files, result }`
+权限 pipelines.generate 或 environments.manage。`{ upstream?, domain?, message? }` → `{ commit: {id, short_id, web_url}, branch, files, result }`
 
 把生成的内容**一次提交**到「流水线仓库」设置里配置的仓库，写 git 不写集群。支持 GitLab
 和 Gitea，两家的接口差别关在各自的客户端里：GitLab 要纯文本、没有 upsert，Gitea 要
 base64、更新还得带被替换文件的 blob SHA；创建分支的方式也不同。分支不存在时从默认分支
-创建。未配置仓库返回 4001。写审计 `kargo.push`。
+创建。该上游没有自己的流水线仓库配置时返回 4001，**不会退回到别的上游的仓库**。只有该上游的 Argo CD 连不上才拒绝推送，另一个上游的故障不影响。写审计 `kargo.push`（含 `upstream`、`pathPrefix`）。
 
 ### `GET /api/v1/services/:service?env=`
 → `{ service: Service, releases: Release[] }`。错误：4005。
@@ -567,7 +567,7 @@ POST `{ id, name, description, permissions }`；PUT `{ name, description, permis
 | section | 权限 | 内容 |
 |---|---|---|
 | `upstreams` | environments.manage | `{ items: Upstream[] }` |
-| `pipeline` | environments.manage | `{ provider, baseUrl, project, branch, pathPrefix?, token, bareDomain?, imageStrategy?, tagPattern? }`，生成的 Kargo 配置提交到这里。`provider` 为 `gitlab`（默认）或 `gitea`；`project` 必须是 `owner/repo`；`imageStrategy` 默认 `Lexical`、`tagPattern` 默认 `^[0-9]`（Kargo 自己的默认是 SemVer，对非语义化版本的 tag 发现不到任何镜像） |
+| `pipeline` | environments.manage | `{ provider, baseUrl, project, branch, pathPrefix?, token, bareDomain?, imageStrategy?, tagPattern? }`，生成的 Kargo 配置提交到这里。`provider` 为 `gitlab`（默认）或 `gitea`；`project` 必须是 `owner/repo`；`imageStrategy` 默认 `Lexical`、`tagPattern` 默认 `^[0-9]`（Kargo 自己的默认是 SemVer，对非语义化版本的 tag 发现不到任何镜像）。多个上游时：顶层这份服务于 `name` 指定的上游（为空即第一个上游），其余上游各一份放在 `others: [{ name, ...同上字段 }]`。同一仓库同一分支下，各份的 `pathPrefix` 不能相同或互相包含（空即仓库根目录，包含一切），否则保存时 1007 |
 | `environments` | environments.manage | `{ items: Environment[] }`，顺序即显示顺序（制品来源由 Kargo Stage 决定） |
 | `catalog` | environments.manage | `{ serviceLabel, envLabel, domainLabel, projectLabel, dimensions: Dimension[], batchDimension }` |
 | `notify` | notifications.manage | `{ channels: Channel[], rules: NotifyRule[] }` |

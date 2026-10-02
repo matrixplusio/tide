@@ -215,10 +215,10 @@ export const useDeleteBinding = () => useInvalidating((id: number) => apiFetch<n
 
 /** Generating reads every upstream fresh, so it is asked for explicitly
  *  rather than on every render. */
-export function useKargoPlan(domain: string, project: string, enabled: boolean) {
+export function useKargoPlan(upstream: string, domain: string, project: string, enabled: boolean) {
   return useQuery({
-    queryKey: ['kargo-generate', domain, project],
-    queryFn: ({ signal }) => apiFetch<KargoPlan>(`/api/v1/kargo/generate?domain=${enc(domain)}&project=${enc(project)}`, { signal }),
+    queryKey: ['kargo-generate', upstream, domain, project],
+    queryFn: ({ signal }) => apiFetch<KargoPlan>(`/api/v1/kargo/generate?upstream=${enc(upstream)}&domain=${enc(domain)}&project=${enc(project)}`, { signal }),
     enabled,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
@@ -229,17 +229,17 @@ export function useKargoPlan(domain: string, project: string, enabled: boolean) 
  *  left describing a pipeline that half exists. */
 export function usePushKargo() {
   return useMutation({
-    mutationFn: (body: { domain: string; project: string; message?: string }) =>
+    mutationFn: (body: { upstream: string; domain: string; project: string; message?: string }) =>
       apiFetch<KargoPushed>('/api/v1/kargo/push', { method: 'POST', body }),
   })
 }
 
 /** Who the configured token is. Refetched after saving the settings, because
  *  that is exactly when the answer changes. */
-export function useRepoIdentity(enabled: boolean) {
+export function useRepoIdentity(upstream: string, enabled: boolean) {
   return useQuery({
-    queryKey: ['kargo-identity'],
-    queryFn: ({ signal }) => apiFetch<RepoIdentity | null>('/api/v1/kargo/identity', { signal }),
+    queryKey: ['kargo-identity', upstream],
+    queryFn: ({ signal }) => apiFetch<RepoIdentity | null>(`/api/v1/kargo/identity?upstream=${enc(upstream)}`, { signal }),
     enabled,
     refetchOnWindowFocus: false,
   })

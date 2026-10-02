@@ -229,6 +229,11 @@ export interface PipelineRepo {
   imageStrategy?: string
   /** Which tags count as builds; empty means "starts with a digit". */
   tagPattern?: string
+  /** The upstream this entry serves; empty means the first upstream. */
+  name?: string
+  /** Entries for the other upstreams, each with a name. One Kargo reads one
+   *  repository directory, so each site's pipelines are pushed apart. */
+  others?: PipelineRepo[]
 }
 
 export type SettingsSection = 'catalog' | 'upstreams' | 'environments' | 'notify' | 'oidc' | 'security' | 'release' | 'system' | 'pipeline' | 'apps'
@@ -330,6 +335,9 @@ export interface KargoResult {
 }
 
 export interface KargoPlan {
+  /** The upstream this plan is for; the request's, or the first. */
+  upstream: string
+  upstreams: string[]
   result: KargoResult
   /** Every business domain in the catalog, for the picker. */
   domains: { name: string; services: number }[]
