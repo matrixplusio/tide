@@ -314,6 +314,15 @@ func TestAPIContract(t *testing.T) {
 	expect(t, c.do("PUT", "/api/v1/me/password", map[string]string{"currentPassword": pw, "newPassword": pw, "confirmPassword": pw}), errcode.ValidationFailed, "newPassword")
 	expect(t, c.do("PUT", "/api/v1/me/password", map[string]string{"currentPassword": pw, "newPassword": "my-admin-secret", "confirmPassword": "my-admin-secret"}), errcode.ValidationFailed, "newPassword")
 
+	// A second upstream's pipeline entry: it must name an upstream that
+	// exists, and pushing to the same repository and branch as the first it
+	// must not sit at or under the first's directory (the root, here), or a
+	// full push for one would delete the other's pipelines. Checked before
+	// any credential is tried.
+	expect(t, c.do("PUT", "/api/v1/settings/pipeline", map[string]any{
+		"baseUrl": "https://git.example.com", "project": "ops/pipelines", "branch": "main", "token": "t",
+		"others": []map[string]any{{"name": "nowhere", "baseUrl": "https://git.example.com", "project": "ops/pipelines", "branch": "main", "token": "t", "pathPrefix": "gcp"}},
+	}), errcode.ValidationFailed, "others.0.name", "others.0.pathPrefix")
 	expect(t, c.do("PUT", "/api/v1/settings/oidc", map[string]string{"issuer": "sso.example.com", "clientId": "", "redirectUrl": "https://tide/callback"}),
 		errcode.ValidationFailed, "issuer", "clientId", "redirectUrl")
 	expect(t, c.do("PUT", "/api/v1/settings/system", map[string]any{"siteName": "", "announcement": map[string]any{"enabled": true, "level": "loud"}}), errcode.ValidationFailed, "siteName", "announcement.level", "announcement.text")

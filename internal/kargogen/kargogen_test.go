@@ -466,3 +466,52 @@ func TestThePromotionTaskStopsAtGitAndDoesNotJudgeTheRollout(t *testing.T) {
 		t.Error("the task waits on Argo CD again, so a step timeout decides the release instead of Tide")
 	}
 }
+
+// One service, two sites: dev and qa under one Argo CD and Kargo, uat and
+// prod under another, each with its own registry. Generated per upstream,
+// each site gets only its own stages; uat takes freight straight from its
+// own warehouse rather than from a qa stage its Kargo has never heard of, and
+// prod follows uat because the two pull the same repository.
+func TestGenerateForOneUpstream(t *testing.T) {
+	at := func(env, upstream, image string) *catalog.Deployment {
+		d := dep(env)
+		d.Upstream, d.Image = upstream, image
+		return d
+	}
+	snap := &catalog.Snapshot{Services: []catalog.Service{svc("order-api", "trade",
+		at("dev", "idc", "registry.example.com/acme-dev/order-api"),
+		at("qa", "idc", "registry.example.com/acme-qa/order-api"),
+		at("uat", "gcp", "harbor.example.com/acme/order-api"),
+		at("prod", "gcp", "harbor.example.com/acme/order-api"),
+	)}}
+	order := envs("dev", "qa", "uat", "prod")
+
+	idc := Generate(snap, order, Options{Upstream: "idc"})
+	gcp := Generate(snap, order, Options{Upstream: "gcp"})
+	if idc.Stages != 2 || gcp.Stages != 2 {
+		t.Fatalf("stages per site: idc %d, gcp %d, want 2 and 2", idc.Stages, gcp.Stages)
+	}
+	idcStages, gcpStages := find(t, idc, "trade/stages.yaml"), find(t, gcp, "trade/stages.yaml")
+	for _, s := range []string{"order-api-uat", "order-api-prod", "harbor.example.com"} {
+		if strings.Contains(idcStages, s) {
+			t.Errorf("the idc pipeline mentions %q", s)
+		}
+	}
+	for _, s := range []string{"order-api-dev", "order-api-qa", "acme-qa"} {
+		if strings.Contains(gcpStages, s) {
+			t.Errorf("the gcp pipeline mentions %q", s)
+		}
+	}
+	if !strings.Contains(gcpStages, "direct: true") || !strings.Contains(gcpStages, "- order-api-uat") {
+		t.Errorf("uat must take freight directly and prod from uat:\n%s", gcpStages)
+	}
+	if !strings.Contains(find(t, gcp, "trade/warehouses.yaml"), "harbor.example.com/acme/order-api") {
+		t.Error("the gcp warehouse must watch the gcp registry")
+	}
+
+	// Without an upstream nothing is filtered: what a single-site setup
+	// generated before is what it still generates.
+	if all := Generate(snap, order, Options{}); all.Stages != 4 {
+		t.Fatalf("no upstream: %d stages, want 4", all.Stages)
+	}
+}

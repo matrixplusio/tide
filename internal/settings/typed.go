@@ -86,3 +86,27 @@ func (s *Store) Environments(ctx context.Context) (Environments, error) {
 	}
 	return e, err
 }
+
+// FirstUpstream is the upstream a repository setting without a Name serves.
+// Empty when none is configured.
+func (s *Store) FirstUpstream(ctx context.Context) string {
+	var u Upstreams
+	if err := s.Load(ctx, SectionUpstreams, &u); err != nil || len(u.Items) == 0 {
+		return ""
+	}
+	return u.Items[0].Name
+}
+
+// PipelineRepoFor loads the pipeline repository serving upstream; an empty
+// upstream means the first. The zero value when nothing serves it.
+func (s *Store) PipelineRepoFor(ctx context.Context, upstream string) (PipelineRepo, string, error) {
+	first := s.FirstUpstream(ctx)
+	if upstream == "" {
+		upstream = first
+	}
+	var p PipelineRepo
+	if err := s.Load(ctx, SectionPipelineRepo, &p); err != nil && !errors.Is(err, ErrNotConfigured) {
+		return PipelineRepo{}, upstream, err
+	}
+	return p.For(upstream, first), upstream, nil
+}

@@ -24,12 +24,15 @@ import { AppsRepoForm } from './AppsRepoForm'
 export function KargoGenPage() {
   const { t } = useTranslation()
   const toast = useToast()
+  // '' asks the server for the first upstream, which is what a page opened
+  // before there was a second always meant.
+  const [upstream, setUpstream] = useState('')
   const [domain, setDomain] = useState('')
   const [project, setProject] = useState('')
   const [asked, setAsked] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
   const [shut, setShut] = useState<Set<string>>(new Set())
-  const q = useKargoPlan(domain, project, asked)
+  const q = useKargoPlan(upstream, domain, project, asked)
   const result = q.data?.result
 
   // The repository's settings are someone else's to read and change: this
@@ -44,6 +47,9 @@ export function KargoGenPage() {
   // domains come from the catalog the rest of the app already holds rather
   // than from a run of the generator.
   const services = useServices()
+  const upstreams = (services.data?.upstreams ?? []).map((u) => u.name)
+  const firstUpstream = settings.data?.upstreams?.items?.[0]?.name ?? upstreams[0] ?? ''
+  const shownUpstream = upstream || q.data?.upstream || firstUpstream
   const domains = useMemo(() => {
     const count = new Map<string, number>()
     for (const s of services.data?.services ?? []) {
@@ -65,7 +71,7 @@ export function KargoGenPage() {
   const download = () => {
     // A file download, not a fetch: the endpoint answers with a zip and the
     // browser knows what to do with it.
-    window.location.href = `/api/v1/kargo/generate.zip?domain=${encodeURIComponent(domain)}&project=${encodeURIComponent(project)}`
+    window.location.href = `/api/v1/kargo/generate.zip?upstream=${encodeURIComponent(upstream)}&domain=${encodeURIComponent(domain)}&project=${encodeURIComponent(project)}`
   }
 
   const generated = (result?.domains ?? []).length > 0
@@ -89,6 +95,15 @@ export function KargoGenPage() {
         <Note>{t('kargogen.note')}</Note>
 
         <div className="btnrow" style={{ marginBottom: 4 }}>
+          {upstreams.length > 1 && (
+            <Select
+              appearance="filled"
+              aria-label={t('kargogen.upstream')}
+              value={shownUpstream}
+              options={upstreams.map((u): [string, string] => [u, u])}
+              onChange={(e) => setUpstream(e.target.value)}
+            />
+          )}
           <Select
             appearance="filled"
             aria-label={t('kargogen.domain')}
@@ -119,7 +134,7 @@ export function KargoGenPage() {
                 variant="quiet"
                 disabled={!canPush || push.isPending}
                 title={canPush ? undefined : t('kargogen.saveRepoFirst')}
-                onClick={() => push.mutate({ domain, project }, { onSuccess: (r) => toast.success(t('kargogen.pushed', { files: r.files, branch: r.branch })) })}
+                onClick={() => push.mutate({ upstream: shownUpstream, domain, project }, { onSuccess: (r) => toast.success(t('kargogen.pushed', { files: r.files, branch: r.branch })) })}
               >
                 {push.isPending ? t('kargogen.pushing') : t('kargogen.push')}
               </Button>
@@ -219,7 +234,7 @@ export function KargoGenPage() {
 
         {configures && (
           <>
-            <PipelineRepoForm initial={settings.data?.pipeline} />
+            <PipelineRepoForm key={shownUpstream} section={settings.data?.pipeline} upstream={shownUpstream} first={firstUpstream} multi={upstreams.length > 1} />
             <AppsRepoForm initial={settings.data?.apps} />
           </>
         )}

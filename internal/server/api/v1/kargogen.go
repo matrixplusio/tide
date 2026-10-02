@@ -3,7 +3,7 @@ package v1
 import (
 	"archive/zip"
 	"context"
-	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -29,27 +29,25 @@ func (a *API) generateKargo(c *gin.Context) {
 	p := newParams(c)
 	domain := p.text("domain", 128)
 	project := p.text("project", 128)
+	upstream := p.text("upstream", 64)
 	if err := p.err(); err != nil {
 		respond.Fail(c, err)
 		return
 	}
-	res, snap, err := a.kargoPlan(c, domain, project)
+	res, snap, cfg, err := a.kargoPlan(c, upstream, domain, project)
 	if err != nil {
 		respond.Fail(c, err)
 		return
 	}
 	// pushable is here, not read off the settings by the page: whoever may
 	// generate need not be allowed to read the repository's configuration.
-	var cfg settings.PipelineRepo
-	if err := a.Settings.Load(c.Request.Context(), settings.SectionPipelineRepo, &cfg); err != nil && !errors.Is(err, settings.ErrNotConfigured) {
-		respond.Fail(c, err)
-		return
-	}
 	respond.OK(c, gin.H{
-		"result":   res,
-		"domains":  domainsOf(snap),
-		"at":       snap.At,
-		"pushable": cfg.Configured(),
+		"result":    res,
+		"domains":   domainsOf(snap),
+		"at":        snap.At,
+		"pushable":  cfg.repo.Configured(),
+		"upstream":  cfg.upstream,
+		"upstreams": upstreamNames(snap),
 	})
 }
 
@@ -60,11 +58,12 @@ func (a *API) downloadKargo(c *gin.Context) {
 	p := newParams(c)
 	domain := p.text("domain", 128)
 	project := p.text("project", 128)
+	upstream := p.text("upstream", 64)
 	if err := p.err(); err != nil {
 		respond.Fail(c, err)
 		return
 	}
-	res, _, err := a.kargoPlan(c, domain, project)
+	res, _, cfg, err := a.kargoPlan(c, upstream, domain, project)
 	if err != nil {
 		respond.Fail(c, err)
 		return
@@ -75,7 +74,7 @@ func (a *API) downloadKargo(c *gin.Context) {
 		return
 	}
 
-	name := "kargo-pipeline"
+	name := "kargo-pipeline-" + cfg.upstream
 	if domain != "" {
 		name += "-" + domain
 	}
@@ -98,27 +97,39 @@ func (a *API) downloadKargo(c *gin.Context) {
 	_ = z.Close()
 }
 
-// kargoPlan runs the generator over the current catalog.
-func (a *API) kargoPlan(c *gin.Context, domain, project string) (kargogen.Result, *catalog.Snapshot, error) {
+// planTarget is the upstream a plan was made for and the repository that
+// serves it (the zero value when none does).
+type planTarget struct {
+	upstream string
+	repo     settings.PipelineRepo
+}
+
+// kargoPlan runs the generator over the current catalog, for one upstream:
+// each site's Kargo reads its own pipelines. An empty upstream is the first
+// one, which is what every caller meant before there was a second.
+func (a *API) kargoPlan(c *gin.Context, upstream, domain, project string) (kargogen.Result, *catalog.Snapshot, planTarget, error) {
 	ctx := c.Request.Context()
 	// Fresh: the generated pipeline describes what is deployed right now, and
 	// a stale snapshot would silently leave out a service somebody added
 	// minutes ago. This is not a page anyone opens repeatedly.
 	snap, err := a.Hub.Snapshot(ctx, true)
 	if err != nil {
-		return kargogen.Result{}, nil, err
+		return kargogen.Result{}, nil, planTarget{}, err
 	}
 	envs, err := a.Settings.Environments(ctx)
 	if err != nil {
-		return kargogen.Result{}, nil, err
+		return kargogen.Result{}, nil, planTarget{}, err
 	}
 	cat, err := a.Settings.Catalog(ctx)
 	if err != nil {
-		return kargogen.Result{}, nil, err
+		return kargogen.Result{}, nil, planTarget{}, err
 	}
-	var repoCfg settings.PipelineRepo
-	if err := a.Settings.Load(ctx, settings.SectionPipelineRepo, &repoCfg); err != nil && !errors.Is(err, settings.ErrNotConfigured) {
-		return kargogen.Result{}, nil, err
+	repoCfg, upstream, err := a.Settings.PipelineRepoFor(ctx, upstream)
+	if err != nil {
+		return kargogen.Result{}, nil, planTarget{}, err
+	}
+	if !slices.Contains(upstreamNames(snap), upstream) {
+		return kargogen.Result{}, nil, planTarget{}, errcode.NewKey(errcode.NotFound, "s.unknownUpstream", upstream)
 	}
 	// A service parked at zero replicas has no running container and so no
 	// image in the catalog, which would drop it from the pipeline without
@@ -130,6 +141,7 @@ func (a *API) kargoPlan(c *gin.Context, domain, project string) (kargogen.Result
 	// same thing as a filter on the services page.
 	strategy, pattern := repoCfg.Selection()
 	return kargogen.Generate(snap, envs, kargogen.Options{
+		Upstream:      upstream,
 		Domain:        domain,
 		Project:       project,
 		ProjectPrefix: !repoCfg.BareDomain,
@@ -139,7 +151,16 @@ func (a *API) kargoPlan(c *gin.Context, domain, project string) (kargogen.Result
 		TagPattern:    pattern,
 		ServiceLabel:  labelOrDefault(cat.ServiceLabel, "tide.io/service"),
 		EnvLabel:      labelOrDefault(cat.EnvLabel, "tide.io/env"),
-	}), snap, nil
+	}), snap, planTarget{upstream: upstream, repo: repoCfg}, nil
+}
+
+// upstreamNames lists the upstreams in the catalog, in settings order.
+func upstreamNames(snap *catalog.Snapshot) []string {
+	out := make([]string, 0, len(snap.Upstreams))
+	for _, u := range snap.Upstreams {
+		out = append(out, u.Name)
+	}
+	return out
 }
 
 // labelOrDefault ignores the pseudo-labels that mean "read this from the Argo
@@ -180,8 +201,9 @@ func domainsOf(snap *catalog.Snapshot) []gin.H {
 // telling the same story.
 func (a *API) pushKargo(c *gin.Context) {
 	var req struct {
-		Domain  string `json:"domain"`
-		Project string `json:"project"`
+		Upstream string `json:"upstream"`
+		Domain   string `json:"domain"`
+		Project  string `json:"project"`
 		// Message overrides the commit message; empty takes the default.
 		Message string `json:"message"`
 	}
@@ -191,20 +213,17 @@ func (a *API) pushKargo(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 
-	var cfg settings.PipelineRepo
-	if err := a.Settings.Load(ctx, settings.SectionPipelineRepo, &cfg); err != nil && !errors.Is(err, settings.ErrNotConfigured) {
-		respond.Fail(c, err)
-		return
-	}
-	if !cfg.Configured() {
-		respond.Fail(c, errcode.NewKey(errcode.NoUpstreams, "kargogen.repoNotConfigured"))
-		return
-	}
-
 	domain, project := strings.TrimSpace(req.Domain), strings.TrimSpace(req.Project)
-	res, snap, err := a.kargoPlan(c, domain, project)
+	res, snap, target, err := a.kargoPlan(c, strings.TrimSpace(req.Upstream), domain, project)
 	if err != nil {
 		respond.Fail(c, err)
+		return
+	}
+	// Never another site's repository: an upstream without its own entry
+	// has nowhere to push to, and that is the answer.
+	cfg := target.repo
+	if !cfg.Configured() {
+		respond.Fail(c, errcode.NewKey(errcode.NoUpstreams, "kargogen.repoNotConfigured"))
 		return
 	}
 	// An upstream that did not answer produces an empty list of Applications,
@@ -216,7 +235,7 @@ func (a *API) pushKargo(c *gin.Context) {
 	//
 	// So: nothing at all while an upstream is unreachable. Deleting is only
 	// allowed on an answer.
-	if down := unreachable(snap); down != "" {
+	if down := unreachable(snap, target.upstream); down != "" {
 		respond.Fail(c, errcode.NewKey(errcode.UpstreamError, "kargogen.upstreamDown", down))
 		return
 	}
@@ -247,20 +266,23 @@ func (a *API) pushKargo(c *gin.Context) {
 	}
 
 	_ = a.PG.Audit.Write(ctx, currentUser(c).Actor(), "kargo.push", req.Domain, "", map[string]any{
-		"provider": cfg.Host(), "project": cfg.Project, "branch": cfg.Branch, "commit": commit.ID,
+		"upstream": target.upstream, "pathPrefix": prefix, "provider": cfg.Host(), "project": cfg.Project, "branch": cfg.Branch, "commit": commit.ID,
 		"files": len(out), "stages": res.Stages, "warehouses": res.Warehouses,
 	})
-	respond.OK(c, gin.H{"commit": commit, "branch": cfg.Branch, "files": len(out), "result": res})
+	respond.OK(c, gin.H{"commit": commit, "branch": cfg.Branch, "files": len(out), "result": res, "upstream": target.upstream})
 }
 
-// unreachable names an upstream whose Argo CD did not answer while this
-// snapshot was built, or "" when every one of them did.
-func unreachable(snap *catalog.Snapshot) string {
+// unreachable names upstream if its Argo CD did not answer while this
+// snapshot was built, or "" when it did. Only that one: a push writes only
+// its own site's pipelines, and the other site being down says nothing
+// about them — refusing anyway would let one site's outage stop the other's
+// changes.
+func unreachable(snap *catalog.Snapshot, upstream string) string {
 	if snap == nil {
 		return "no catalog"
 	}
 	for _, u := range snap.Upstreams {
-		if !u.ArgoCDOK {
+		if u.Name == upstream && !u.ArgoCDOK {
 			return u.Name + ": " + shorten(u.ArgoCDError)
 		}
 	}
@@ -342,8 +364,14 @@ func shorten(s string) string {
 // anything has been pushed.
 func (a *API) kargoRepoIdentity(c *gin.Context) {
 	ctx := c.Request.Context()
-	var cfg settings.PipelineRepo
-	if err := a.Settings.Load(ctx, settings.SectionPipelineRepo, &cfg); err != nil && !errors.Is(err, settings.ErrNotConfigured) {
+	p := newParams(c)
+	upstream := p.text("upstream", 64)
+	if err := p.err(); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	cfg, _, err := a.Settings.PipelineRepoFor(ctx, upstream)
+	if err != nil {
 		respond.Fail(c, err)
 		return
 	}

@@ -8,6 +8,7 @@ import { Button, ButtonRow, Checkbox, Form, FormErrorBanner, FormField, Group, G
 import { useRepoIdentity, useSaveSettings } from '../queries'
 import { pipelineRepoSchema, type PipelineRepoValues } from '../schemas'
 import type { PipelineRepo } from '../types'
+import { pipelineEntryFor, withPipelineEntry } from './pipelineRepos'
 
 function toValues(r: PipelineRepo | null | undefined): PipelineRepoValues {
   return {
@@ -25,23 +26,26 @@ function toValues(r: PipelineRepo | null | undefined): PipelineRepoValues {
   }
 }
 
-/** Where generated pipelines are committed. Separate from the upstreams form
- *  because it is a write target, not something Tide reads from. */
-export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | undefined }) {
+/** Where one upstream's generated pipelines are committed. Separate from the
+ *  upstreams form because it is a write target, not something Tide reads
+ *  from. Each upstream has its own entry: one Kargo reads one directory, so
+ *  each site's stages are pushed where only that site's Kargo looks. */
+export function PipelineRepoForm({ section, upstream, first, multi }: { section: PipelineRepo | null | undefined; upstream: string; first: string; multi: boolean }) {
   const { t } = useTranslation()
   const toast = useToast()
   const save = useSaveSettings<PipelineRepo>('pipeline')
   const [formError, setFormError] = useState<unknown>(null)
   const qc = useQueryClient()
+  const initial = pipelineEntryFor(section, upstream, first)
   const configured = !!(initial?.baseUrl && initial.project)
-  const who = useRepoIdentity(configured)
+  const who = useRepoIdentity(upstream, configured)
   const form = useForm<PipelineRepoValues>({ resolver: zodResolver(pipelineRepoSchema), values: toValues(initial) })
   const e = form.formState.errors
 
   const submit = form.handleSubmit(async (v) => {
     setFormError(null)
     try {
-      await save.mutateAsync({
+      await save.mutateAsync(withPipelineEntry(section, upstream, first, {
         provider: v.provider,
         baseUrl: v.baseUrl.trim(),
         project: v.project.trim(),
@@ -53,7 +57,7 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
         projectNamePrefix: v.projectNamePrefix.trim(),
         imageStrategy: v.imageStrategy,
         tagPattern: (v.tagPattern ?? '').trim(),
-      })
+      }))
       // The server only stores settings it could authenticate, so a
       // successful save already means the token works. Refetching turns that
       // into something the page says out loud.
@@ -66,7 +70,8 @@ export function PipelineRepoForm({ initial }: { initial: PipelineRepo | null | u
 
   return (
     <Form onSubmit={(ev) => void submit(ev)}>
-      <GroupHeader>{t('kargogen.repo')}</GroupHeader>
+      <GroupHeader>{multi ? t('kargogen.repoFor', { upstream }) : t('kargogen.repo')}</GroupHeader>
+      {multi && <Note>{t('kargogen.repoForHint')}</Note>}
       <FormErrorBanner error={formError} />
       <Group form>
         <FormField label={t('kargogen.provider')} error={e.provider?.message} required hint={t('kargogen.providerHint')}>
