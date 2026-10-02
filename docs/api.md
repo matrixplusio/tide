@@ -406,6 +406,7 @@ CI 建的单：`createdBy` 是 `ci:<令牌id>`（据此区分人和 CI），`cre
   流水线是绿的，不报就没人知道。它仍算 `succeeded`，正常走 CD，同时单独发一条通知。
 - `Idempotency-Key` 头可选。成功默认取 `digest`；**失败没有 digest，必须自己带**，
   建议 `<pipeline-id>-<job-name>`。同一个键只处理一次，重跑流水线是安全的。
+  键的作用范围是**服务 + 环境**：同一个镜像（同一个 digest）先报 dev、再报 qa，是两次不同的上报，各自处理。返回体里的 `key` 是加了前缀的形式 `<service>/<env>/<键>`。
   例外：源码没变时重新构建会得到同一个 digest。原来那条如果是 `failed` 或 `expired`（当时 Tide 没能发出去，
   比如 Stage 还没建好、Warehouse 订阅错了地址），这次通知让它**从头再来一次**，`accepted=true`；其他状态不动，只在
   原来那条没带 `commits` 时补上。
