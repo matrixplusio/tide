@@ -8,7 +8,7 @@ import { ErrCode } from '../../lib/errcode'
 import { dimensionOptions, dimensionValueName, matchesSearch } from '../../lib/catalog'
 import { fmtTime } from '../../lib/format'
 import type { Service } from '../../lib/types'
-import { Button, EmptyState, ErrorState, GroupHeader, Input, Loading, Note, Page, Pill, Segmented, Select, Toolbar } from '../../components/ui'
+import { Button, Checkbox, EmptyState, ErrorState, GroupHeader, Input, Loading, Note, Page, Pill, Segmented, Select, Toolbar } from '../../components/ui'
 import { DeployDot, NoUpstreamsBanner, RefreshNow, VersionLabel } from '../../components/domain'
 import { useServices } from './queries'
 
@@ -45,6 +45,10 @@ export function ServicesPage() {
   }
   const dims = me.app.dimensions
   const domain = params.get('domain') ?? ''
+  const env = params.get('env') ?? ''
+  // "Show me what is broken": with an environment, in that one; without,
+  // in any.
+  const unhealthy = params.get('unhealthy') === '1'
   const project = params.get('project') ?? ''
   const set = (k: string, v: string) => {
     const p = new URLSearchParams(params)
@@ -61,7 +65,10 @@ export function ServicesPage() {
   // Optional chaining covers the seconds during a rollout when this tab is
   // newer than the backend answering it.
   const unclassified = (data.data?.upstreams ?? []).reduce((n, u) => ((u.envs?.length ?? 0) > 0 && u.catalog?.kept === 0 ? n + (u.catalog.applications ?? 0) : n), 0)
-  const envs = data.data?.envOrder ?? me.envOrder
+  const allEnvs = data.data?.envOrder ?? me.envOrder
+  // One environment picked shows only its column: the question was about it,
+  // and the others would be noise beside the answer.
+  const envs = useMemo(() => (env && allEnvs.includes(env) ? [env] : allEnvs), [env, allEnvs])
 
   // Scope (project, domain, dimensions) and the search are applied separately
   // so an empty result can say whether widening the scope would help.
@@ -71,7 +78,8 @@ export function ServicesPage() {
     let outOfScope = 0
     for (const s of data.data?.services ?? []) {
       if (!matchesSearch(s.name, q)) continue
-      if (picked.some(([k, v]) => s.dimensions?.[k] !== v) || (domain && s.domain !== domain) || (project && (s.project ?? '') !== project)) {
+      const bad = envs.some((e) => { const h = s.envs[e]?.health; return !!h && h !== 'Healthy' })
+      if (picked.some(([k, v]) => s.dimensions?.[k] !== v) || (domain && s.domain !== domain) || (project && (s.project ?? '') !== project) || (env && !s.envs[env]) || (unhealthy && !bad)) {
         outOfScope++
         continue
       }
@@ -79,11 +87,11 @@ export function ServicesPage() {
       out.set(key, [...(out.get(key) ?? []), s])
     }
     return { groups: [...out].sort(([a], [b]) => a.localeCompare(b)), outOfScope }
-  }, [data.data, q, params, dims, domain, project])
+  }, [data.data, q, params, dims, domain, project, env, envs, unhealthy])
   const total = data.data?.services.length ?? 0
   const projects = [...new Set(services.map((s) => s.project ?? '').filter(Boolean))].sort()
   const domains = [...new Set(services.filter((s) => !project || s.project === project).map((s) => s.domain))].sort()
-  const scoped = !!(project || domain || (dims ?? []).some((d) => params.get(d.key)))
+  const scoped = !!(project || domain || env || unhealthy || (dims ?? []).some((d) => params.get(d.key)))
   const clearScope = () => {
     const next = new URLSearchParams()
     if (q) next.set('q', q)
@@ -127,6 +135,17 @@ export function ServicesPage() {
               return <Segmented key={d.key} label={d.name} value={value} options={[['', t('services.all')], ...options]} onChange={(v) => set(d.key, v)} />
             return <Select key={d.key} appearance="filled" aria-label={d.name} value={value} options={[['', t('services.allOf', { what: d.name })], ...options]} onChange={(e) => set(d.key, e.target.value)} />
           })}
+          <Select
+            appearance="filled"
+            aria-label={t('services.env')}
+            value={env}
+            options={[['', t('services.envFilterAll')], ...allEnvs.map((e): [string, string] => {
+              const info = me.environments.find((x) => x.name === e)
+              return [e, info?.displayName && info.displayName !== e ? `${info.displayName} ${e}` : e]
+            })]}
+            onChange={(e) => set('env', e.target.value)}
+          />
+          <Checkbox id="svc-unhealthy" label={t('services.onlyUnhealthy')} checked={unhealthy} onChange={(e) => set('unhealthy', e.target.checked ? '1' : '')} />
           <Input appearance="filled" type="search" className="filter-text" aria-label={t('services.searchLabel')} placeholder={t('services.searchPlaceholder')} value={text} autoFocus onChange={(e) => onSearch(e.target.value)} />
           {scoped && (
             <Button size="small" variant="quiet" onClick={clearScope}>
