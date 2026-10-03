@@ -26,6 +26,10 @@ node_modules/
 /docs/images/
 /docs/sop/
 
+# Scratch output from checking a deployment by hand: screenshots and saved
+# API responses, all of them from a real environment.
+/out/
+
 # A local pointer at CONVENTIONS.md for editor tooling; the standard itself
 # is CONVENTIONS.md and that is what ships.
 /CLAUDE.md
