@@ -26,6 +26,10 @@ node_modules/
 /docs/images/
 /docs/sop/
 
+# Scratch output from checking a deployment by hand: screenshots and saved
+# API responses, all of them from a real environment.
+/out/
+
 # The gates themselves ship: they were kept out once, and a fresh clone then
 # starts with no pre-commit and no pre-push and says nothing about it — the
 # one moment they matter most. The scripts and the generic rules are about
