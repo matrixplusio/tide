@@ -13,6 +13,12 @@
 # To push something else on purpose, say so out loud:
 #   ALLOW_PUSH=1 git push origin <ref>
 
+# stdin (the list of refs being pushed) can be read once and two loops need it.
+refs="$(mktemp)"
+# shellcheck disable=SC2064
+trap "rm -f '$refs'" EXIT INT TERM
+cat > "$refs"
+
 while read -r local_ref _local_sha remote_ref _remote_sha; do
 	# Deleting a remote ref arrives with a null local ref; let it through,
 	# it publishes nothing.
@@ -33,7 +39,29 @@ while read -r local_ref _local_sha remote_ref _remote_sha; do
 	printf '  发版流程是 feat/fix 合到 dev，发布时 dev 合 main，推 main 再打 tag。\n' >&2
 	printf '  确实要推别的，写明白：ALLOW_PUSH=1 git push ...\n' >&2
 	exit 1
-done
+done < "$refs"
+
+# core.hooksPath=.githooks replaces the machine-wide hooks outright, so their
+# pre-push never ran here: commit-msg calls into them, this file did not. What
+# was missing is the author check — a commit signed with the wrong identity is
+# not in any message or file, so nothing below would notice it.
+# Machine-wide checks, wherever this machine keeps them (make hooks-check).
+g=$(git config --get hooks.global || true)
+[ -n "$g" ] || echo "提示：没设 hooks.global，跳过全局检查" >&2
+if [ -f "$g/leakcheck.py" ] && [ -f "$g/identity.py" ]; then
+	while read -r _local_ref local_sha _remote_ref remote_sha; do
+		case "$local_sha" in
+			*[!0]*) ;;
+			*) continue ;;
+		esac
+		case "$remote_sha" in
+			*[!0]*) range="$remote_sha..$local_sha" ;;
+			*) range="$local_sha" ;;
+		esac
+		python3 "$g/leakcheck.py" --outgoing "$range" || exit 1
+		python3 "$g/identity.py" --range "$range" || exit 1
+	done < "$refs"
+fi
 
 # Branch names are only half of it. Content that got committed before a rule
 # existed to catch it is still sitting in history, and history is what a push
