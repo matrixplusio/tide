@@ -309,6 +309,11 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
   - 执行前重新比对：差异（资源、动作、diff 文本）与建单时不一致则条目失败，需要重新建单；部署仓是共享的，git 修订号本身可以变。之后调用 Argo CD sync（token 需要 `applications, sync` 权限），等同步操作成功、（需要时）重启完成、全部工作负载滚动就绪才算成功。
   - 回滚配置不在 Tide 里做：在部署仓 revert 后再发一张 `sync`。
 - `image` 的 `withConfig`：Kargo 晋级会同步整个应用，部署仓里未同步的配置会随升级生效。建单时总是比对一次：有差异时记入 `ImagePayload.configChanges`；`withConfig=false` 时追加异常 `config_drift`，发布策略 `configDriftEnforced` 选中的环境里返回 3010（先发 `sync`，或勾选同时同步）；`withConfig=true` 表示发起人已查看并同意一起同步。
+- `image` 在没有开自动同步的应用上：晋级只到推 git 为止，Argo CD 不会自己应用，所以 Tide 在晋级成功后调一次 sync（token 需要 `applications, sync` 权限），再等滚动就绪。开了自动同步的应用不调。
+  - 同步前重新比对，只放行这张单展示过的东西：建单时记下的 `configChanges`，加上工作负载里的镜像行。此后才进 git 的改动（别的资源、工作负载里镜像以外的行、新的删除）都会让条目失败并且不同步；此时新 tag 已在 git 里，需要重新建单。
+  - 删除只在两个条件都满足时执行：这项删除在建单时已列入 `configChanges`，并且 `withConfig=true`。否则同步不带 prune，资源留在集群里。
+  - `Namespace` 永不删除，`sync` 单同样拒绝。
+  - 同步固定在刚比对过的修订号上；同步操作失败则条目失败，带上 Argo CD 的原话。
 - `prune`、`restart` 只能用于 `sync`，`withConfig` 只能用于 `image`（1007）。
 
 同一服务同一环境同时只能有一个进行中的变更（升级、重启或配置同步）。

@@ -105,3 +105,25 @@ func TestApplicationRunsWorkloads(t *testing.T) {
 		}
 	}
 }
+
+// An Application without automated sync is one a release has to sync itself.
+// Argo CD 3 can also keep the block and switch it off, which reads the same.
+func TestAutoSync(t *testing.T) {
+	cases := map[string]bool{
+		`{"spec":{}}`:                                             false,
+		`{"spec":{"syncPolicy":{}}}`:                              false,
+		`{"spec":{"syncPolicy":{"automated":{}}}}`:                true,
+		`{"spec":{"syncPolicy":{"automated":{"prune":true}}}}`:    true,
+		`{"spec":{"syncPolicy":{"automated":{"enabled":false}}}}`: false,
+		`{"spec":{"syncPolicy":{"automated":{"enabled":true}}}}`:  true,
+	}
+	for raw, want := range cases {
+		var a Application
+		if err := json.Unmarshal([]byte(raw), &a); err != nil {
+			t.Fatal(err)
+		}
+		if got := a.AutoSync(); got != want {
+			t.Errorf("%s: AutoSync = %v, want %v", raw, got, want)
+		}
+	}
+}
