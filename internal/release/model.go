@@ -185,8 +185,12 @@ type ImagePayload struct {
 	To        Artifact  `json:"to"`
 	Anomalies []Anomaly `json:"anomalies,omitempty"`
 	// ConfigChanges are git changes Argo CD had not applied when the release
-	// was built. Kargo syncs the whole Application, so they go out with the
-	// image; WithConfig records that the creator chose that explicitly.
+	// was built. A sync applies the whole Application, so they go out with
+	// the image; WithConfig records that the creator chose that explicitly.
+	//
+	// Where Tide starts the sync itself (no automated sync), this is also the
+	// list the sync is held to: anything pending that is not on it, bar the
+	// image, stops the sync, and a deletion on it happens only with WithConfig.
 	ConfigChanges []ResourceChange `json:"configChanges,omitempty"`
 	WithConfig    bool             `json:"withConfig,omitempty"`
 	// Verified is the cross-site verification the environment requires

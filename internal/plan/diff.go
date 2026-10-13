@@ -10,6 +10,26 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// OnlyImageChanged reports whether every changed line of a diff made by
+// unifiedDiff is an image line, and at least one is — what a promotion does
+// to a workload and nothing else. A release that syncs for itself uses it to
+// tell the change it made from one somebody else left in the same manifest.
+func OnlyImageChanged(diff string) bool {
+	n := 0
+	for _, line := range strings.Split(diff, "\n") {
+		if line == "" || (line[0] != '+' && line[0] != '-') {
+			continue
+		}
+		// "- " is the list marker when image is a container's first key.
+		text := strings.TrimPrefix(strings.TrimSpace(line[1:]), "- ")
+		if !strings.HasPrefix(text, "image:") {
+			return false
+		}
+		n++
+	}
+	return n > 0
+}
+
 // Diff limits keep a release row small; the full diff is always in Argo CD.
 const (
 	maxDiffBytes  = 16 << 10

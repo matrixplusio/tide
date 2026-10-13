@@ -67,6 +67,13 @@ type Application struct {
 		// "the" place a tag would be written.
 		Source  *Source  `json:"source,omitempty"`
 		Sources []Source `json:"sources,omitempty"`
+		// Only whether Argo CD applies git by itself is read; see AutoSync.
+		SyncPolicy *struct {
+			Automated *struct {
+				// Argo CD 3 can keep the block and switch it off.
+				Enabled *bool `json:"enabled,omitempty"`
+			} `json:"automated,omitempty"`
+		} `json:"syncPolicy,omitempty"`
 	} `json:"spec"`
 	Status struct {
 		Sync struct {
@@ -345,6 +352,19 @@ func (a *Application) Manifests() (Source, bool) {
 		return found, true
 	}
 	return Source{}, false
+}
+
+// AutoSync reports whether Argo CD applies a new commit without being asked.
+//
+// Where it does not, nothing reaches the cluster until somebody starts a
+// sync — which is the point of running an environment that way, and why a
+// release there has to start the sync itself rather than wait for one.
+func (a *Application) AutoSync() bool {
+	p := a.Spec.SyncPolicy
+	if p == nil || p.Automated == nil {
+		return false
+	}
+	return p.Automated.Enabled == nil || *p.Automated.Enabled
 }
 
 // workloadKinds are the objects that run containers, and therefore the ones

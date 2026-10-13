@@ -10,6 +10,7 @@ import (
 	"tide/internal/catalog"
 	"tide/internal/plan"
 	"tide/internal/release"
+	"tide/internal/upstream/argocd"
 	"tide/internal/upstream/kargo"
 )
 
@@ -126,7 +127,18 @@ func (x Image) Poll(ctx context.Context, it *release.Item) (ItemStatus, error) {
 		if p.App == "" {
 			return ItemStatus{Done: true, Success: true}, nil
 		}
-		return x.rollout(ctx, c, p)
+		app, err := c.ArgoCD.GetApplication(ctx, p.App)
+		if err != nil {
+			return ItemStatus{}, err
+		}
+		if !app.AutoSync() {
+			since := promo.Status.FinishedAt
+			if since == nil {
+				since = it.StartedAt
+			}
+			return x.syncThenRollout(ctx, c, p, app, since)
+		}
+		return x.rollout(ctx, c, p, app)
 	}
 	msg := promo.Status.Phase
 	if promo.Status.Message != "" {
@@ -149,11 +161,15 @@ func (x Image) Poll(ctx context.Context, it *release.Item) (ItemStatus, error) {
 // its replicas; failed when Kubernetes gave up on the rollout. At least one
 // workload must run the target, so a sync that has not reached the cluster
 // yet is not mistaken for done.
-func (x Image) rollout(ctx context.Context, c *catalog.Clients, p *release.ImagePayload) (ItemStatus, error) {
-	app, err := c.ArgoCD.GetApplication(ctx, p.App)
+func (x Image) rollout(ctx context.Context, c *catalog.Clients, p *release.ImagePayload, app *argocd.Application) (ItemStatus, error) {
+	ws, err := x.workloads(ctx, c, p, app)
 	if err != nil {
 		return ItemStatus{}, err
 	}
+	return rolloutStatus(ws, p.To), nil
+}
+
+func (x Image) workloads(ctx context.Context, c *catalog.Clients, p *release.ImagePayload, app *argocd.Application) ([]workload, error) {
 	var ws []workload
 	for _, r := range app.Status.Resources {
 		if r.Group != "apps" || (r.Kind != "Deployment" && r.Kind != "StatefulSet" && r.Kind != "DaemonSet") {
@@ -161,11 +177,11 @@ func (x Image) rollout(ctx context.Context, c *catalog.Clients, p *release.Image
 		}
 		obj, err := c.ArgoCD.Resource(ctx, p.App, r.Group, r.Version, r.Kind, r.Namespace, r.Name)
 		if err != nil {
-			return ItemStatus{}, fmt.Errorf("%s/%s: %w", r.Kind, r.Name, err)
+			return nil, fmt.Errorf("%s/%s: %w", r.Kind, r.Name, err)
 		}
 		ws = append(ws, workload{kind: r.Kind, name: r.Name, obj: obj})
 	}
-	return rolloutStatus(ws, p.To), nil
+	return ws, nil
 }
 
 type workload struct {

@@ -109,6 +109,14 @@ func (x Sync) Execute(ctx context.Context, it *release.Item) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Listed and agreed to or not: a namespace takes everything in it.
+	if p.Prune {
+		for _, ch := range d.Changes {
+			if ch.Action == release.ChangeDelete && ch.Kind == "Namespace" {
+				return "", fmt.Errorf("namespace %s would be deleted; a release never deletes a namespace", ch.Name)
+			}
+		}
+	}
 	started := time.Now().UTC()
 	if err := c.ArgoCD.Sync(ctx, p.App, d.Revision, p.Prune); err != nil {
 		return "", err
