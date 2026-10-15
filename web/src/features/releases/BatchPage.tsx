@@ -12,6 +12,7 @@ import { approvalFor, approvalText, enforcedThresholds } from '../../lib/release
 import { ErrCode } from '../../lib/errcode'
 import { applyServerError } from '../../lib/forms'
 import { canEnv, canService } from '../../lib/permissions'
+import { fmtTime } from '../../lib/format'
 import type { Candidates, Permission, Release } from '../../lib/types'
 import {
   Banner,
@@ -38,7 +39,7 @@ import { ConfirmSheet, ServiceName, VersionLabel } from '../../components/domain
 import { useCandidates, useServices } from '../services/queries'
 import { normalizeJira } from '../services/schema'
 import { useCreateRelease } from './queries'
-import { batchCandidates, batchSchema, loadBatchScope, mapBatchField, saveBatchScope, matchPastedFreight, parsePaste, requiredFields, resolvePasteScope, shownAfterPaste, type BatchKind, type BatchRow, type BatchValues, type PasteProblem } from './batch'
+import { batchCandidates, batchSchema, loadBatchScope, loadLastBatch, mapBatchField, reuseLastBatch, saveBatchScope, saveLastBatch, matchPastedFreight, parsePaste, requiredFields, resolvePasteScope, shownAfterPaste, type BatchKind, type BatchRow, type BatchValues, type PasteProblem } from './batch'
 
 const KINDS = [
   ['image', 'releases.kindImage'],
@@ -73,6 +74,8 @@ export function BatchPage() {
   const [pasteResult, setPasteResult] = useState<{ applied: number; problems: PasteProblem[]; renamed?: { from: string; to: string }[] } | null>(null)
   // Restored from the last batch; each value still has to be on offer, or the default applies.
   const [saved] = useState(loadBatchScope)
+  // Services the last reuse could not bring back; null when nothing was reused.
+  const [reused, setReused] = useState<{ count: number; missing: string[] } | null>(null)
   const [env, setEnvState] = useState(saved.env && envs.some((e) => e.name === saved.env) ? saved.env : (envs[0]?.name ?? ''))
   const kinds = KINDS.filter(([k]) => canEnv(me, KIND_PERMISSION[k], env))
   const [kind, setKindState] = useState<BatchKind>(saved.kind ?? 'image')
@@ -80,17 +83,18 @@ export function BatchPage() {
 
   const all = useMemo(() => services.data?.services ?? [], [services.data])
   const projects = [...new Set(all.filter((s) => s.project && s.envs[env]).map((s) => s.project ?? ''))].sort()
-  const [project, setProjectState] = useState(saved.project ?? '')
+  const [project, setProjectState] = useState('')
   const effectiveProject = projects.includes(project) ? project : (projects[0] ?? '')
 
   const dim = (me.app.dimensions ?? []).find((d) => d.key === me.app.batchDimension)
   const typeOptions = dim ? dimensionOptions(dim, all.filter((s) => s.project === effectiveProject && s.envs[env])) : []
-  const [type, setTypeState] = useState(saved.type ?? '')
+  const [type, setTypeState] = useState('')
   // Changing the scope by hand drops a previous paste import.
   const manual =
     <T,>(set: (v: T) => void) =>
     (v: T) => {
       setImported(null)
+      setReused(null)
       set(v)
     }
   const setEnv = manual(setEnvState)
@@ -105,7 +109,7 @@ export function BatchPage() {
   // project is a long way to scroll for the four you meant, but a filter that
   // also unpicked what you had already chosen would make choosing across two
   // domains impossible. So these hide rows; they never clear them.
-  const [domain, setDomain] = useState(saved.domain ?? '')
+  const [domain, setDomain] = useState('')
   const [query, setQuery] = useState('')
   const domains = useMemo(() => [...new Set(list.map((s) => s.domain).filter(Boolean))].sort(), [list])
   // A remembered domain the list no longer has would hide every row.
@@ -122,10 +126,10 @@ export function BatchPage() {
   }, [list, effectiveDomain, query, imported, onlyPasted])
   useEffect(() => {
     // What was picked, not what is in effect: until the catalog has loaded
-    // every effective value is a fallback, and saving it would forget the
+    // the effective kind is a fallback, and saving it would forget the
     // choice the page is about to restore.
-    saveBatchScope({ env, kind, project, type, domain })
-  }, [env, kind, project, type, domain])
+    saveBatchScope({ env, kind })
+  }, [env, kind])
   const req = requiredFields(me.app, env)
   const [formError, setFormError] = useState<unknown>(null)
   const [confirming, setConfirming] = useState<Release | null>(null)
@@ -148,9 +152,27 @@ export function BatchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey, imported])
 
+  // Read on every change of environment; a batch sent from this page updates it on the way out.
+  const last = useMemo(() => loadLastBatch(env), [env])
+  const onReuse = () => {
+    if (!last) return
+    const { picked, missing } = reuseLastBatch(last, all, env, (s) =>
+      canService(me, KIND_PERMISSION[last.kind], env, s.project || undefined, dim ? s.dimensions?.[dim.key] : undefined),
+    )
+    setKindState(last.kind)
+    setProjectState(last.project)
+    setTypeState(last.type)
+    setDomain('')
+    setPasteResult(null)
+    setOnlyPasted(true)
+    setImported(picked)
+    setReused({ count: Object.keys(picked).length, missing })
+  }
+
   const onPaste = async () => {
     setPasteBusy(true)
     setPasteResult(null)
+    setReused(null)
     try {
       const { entries, problems } = parsePaste(pasteText)
       if (entries.length === 0) {
@@ -206,6 +228,13 @@ export function BatchPage() {
               : { kind: 'image' as const, service: p.service, freight: p.freight, sequence: Number(p.sequence), withConfig: v.withConfig },
         ),
       })
+      saveLastBatch(env, {
+        at: new Date().toISOString(),
+        kind: effectiveKind,
+        project: effectiveProject,
+        type: effectiveType,
+        services: picked.map((p) => ({ service: p.service, sequence: p.sequence })),
+      })
       setConfirming(r)
     } catch (e) {
       setFormError(applyServerError(form, e, { mapField: (f) => mapBatchField(getValues('rows'), f) }))
@@ -225,7 +254,32 @@ export function BatchPage() {
         {services.error && <ErrorState error={services.error} onRetry={() => void services.refetch()} />}
         {services.data && envs.length > 0 && (
           <Form onSubmit={onSubmit} aria-label={t('batch.formLabel')}>
-            <GroupHeader right={<Button size="small" variant="quiet" onClick={() => setPasteOpen((v) => !v)}>{pasteOpen ? t('batch.collapsePaste') : t('batch.openPaste')}</Button>}>{t('batch.scope')}</GroupHeader>
+            <GroupHeader
+              right={
+                <span className="btnrow" style={{ margin: 0 }}>
+                  {last && (
+                    <Button size="small" variant="quiet" onClick={onReuse} title={last.services.map((x) => x.service).join('\n')}>
+                      {t('batch.reuseLast', { project: last.project || '—', count: last.services.length, at: fmtTime(last.at) })}
+                    </Button>
+                  )}
+                  <Button size="small" variant="quiet" onClick={() => setPasteOpen((v) => !v)}>
+                    {pasteOpen ? t('batch.collapsePaste') : t('batch.openPaste')}
+                  </Button>
+                </span>
+              }
+            >
+              {t('batch.scope')}
+            </GroupHeader>
+            {reused && (
+              <div className="fhint" role="status">
+                <div className="green">{t('batch.reused', { count: reused.count })}</div>
+                {reused.missing.map((x) => (
+                  <div key={x} className="red">
+                    {t('batch.reuseMissing', { service: x })}
+                  </div>
+                ))}
+              </div>
+            )}
             {pasteOpen && (
               <Group form>
                 <FormField label={t('batch.pasteLabel')} hint={t('batch.pasteHint', { env })}>
