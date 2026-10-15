@@ -153,8 +153,16 @@ export function resolvePasteScope(
   const found: Service[] = []
   const resolved: PasteEntry[] = []
   const renamed: { from: string; to: string }[] = []
+  // A short name several projects share is settled by the rest of the paste
+  // first: a batch is one project, so if every name that is not in doubt
+  // points at one project, that is the one meant. The project on the page
+  // only counts after that — it may be just the default nobody chose.
+  const sure = new Set(
+    entries.map((e) => findPastedService(e.service, services, env, '').service?.project).filter((p): p is string => !!p),
+  )
+  const prefer = sure.size === 1 ? ([...sure][0] ?? project) : project
   for (const e of entries) {
-    const { service: s, ambiguous } = findPastedService(e.service, services, env, project)
+    const { service: s, ambiguous } = findPastedService(e.service, services, env, prefer)
     if (ambiguous) {
       problems.push({ line: e.line, text: e.service, msg: i18n.t('releases.ambiguousService', { service: e.service, list: ambiguous.join(i18n.t('scope.listSeparator')) }) })
       continue
@@ -199,4 +207,44 @@ export function matchPastedFreight(
 export function shownAfterPaste(imported: Record<string, unknown> | null, onlyPasted: boolean, service: string): boolean {
   if (!imported || !onlyPasted) return true
   return Object.prototype.hasOwnProperty.call(imported, service)
+}
+
+/** What the batch page was last set to, kept per browser. */
+export interface BatchScope {
+  env?: string
+  kind?: BatchKind
+  project?: string
+  type?: string
+  domain?: string
+}
+
+const SCOPE_KEY = 'tide.batch.scope'
+
+/**
+ * The scope of the last batch, so that someone sending one batch after
+ * another does not pick the environment, project and type again each time.
+ * Only the scope: which services were ticked and which versions chosen
+ * belong to the release that was sent, not to the next one. Whatever is no
+ * longer offered falls back to the page's default.
+ */
+export function loadBatchScope(): BatchScope {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(SCOPE_KEY) ?? '{}')
+    if (!v || typeof v !== 'object') return {}
+    const o = v as Record<string, unknown>
+    const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : undefined)
+    const kind = str('kind')
+    return { env: str('env'), kind: kind === 'image' || kind === 'restart' || kind === 'sync' ? kind : undefined, project: str('project'), type: str('type'), domain: str('domain') }
+  } catch {
+    // Private windows and blocked site data throw; the defaults will do.
+    return {}
+  }
+}
+
+export function saveBatchScope(scope: BatchScope): void {
+  try {
+    localStorage.setItem(SCOPE_KEY, JSON.stringify(scope))
+  } catch {
+    // Remembering is a convenience, never a requirement.
+  }
 }

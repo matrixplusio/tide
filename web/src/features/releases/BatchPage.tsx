@@ -38,7 +38,7 @@ import { ConfirmSheet, ServiceName, VersionLabel } from '../../components/domain
 import { useCandidates, useServices } from '../services/queries'
 import { normalizeJira } from '../services/schema'
 import { useCreateRelease } from './queries'
-import { batchCandidates, batchSchema, mapBatchField, matchPastedFreight, parsePaste, requiredFields, resolvePasteScope, shownAfterPaste, type BatchKind, type BatchRow, type BatchValues, type PasteProblem } from './batch'
+import { batchCandidates, batchSchema, loadBatchScope, mapBatchField, saveBatchScope, matchPastedFreight, parsePaste, requiredFields, resolvePasteScope, shownAfterPaste, type BatchKind, type BatchRow, type BatchValues, type PasteProblem } from './batch'
 
 const KINDS = [
   ['image', 'releases.kindImage'],
@@ -71,19 +71,21 @@ export function BatchPage() {
   const [pasteText, setPasteText] = useState('')
   const [pasteBusy, setPasteBusy] = useState(false)
   const [pasteResult, setPasteResult] = useState<{ applied: number; problems: PasteProblem[]; renamed?: { from: string; to: string }[] } | null>(null)
-  const [env, setEnvState] = useState(envs[0]?.name ?? '')
+  // Restored from the last batch; each value still has to be on offer, or the default applies.
+  const [saved] = useState(loadBatchScope)
+  const [env, setEnvState] = useState(saved.env && envs.some((e) => e.name === saved.env) ? saved.env : (envs[0]?.name ?? ''))
   const kinds = KINDS.filter(([k]) => canEnv(me, KIND_PERMISSION[k], env))
-  const [kind, setKindState] = useState<BatchKind>('image')
+  const [kind, setKindState] = useState<BatchKind>(saved.kind ?? 'image')
   const effectiveKind: BatchKind = kinds.some(([k]) => k === kind) ? kind : (kinds[0]?.[0] ?? 'image')
 
   const all = useMemo(() => services.data?.services ?? [], [services.data])
   const projects = [...new Set(all.filter((s) => s.project && s.envs[env]).map((s) => s.project ?? ''))].sort()
-  const [project, setProjectState] = useState('')
+  const [project, setProjectState] = useState(saved.project ?? '')
   const effectiveProject = projects.includes(project) ? project : (projects[0] ?? '')
 
   const dim = (me.app.dimensions ?? []).find((d) => d.key === me.app.batchDimension)
   const typeOptions = dim ? dimensionOptions(dim, all.filter((s) => s.project === effectiveProject && s.envs[env])) : []
-  const [type, setTypeState] = useState('')
+  const [type, setTypeState] = useState(saved.type ?? '')
   // Changing the scope by hand drops a previous paste import.
   const manual =
     <T,>(set: (v: T) => void) =>
@@ -103,19 +105,27 @@ export function BatchPage() {
   // project is a long way to scroll for the four you meant, but a filter that
   // also unpicked what you had already chosen would make choosing across two
   // domains impossible. So these hide rows; they never clear them.
-  const [domain, setDomain] = useState('')
+  const [domain, setDomain] = useState(saved.domain ?? '')
   const [query, setQuery] = useState('')
   const domains = useMemo(() => [...new Set(list.map((s) => s.domain).filter(Boolean))].sort(), [list])
+  // A remembered domain the list no longer has would hide every row.
+  const effectiveDomain = domains.includes(domain) ? domain : ''
   const shown = useMemo(() => {
     const byName = new Map(list.map((s) => [s.name, s]))
     return (service: string) => {
       const svc = byName.get(service)
       if (!svc) return false
-      if (domain && svc.domain !== domain) return false
+      if (effectiveDomain && svc.domain !== effectiveDomain) return false
       if (!shownAfterPaste(imported, onlyPasted, service)) return false
       return matchesSearch(svc.name, query)
     }
-  }, [list, domain, query, imported, onlyPasted])
+  }, [list, effectiveDomain, query, imported, onlyPasted])
+  useEffect(() => {
+    // What was picked, not what is in effect: until the catalog has loaded
+    // every effective value is a fallback, and saving it would forget the
+    // choice the page is about to restore.
+    saveBatchScope({ env, kind, project, type, domain })
+  }, [env, kind, project, type, domain])
   const req = requiredFields(me.app, env)
   const [formError, setFormError] = useState<unknown>(null)
   const [confirming, setConfirming] = useState<Release | null>(null)
@@ -164,8 +174,11 @@ export function BatchPage() {
         else problems.push({ line: e.line, text: `${e.service} ${e.ref}`, msg: m.msg ?? t('batch.unrecognised') })
       }
       setKindState('image')
-      setProjectState(scope.project)
-      setTypeState(scope.type)
+      // Nothing recognised says nothing about the project: keep the one picked.
+      if (scope.project) {
+        setProjectState(scope.project)
+        setTypeState(scope.type)
+      }
       setImported(next)
       setOnlyPasted(true)
       setPasteResult({ applied: Object.keys(next).length, problems: problems.sort((a, b) => a.line - b.line), renamed: scope.renamed })
@@ -286,7 +299,7 @@ export function BatchPage() {
                   <Select
                     appearance="filled"
                     aria-label={t('services.domain')}
-                    value={domain}
+                    value={effectiveDomain}
                     options={[['', t('services.allDomains')], ...domains.map((x): [string, string] => [x, x])]}
                     onChange={(e) => setDomain(e.target.value)}
                   />
