@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { batchCandidates, batchSchema, mapBatchField, matchPastedFreight, parsePaste, resolvePasteScope, shownAfterPaste } from './batch'
+import { batchCandidates, batchSchema, loadBatchScope, mapBatchField, saveBatchScope, matchPastedFreight, parsePaste, resolvePasteScope, shownAfterPaste } from './batch'
 import type { Dimension, Service } from '../../lib/types'
 
 const dep = { env: 'qa' } as never
@@ -113,6 +113,10 @@ gateway-backend,v2.0.0
     // Shared by two projects: the page's project settles it, else it is refused.
     expect(resolvePasteScope([e('dice', 1)], all, 'qa', role, 'umbrella').entries.map((x) => x.service)).toEqual(['umbrella-dice'])
     expect(resolvePasteScope([e('dice', 1)], all, 'qa', role, 'acme').problems.map((p) => p.msg)).toEqual(['dice 在多个项目里都有（initech-dice、umbrella-dice），请先选项目或写全名'])
+    // The rest of the paste names the project, whatever the page has picked.
+    expect(resolvePasteScope([e('dice', 1), e('umbrella-only-prod', 2)], all, 'prod', role, 'acme').problems.map((p) => p.msg)).toEqual(['没有服务 dice'])
+    const withOther = [...all, named('umbrella-api', 'umbrella', 'api')]
+    expect(resolvePasteScope([e('dice', 1), e('api', 2)], withOther, 'qa', role, 'acme').entries.map((x) => x.service)).toEqual(['umbrella-dice', 'umbrella-api'])
     // Not deployed to the environment: not a match at all.
     expect(resolvePasteScope([e('only-prod', 1)], all, 'qa', role).problems.map((p) => p.msg)).toEqual(['没有服务 only-prod'])
   })
@@ -140,5 +144,20 @@ describe('after a paste', () => {
   })
   it('hides nothing when nothing was pasted', () => {
     expect(shownAfterPaste(null, true, 'stock-api')).toBe(true)
+  })
+})
+
+describe('batch scope memory', () => {
+  // The scope of the last batch comes back on the next visit; anything that
+  // is not a known value is dropped rather than trusted.
+  it('keeps the scope and drops what it does not recognise', () => {
+    localStorage.clear()
+    expect(loadBatchScope()).toEqual({})
+    saveBatchScope({ env: 'qa', kind: 'sync', project: 'acme', type: 'backend', domain: 'd' })
+    expect(loadBatchScope()).toEqual({ env: 'qa', kind: 'sync', project: 'acme', type: 'backend', domain: 'd' })
+    localStorage.setItem('tide.batch.scope', JSON.stringify({ env: 3, kind: 'delete-everything', project: 'acme' }))
+    expect(loadBatchScope()).toEqual({ env: undefined, kind: undefined, project: 'acme', type: undefined, domain: undefined })
+    localStorage.setItem('tide.batch.scope', 'not json')
+    expect(loadBatchScope()).toEqual({})
   })
 })
