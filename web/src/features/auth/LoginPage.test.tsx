@@ -4,11 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { LoginPage } from './LoginPage'
+import { browser } from './queries'
 
 type Call = { url: string; body: Record<string, string> | null }
 
 /** A tiny fake server: login answers come from `logins`, challenges hand out numbered captchas. */
-function fakeServer(logins: { code: number; msg: string }[]) {
+function fakeServer(logins: { code: number; msg: string }[], sso = false) {
   const calls: Call[] = []
   let issued = 0
   vi.stubGlobal(
@@ -17,7 +18,7 @@ function fakeServer(logins: { code: number; msg: string }[]) {
       const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, string>) : null
       calls.push({ url, body })
       const env = (code: number, msg: string, data: unknown, status: number) => new Response(JSON.stringify({ code, msg, data }), { status })
-      if (url.startsWith('/api/v1/auth/methods')) return env(0, 'ok', { initialized: true, sso: false }, 200)
+      if (url.startsWith('/api/v1/auth/methods')) return env(0, 'ok', { initialized: true, sso }, 200)
       if (url.startsWith('/api/v1/auth/challenge')) {
         issued++
         return env(0, 'ok', { captchaRequired: true, captchaId: `00000000-0000-4000-8000-00000000000${issued}`, captchaImage: `data:image/png;base64,IMG${issued}` }, 200)
@@ -34,11 +35,11 @@ function fakeServer(logins: { code: number; msg: string }[]) {
 
 afterEach(() => vi.unstubAllGlobals())
 
-function renderLogin() {
+function renderLogin(path = '/login') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={['/login']}>
+      <MemoryRouter initialEntries={[path]}>
         <LoginPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -99,5 +100,30 @@ describe('login captcha', () => {
     expect(await screen.findByText('请输入验证码')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: '换一张验证码' }))
     await waitFor(() => expect(screen.getByAltText('验证码图片').getAttribute('src')).toBe('data:image/png;base64,IMG2'))
+  })
+})
+
+// An SSO portal links to /sso: the person has already chosen SSO there, so
+// asking them to choose it again on the sign-in page is one click too many.
+describe('the /sso entry', () => {
+  it('goes straight to SSO, keeping where to return to', async () => {
+    fakeServer([], true)
+    const replace = vi.spyOn(browser, 'replace').mockImplementation(() => {})
+    renderLogin('/sso?return=%2Freleases')
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/api/v1/auth/sso/login?return=%2Freleases'))
+  })
+  it('shows the ordinary sign-in page when SSO is not configured', async () => {
+    fakeServer([], false)
+    const replace = vi.spyOn(browser, 'replace').mockImplementation(() => {})
+    renderLogin('/sso')
+    expect(await screen.findByRole('button', { name: '登录' })).toBeTruthy()
+    expect(replace).not.toHaveBeenCalled()
+  })
+  it('does not send someone back to an SSO that just failed', async () => {
+    fakeServer([], true)
+    const replace = vi.spyOn(browser, 'replace').mockImplementation(() => {})
+    renderLogin('/sso?error=denied')
+    await screen.findByText(/denied/)
+    expect(replace).not.toHaveBeenCalled()
   })
 })

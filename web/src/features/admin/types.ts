@@ -119,6 +119,8 @@ export interface OIDC {
   clientId: string
   clientSecret: string
   groupsClaim: string
+  /** Empty means Tide's default: openid profile email groups. */
+  scopes?: string[]
   redirectUrl: string
 }
 

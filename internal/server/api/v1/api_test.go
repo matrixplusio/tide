@@ -328,7 +328,7 @@ func TestAPIContract(t *testing.T) {
 	expect(t, c.do("PUT", "/api/v1/settings/system", map[string]any{"siteName": "", "announcement": map[string]any{"enabled": true, "level": "loud"}}), errcode.ValidationFailed, "siteName", "announcement.level", "announcement.text")
 	expect(t, c.do("PUT", "/api/v1/settings/security", map[string]any{"sessionTtlMinutes": 0, "loginWindowMinutes": 15, "captchaAfterUserFailures": 5, "captchaAfterIpFailures": 5,
 		"lockAfterUserFailures": 5, "lockAfterIpFailures": 30}), errcode.ValidationFailed, "sessionTtlMinutes", "lockAfterUserFailures")
-	expect(t, c.do("PUT", "/api/v1/settings/release", map[string]any{"confirmReadSeconds": 5, "confirmTtlMinutes": 10, "executeTimeoutMinutes": 15,
+	expect(t, c.do("PUT", "/api/v1/settings/release", map[string]any{"confirmReadSeconds": 2, "confirmTtlMinutes": 10, "executeTimeoutMinutes": 15,
 		"jiraProjects": []string{"ops", "1X"}, "freezes": []map[string]any{{"name": "春节", "envs": []string{"prod"}, "startsAt": "2026-02-01T00:00:00Z", "endsAt": "2026-01-01T00:00:00Z"}}}),
 		errcode.ValidationFailed, "confirmReadSeconds", "jiraProjects.1", "freezes.0.envs", "freezes.0.endsAt")
 	expect(t, c.do("PUT", "/api/v1/settings/environments", map[string]any{"items": []map[string]any{{"name": "dev", "tier": "development", "upstream": "ghost"}, {"name": "dev", "tier": "moon"}}}),

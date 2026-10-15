@@ -166,6 +166,8 @@ var zhCNSettings = map[Key]string{ //nolint:gosec // G101: message templates, no
 	"s.nameFormat":           "名称需以小写字母开头，只能包含小写字母、数字和 -，最长 32 位",
 	"s.promotesFromOrder":    "验证来源需是排在它前面的环境",
 	"s.redirectSuffix":       "回调地址必须以 /api/v1/auth/sso/callback 结尾",
+	"s.scopesTooMany":        "授权范围最多 20 个",
+	"s.scopeFormat":          "授权范围格式不对：不能有空格、引号或反斜杠，最长 64 个字符",
 	"s.registryUserNeeded":   "填写了 Registry 密码时需要用户名",
 	"s.ruleDup":              "规则 %s 重复",
 	"s.ruleNameDup":          "规则名称重复",

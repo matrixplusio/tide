@@ -19,8 +19,8 @@ export function SsoForm({ initial }: { initial: OIDC | null | undefined }) {
     resolver: zodResolver(ssoSchema),
     mode: 'onTouched',
     defaultValues: initial
-      ? { ...initial, groupsClaim: initial.groupsClaim ?? '' }
-      : { issuer: '', clientId: '', clientSecret: '', groupsClaim: 'groups', redirectUrl: `${window.location.origin}${SSO_CALLBACK_PATH}` },
+      ? { ...initial, groupsClaim: initial.groupsClaim ?? '', scopes: (initial.scopes ?? []).join(' ') }
+      : { issuer: '', clientId: '', clientSecret: '', groupsClaim: 'groups', scopes: '', redirectUrl: `${window.location.origin}${SSO_CALLBACK_PATH}` },
   })
   const { register, handleSubmit, formState } = form
   const errors = formState.errors
@@ -34,6 +34,7 @@ export function SsoForm({ initial }: { initial: OIDC | null | undefined }) {
         clientId: v.clientId.trim(),
         clientSecret: v.clientSecret === MASK ? MASK : v.clientSecret.trim(),
         groupsClaim: v.groupsClaim.trim(),
+        scopes: v.scopes.split(/\s+/).filter(Boolean),
         redirectUrl: v.redirectUrl.trim(),
       }
       await save.mutateAsync(body)
@@ -57,8 +58,11 @@ export function SsoForm({ initial }: { initial: OIDC | null | undefined }) {
         <FormField label="Client secret" error={errors.clientSecret?.message} required hint={initial ? t('settings.secretKept', { mask: MASK }) : undefined}>
           {(p) => <PasswordInput {...p} {...register('clientSecret')} className="mono" autoComplete="off" />}
         </FormField>
-        <FormField label="Groups claim" error={errors.groupsClaim?.message}>
+        <FormField label={t('settings.rolesClaim')} error={errors.groupsClaim?.message} hint={t('settings.rolesClaimHint')}>
           {(p) => <Input {...p} {...register('groupsClaim')} mono autoComplete="off" spellCheck={false} />}
+        </FormField>
+        <FormField label={t('settings.scopes')} error={errors.scopes?.message} hint={t('settings.scopesHint')}>
+          {(p) => <Input {...p} {...register('scopes')} mono autoComplete="off" spellCheck={false} placeholder="openid profile email groups" />}
         </FormField>
         <FormField label={t('settings.redirectUrl')} error={errors.redirectUrl?.message} required hint={t('settings.redirectHint', { path: SSO_CALLBACK_PATH })}>
           {(p) => <Input {...p} {...register('redirectUrl')} mono type="url" inputMode="url" autoComplete="off" placeholder="https://tide.example.com/api/v1/auth/sso/callback" />}

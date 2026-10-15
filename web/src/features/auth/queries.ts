@@ -41,6 +41,11 @@ export function useLogout() {
   })
 }
 
+/** Leaving the app for the IdP; an object so a test can watch it. */
+export const browser = {
+  replace: (url: string) => window.location.replace(url),
+}
+
 export function ssoLoginHref(returnPath: string): string {
   return `/api/v1/auth/sso/login?return=${encodeURIComponent(returnPath)}`
 }

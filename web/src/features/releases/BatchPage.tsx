@@ -38,7 +38,7 @@ import { ConfirmSheet, VersionLabel } from '../../components/domain'
 import { useCandidates, useServices } from '../services/queries'
 import { normalizeJira } from '../services/schema'
 import { useCreateRelease } from './queries'
-import { batchCandidates, batchSchema, mapBatchField, matchPastedFreight, parsePaste, requiredFields, resolvePasteScope, type BatchKind, type BatchRow, type BatchValues, type PasteProblem } from './batch'
+import { batchCandidates, batchSchema, mapBatchField, matchPastedFreight, parsePaste, requiredFields, resolvePasteScope, shownAfterPaste, type BatchKind, type BatchRow, type BatchValues, type PasteProblem } from './batch'
 
 const KINDS = [
   ['image', 'releases.kindImage'],
@@ -65,6 +65,8 @@ export function BatchPage() {
   const qc = useQueryClient()
   // Pasted service → freight / sequence, applied when the rows for the matching scope are built.
   const [imported, setImported] = useState<Record<string, { freight: string; sequence?: string }> | null>(null)
+  // After a paste, only the pasted services are listed until asked otherwise.
+  const [onlyPasted, setOnlyPasted] = useState(true)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pasteBusy, setPasteBusy] = useState(false)
@@ -110,9 +112,10 @@ export function BatchPage() {
       const svc = byName.get(service)
       if (!svc) return false
       if (domain && svc.domain !== domain) return false
+      if (!shownAfterPaste(imported, onlyPasted, service)) return false
       return matchesSearch(svc.name, query)
     }
-  }, [list, domain, query])
+  }, [list, domain, query, imported, onlyPasted])
   const req = requiredFields(me.app, env)
   const [formError, setFormError] = useState<unknown>(null)
   const [confirming, setConfirming] = useState<Release | null>(null)
@@ -165,6 +168,7 @@ export function BatchPage() {
       setProjectState(scope.project)
       setTypeState(scope.type)
       setImported(next)
+      setOnlyPasted(true)
       setPasteResult({ applied: Object.keys(next).length, problems: problems.sort((a, b) => a.line - b.line) })
     } catch (e) {
       setPasteResult({ applied: 0, problems: [{ line: 0, text: '', msg: isApiError(e) ? e.msg : t('batch.readFreightFailed') }] })
@@ -293,6 +297,9 @@ export function BatchPage() {
                   onChange={(e) => setQuery(e.target.value)}
                   autoComplete="off"
                 />
+                {imported && Object.keys(imported).length > 0 && (
+                  <Checkbox id="batch-only-pasted" checked={onlyPasted} onChange={(e) => setOnlyPasted(e.target.checked)} label={t('batch.onlyPasted', { count: Object.keys(imported).length })} />
+                )}
               </div>
             )}
             {list.length === 0 ? (

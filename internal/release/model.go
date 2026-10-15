@@ -62,7 +62,8 @@ func (s ItemStatus) Terminal() bool { return len(itemTransitions[s]) == 0 }
 
 // Confirmation read time, confirmation lifetime and execution timeout are
 // release policy settings (settings.ReleasePolicy). The read time is enforced
-// server side against the database clock and never goes below 10 seconds; a
+// server side against the database clock and never goes below a product
+// minimum (settings.MinConfirmReadSeconds); a
 // confirming release holds its targets, so the lifetime is bounded too.
 
 var (
