@@ -51,6 +51,8 @@ export function AppRoutes() {
         <Route path="/admin/*" element={canAny(me, ADMIN_PERMISSIONS) ? <AdminRoutes /> : <Navigate to={homePath(me)} replace />} />
         <Route path="/settings" element={<Navigate to="/admin" replace />} />
         <Route path="/login" element={<Navigate to={safeReturnPath(new URLSearchParams(loc.search).get('return'))} replace />} />
+        {/* Already signed in when the SSO portal sends someone here: go on. */}
+        <Route path="/sso" element={<Navigate to={safeReturnPath(new URLSearchParams(loc.search).get('return'))} replace />} />
         <Route path="*" element={<Navigate to={homePath(me)} replace />} />
       </Routes>
     </Suspense>

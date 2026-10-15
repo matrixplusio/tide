@@ -302,6 +302,12 @@ export const ssoSchema = z.object({
   clientId: requiredText('Client ID', 256),
   clientSecret: secret('Client secret', true),
   groupsClaim: zOptionalText(64),
+  // Space separated, as an IdP's documentation writes them.
+  scopes: z.string().max(1000).superRefine((v, ctx) => {
+    const list = v.split(/\s+/).filter(Boolean)
+    if (list.length > 20) addIssue(ctx, [], i18n.t('av.scopesTooMany'))
+    else if (list.some((s) => !/^[\x21\x23-\x5b\x5d-\x7e]{1,64}$/.test(s))) addIssue(ctx, [], i18n.t('av.scopeFormat'))
+  }),
   redirectUrl: z.string().superRefine((v, ctx) => addIssue(ctx, [], validateHttpUrl(v, { base: true, suffix: SSO_CALLBACK_PATH }))),
 })
 export type SsoValues = z.infer<typeof ssoSchema>
@@ -344,7 +350,7 @@ const optionalEnvSelectors = () =>
 
 export const releasePolicySchema = z
   .object({
-    confirmReadSeconds: intField(10, 120),
+    confirmReadSeconds: intField(3, 120),
     confirmTtlMinutes: intField(2, 60),
     executeTimeoutMinutes: intField(5, 240),
     minSoakMinutes: intField(0, 10080),
@@ -379,7 +385,7 @@ export const releasePolicySchema = z
     ),
   })
   .superRefine((v, ctx) => {
-    if (integerInRange(v.confirmReadSeconds, 10, 120) === null && integerInRange(v.confirmTtlMinutes, 2, 60) === null) {
+    if (integerInRange(v.confirmReadSeconds, 3, 120) === null && integerInRange(v.confirmTtlMinutes, 2, 60) === null) {
       if (Number(v.confirmTtlMinutes.trim()) * 60 <= Number(v.confirmReadSeconds.trim())) addIssue(ctx, ['confirmTtlMinutes'], i18n.t('av.confirmTtlOrder'))
     }
     const seen = new Set<string>()

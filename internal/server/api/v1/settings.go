@@ -349,6 +349,15 @@ func (a *API) validateSection(ctx context.Context, v any) error {
 		add(validate.Required("clientId", s.ClientID, "label.clientId"))
 		add(validate.MaxLen("clientId", s.ClientID, 255, "label.clientId"))
 		add(validate.MaxLen("groupsClaim", s.GroupsClaim, 64, "label.groupsClaim"))
+		// Scopes go into the authorization URL verbatim.
+		if len(s.Scopes) > 20 {
+			add(validate.FieldKey("scopes", "s.scopesTooMany"))
+		}
+		for i, sc := range s.Scopes {
+			if !reScope.MatchString(sc) {
+				add(validate.FieldKey("scopes."+strconv.Itoa(i), "s.scopeFormat"))
+			}
+		}
 		if e := validate.HTTPURL("redirectUrl", s.RedirectURL, true, validate.BaseURL); e != nil {
 			add(e)
 		} else if !strings.HasSuffix(s.RedirectURL, "/api/v1/auth/sso/callback") {
@@ -1072,3 +1081,7 @@ func validatePipelineEntry(s *settings.PipelineRepo, add func(*validate.FieldErr
 		}
 	}
 }
+
+// reScope is what an OAuth scope can be: printable, no space, no quote or
+// backslash (RFC 6749 §3.3), and short.
+var reScope = regexp.MustCompile(`^[\x21\x23-\x5b\x5d-\x7e]{1,64}$`)

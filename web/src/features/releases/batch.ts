@@ -152,3 +152,15 @@ export function matchPastedFreight(
   if (!c.available) return { msg: i18n.t('releases.notPromotable', { service, ref, env }) }
   return { freight: c.freight }
 }
+
+/**
+ * Whether a row stays on screen after a paste. The list is the whole project,
+ * often a hundred services, and checking the four that were pasted meant
+ * scrolling past the rest; so once a paste has been imported only its
+ * services are shown, until the person asks for all of them again.
+ * Selection is untouched either way: this only hides rows.
+ */
+export function shownAfterPaste(imported: Record<string, unknown> | null, onlyPasted: boolean, service: string): boolean {
+  if (!imported || !onlyPasted) return true
+  return Object.prototype.hasOwnProperty.call(imported, service)
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { batchCandidates, batchSchema, mapBatchField, matchPastedFreight, parsePaste, resolvePasteScope } from './batch'
+import { batchCandidates, batchSchema, mapBatchField, matchPastedFreight, parsePaste, resolvePasteScope, shownAfterPaste } from './batch'
 import type { Dimension, Service } from '../../lib/types'
 
 const dep = { env: 'qa' } as never
@@ -102,5 +102,17 @@ gateway-backend,v2.0.0
     expect(matchPastedFreight(items, 'svc', 'v1.3.0', 'qa').msg).toBe('svc 的 v1.3.0 已经在 qa 运行')
     expect(matchPastedFreight(items, 'svc', '2026-0007', 'qa').msg).toBe('svc 的 2026-0007 还不能发布到 qa（未在上游验证）')
     expect(matchPastedFreight(items, 'svc', 'nope', 'qa').msg).toBe('svc 没有 tag 或版本为 nope 的制品')
+  })
+})
+
+describe('after a paste', () => {
+  const imported = { 'order-api': { freight: 'f1' }, 'cart-web': { freight: 'f2' } }
+  it('shows only the pasted services until asked for all', () => {
+    expect(shownAfterPaste(imported, true, 'order-api')).toBe(true)
+    expect(shownAfterPaste(imported, true, 'stock-api')).toBe(false)
+    expect(shownAfterPaste(imported, false, 'stock-api')).toBe(true)
+  })
+  it('hides nothing when nothing was pasted', () => {
+    expect(shownAfterPaste(null, true, 'stock-api')).toBe(true)
   })
 })

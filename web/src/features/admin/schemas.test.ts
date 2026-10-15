@@ -34,8 +34,9 @@ describe('security form', () => {
 
 describe('release policy', () => {
   const base = { confirmReadSeconds: '10', confirmTtlMinutes: '10', executeTimeoutMinutes: '15', minSoakMinutes: '30', multiVersionJump: '3', jiraBaseUrl: '', jiraRequired: ['tier:production'], reasonRequired: ['*'], approvals: [], soakEnforced: [], versionJumpEnforced: [], configDriftEnforced: [], jiraProjects: [], freezes: [] }
-  it('confirm reading time can only go up from 10 seconds', () => {
-    expect(issues(releasePolicySchema.safeParse({ ...base, confirmReadSeconds: '9' }))).toEqual({ confirmReadSeconds: '需在 10 到 120 之间' })
+  it('confirm reading time never goes below 3 seconds', () => {
+    expect(issues(releasePolicySchema.safeParse({ ...base, confirmReadSeconds: '2' }))).toEqual({ confirmReadSeconds: '需在 3 到 120 之间' })
+    expect(issues(releasePolicySchema.safeParse({ ...base, confirmReadSeconds: '3' }))).toEqual({})
   })
   it('freeze windows end after they start and name environments', () => {
     const r = releasePolicySchema.safeParse({ ...base, jiraProjects: [{ value: 'ops' }, { value: 'OPS' }], freezes: [{ name: 'x', envs: [], startsAt: '2026-10-01T00:00', endsAt: '2026-09-30T00:00', reason: '' }] })

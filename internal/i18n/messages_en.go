@@ -161,6 +161,8 @@ var enSettings = map[Key]string{ //nolint:gosec // G101: message templates, not 
 	"s.nameFormat":           "A name starts with a lowercase letter, uses only lowercase letters, digits and -, and is at most 32 characters",
 	"s.promotesFromOrder":    "A promotion source must be an environment that comes before this one",
 	"s.redirectSuffix":       "The callback address must end with /api/v1/auth/sso/callback",
+	"s.scopesTooMany":        "At most 20 scopes",
+	"s.scopeFormat":          "Not a valid scope: no spaces, quotes or backslashes, at most 64 characters",
 	"s.registryUserNeeded":   "A registry password needs a username as well",
 	"s.ruleDup":              "Duplicate rule %s",
 	"s.ruleNameDup":          "Duplicate rule name",

@@ -62,7 +62,7 @@ Accept-Language: zh-CN  → {"code":1002,"msg":"请先登录"}
 | **发布单** ||||
 | 3001 | 404 | 发布单不存在 | |
 | 3002 | 409 | 该服务在这个环境已有进行中的发布单 | |
-| 3003 | 425 | 请先阅读清单 | 10 秒未到 |
+| 3003 | 425 | 请先阅读清单 | 阅读时间未到（发布策略 `confirmReadSeconds`，最低 3 秒） |
 | 3004 | 410 | 确认已过期，请取消后重新建单 | |
 | 3005 | 409 | 发布单当前状态不允许该操作 | |
 | 3006 | 409 | 确认的制品与发布单不一致，请刷新 | |
@@ -125,6 +125,10 @@ Prometheus 文本格式，不走信封。由 `server.metrics` 开关（默认开
 浏览器跳转（302），不返回信封。失败跳 `/login?error=<msg>`。`return` 只接受站内相对路径。
 
 ## Setup
+
+页面入口 `/sso?return=/path`（前端路由，不是接口）：给 SSO 应用门户用。没登录且配置了 SSO 时直接跳 `sso/login`，不经过登录页；已登录直接进 `return`；没配置 SSO 时显示普通登录页。SSO 失败回到 `/login?error=`，不会循环。
+
+SSO 登录时，Tide 从 ID Token 的 `groupsClaim` 字段（默认 `groups`）读取角色或组，作为用户的组，角色绑定用 `group:<名字>` 授权。支持的形状：字符串列表、单个字符串（逗号或空格分隔）、对象列表（依次取 `code`、`value`、`key`、`id`、`name`、`role`）；字段名带点且没有同名字段时按嵌套路径取，如 `resource_access.tide.roles`。每人最多 100 个，每个最长 255 字符，其余形状一律忽略。每次登录刷新。登录审计 `auth.login` 的 `detail.claims` 记录令牌里的字段名（不含值），用来确认角色放在哪个字段。
 
 ### `GET /api/v1/setup/state`
 → `{ initialized: bool, tokenVerified: bool, passwordPolicy: PasswordPolicy }`
@@ -576,7 +580,7 @@ POST `{ id, name, description, permissions }`；PUT `{ name, description, permis
 | `environments` | environments.manage | `{ items: Environment[] }`，顺序即显示顺序（制品来源由 Kargo Stage 决定） |
 | `catalog` | environments.manage | `{ serviceLabel, envLabel, domainLabel, projectLabel, dimensions: Dimension[], batchDimension }` |
 | `notify` | notifications.manage | `{ channels: Channel[], rules: NotifyRule[] }` |
-| `oidc` | settings.manage | OIDC |
+| `oidc` | settings.manage | OIDC：`{ issuer, clientId, clientSecret🔒, groupsClaim, scopes?: string[], redirectUrl }`。`scopes` 为空用 `openid profile email groups`，不含 `openid` 时自动补上；最多 20 个，每个不含空格、引号、反斜杠，最长 64 字符 |
 | `security` | settings.manage | 登录与安全 |
 | `release` | settings.manage | 发布策略 |
 | `system` | settings.manage | 通用 |

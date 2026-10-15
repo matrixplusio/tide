@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -61,6 +63,10 @@ func (s *Service) oauth(ctx context.Context) (*oauth2.Config, *oidc.IDTokenVerif
 	scopes := c.Scopes
 	if len(scopes) == 0 {
 		scopes = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
+	}
+	// Without openid there is no ID token, and so no identity at all.
+	if !slices.Contains(scopes, oidc.ScopeOpenID) {
+		scopes = append([]string{oidc.ScopeOpenID}, scopes...)
 	}
 	oc := &oauth2.Config{ClientID: c.ClientID, ClientSecret: c.ClientSecret, RedirectURL: c.RedirectURL,
 		Endpoint: s.provider.Endpoint(), Scopes: scopes}
@@ -145,7 +151,11 @@ func (s *Service) SSOFinish(ctx context.Context, flowCookie string, q url.Values
 			return ErrAccountDisabled
 		}
 		actor := audit.Actor{Sub: sub, Name: name}
-		if sess, err = s.StartSession(ctx, tx, id, actor, map[string]any{"method": MethodOIDC, "email": email, "groups": grp}); err != nil {
+		// The claim names, never their values: which field an IdP puts its
+		// roles in is what an administrator has to find out to configure
+		// this, and a token holds things that do not belong in an audit log.
+		detail := map[string]any{"method": MethodOIDC, "email": email, "groups": grp, "claims": claimNames(claims)}
+		if sess, err = s.StartSession(ctx, tx, id, actor, detail); err != nil {
 			return err
 		}
 		pu, err := tx.Accounts.UserByID(ctx, id)
@@ -170,21 +180,95 @@ func str(m map[string]any, k string) string {
 	return v
 }
 
+// Limits on what an IdP can make Tide store per user: a group is a name a
+// role binding refers to, not a document.
+const (
+	maxGroups      = 100
+	maxGroupLength = 255
+)
+
+// groups reads the roles or groups an IdP sends for a user. claim names the
+// field, and a dotted name reaches into nested objects ("realm.roles") when
+// no field has that exact name. IdPs disagree on the shape, so each of these
+// is accepted:
+//
+//	["dev", "ops"]                        a list of names
+//	"dev,ops" / "dev ops"                 one string, comma or space separated
+//	[{"code": "dev"}, {"name": "ops"}]    a list of objects with a name in them
+//
+// Anything else contributes nothing — a missing role means fewer permissions,
+// never more. Only a signed ID token reaches here.
 func groups(m map[string]any, claim string) []string {
 	if claim == "" {
 		claim = "groups"
 	}
+	v, ok := m[claim]
+	if !ok && strings.Contains(claim, ".") {
+		v, ok = nested(m, strings.Split(claim, "."))
+	}
 	out := []string{}
-	switch v := m[claim].(type) {
+	seen := map[string]bool{}
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || len(s) > maxGroupLength || seen[s] || len(out) >= maxGroups {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	if !ok {
+		return out
+	}
+	switch v := v.(type) {
 	case []any:
 		for _, g := range v {
-			if s, ok := g.(string); ok {
-				out = append(out, s)
+			switch g := g.(type) {
+			case string:
+				add(g)
+			case map[string]any:
+				// The identifier first: a display name can change and a
+				// binding made against it would silently stop matching.
+				for _, k := range []string{"code", "value", "key", "id", "name", "role"} {
+					if s, _ := g[k].(string); s != "" {
+						add(s)
+						break
+					}
+				}
 			}
 		}
 	case string:
-		out = append(out, v)
+		for _, s := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+			add(s)
+		}
 	}
+	return out
+}
+
+func nested(m map[string]any, path []string) (any, bool) {
+	var cur any = m
+	for _, k := range path {
+		obj, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if cur, ok = obj[k]; !ok {
+			return nil, false
+		}
+	}
+	return cur, true
+}
+
+// claimNames lists the top-level claim names of a token, sorted, without
+// their values.
+func claimNames(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		if len(out) == 50 {
+			break
+		}
+		out = append(out, k)
+	}
+	sort.Strings(out)
 	return out
 }
 

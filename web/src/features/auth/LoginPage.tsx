@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
@@ -9,7 +9,7 @@ import { applyServerError } from '../../lib/forms'
 import { safeReturnPath } from '../../lib/format'
 import { Banner, Button, ButtonRow, Form, FormErrorBanner, FormField, Group, Input, Note, PasswordInput } from '../../components/ui'
 import { CAPTCHA_LENGTH, loginSchema, type LoginValues } from './schema'
-import { fetchLoginChallenge, ssoLoginHref, useAuthMethods, useLogin } from './queries'
+import { browser, fetchLoginChallenge, ssoLoginHref, useAuthMethods, useLogin } from './queries'
 import './captcha.css'
 
 interface Captcha {
@@ -22,7 +22,10 @@ export function LoginPage() {
   const loc = useLocation()
   const navigate = useNavigate()
   const params = new URLSearchParams(loc.search)
-  const onLoginPath = loc.pathname === '/login'
+  // /sso is the address an SSO portal links to: arriving there means the
+  // person already chose SSO, so they are sent on instead of being asked again.
+  const onSsoPath = loc.pathname === '/sso'
+  const onLoginPath = loc.pathname === '/login' || onSsoPath
   const ret = safeReturnPath(onLoginPath ? params.get('return') : loc.pathname + loc.search)
   // SSO failures come back as /login?error=<msg>; shown as plain text only.
   const ssoError = params.get('error')
@@ -32,6 +35,12 @@ export function LoginPage() {
   const [captcha, setCaptcha] = useState<Captcha | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const sso = methods.data?.sso === true
+  // A failed SSO comes back to /login?error=, never to /sso, so this cannot
+  // loop; and without SSO configured the ordinary sign-in page is shown.
+  const autoSso = onSsoPath && sso && !ssoError
+  useEffect(() => {
+    if (autoSso) browser.replace(ssoLoginHref(ret))
+  }, [autoSso, ret])
 
   const form = useForm<LoginValues>({
     // react-hook-form re-reads options every render, so the schema follows the captcha state.
@@ -120,6 +129,8 @@ export function LoginPage() {
           </p>
           <p className="muted login-head">{t('login.tagline')}</p>
           <h1 className="login-h">{t('login.title')}</h1>
+
+        {(autoSso || (onSsoPath && methods.isLoading)) && <Banner tone="info">{t('login.ssoRedirecting')}</Banner>}
 
         {ssoError && <Banner tone="bad">{t('login.ssoFailed', { msg: ssoError })}</Banner>}
 

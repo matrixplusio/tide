@@ -534,7 +534,7 @@ func DefaultSecurity() Security {
 }
 
 // ReleasePolicy tunes the release flow. ConfirmReadSeconds can only be raised
-// above the product minimum of 10 seconds.
+// above the product minimum (MinConfirmReadSeconds).
 type ReleasePolicy struct {
 	ConfirmReadSeconds    int    `json:"confirmReadSeconds"`
 	ConfirmTTLMinutes     int    `json:"confirmTtlMinutes"`
@@ -589,7 +589,11 @@ func (p ReleasePolicy) ExecuteTimeout() time.Duration {
 }
 
 // MinConfirmReadSeconds is a product boundary, not a setting.
-const MinConfirmReadSeconds = 10
+//
+// Three seconds is what is left once the confirmation sheet lists every
+// change and the creator has already read it while building the release; the
+// wait only has to stop a click that lands before the sheet has rendered.
+const MinConfirmReadSeconds = 3
 
 // ActiveFreezes returns the freezes in effect at t.
 func (p ReleasePolicy) ActiveFreezes(t time.Time) []Freeze {
