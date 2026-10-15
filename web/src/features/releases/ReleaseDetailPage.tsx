@@ -424,6 +424,11 @@ function ItemSection({ it, live, release, canPods, canRollout, onCollapse, build
                     {it.externalRef}
                   </KV>
                 )}
+                {it.revertRef && (
+                  <KV k={t('detail.revert')} mono>
+                    {it.revertRef}
+                  </KV>
+                )}
                 {it.payload.withConfig && <KV k={t('detail.config')}>{t('detail.withConfig', { summary: changeSummary(it.payload.configChanges ?? []) })}</KV>}
                 {(it.payload.anomalies ?? []).map((a, i) => (
                   <div key={i} className={`anomaly ${isNotice(a) ? 'notice' : ''} ${a.code}`}>

@@ -32,6 +32,7 @@ export const actionLabel: Record<string, string> = {
 
   // release items
   'item.execute': 'Promotion created',
+  'item.revert': 'Previous version put back',
   'item.succeeded': 'Item succeeded',
   'item.failed': 'Item failed',
   'item.skipped': 'Item skipped',

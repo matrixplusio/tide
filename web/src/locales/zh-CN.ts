@@ -219,6 +219,8 @@ const zhCN = {
   domain: {
     notDeployed: '未部署',
     imageUnknown: '镜像不存在',
+    drift: 'Kargo 记录为 {{tag}}',
+    driftHint: '实际运行的版本和 Kargo 记录的不一致：蓝绿或金丝雀被中止后、或有人绕过 Kargo 改了版本时会这样。新发布单以 Kargo 的记录为起点',
     imageUnknownHint: '镜像仓库里没有这个 tag，所以版本和构建时间都读不出来。git 里留着的占位 tag 就是这个样子',
     running: '执行中',
     failed: '失败',
@@ -934,6 +936,7 @@ const zhCN = {
     restartAction: '滚动重启，保持版本',
     from: '从',
     firstDeploy: '首次部署',
+    revert: '回退晋级',
     to: '到',
     config: '配置',
     withConfig: '同时同步部署仓里未同步的配置（{{summary}}）',

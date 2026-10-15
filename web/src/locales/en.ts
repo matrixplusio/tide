@@ -217,6 +217,8 @@ const en: Messages = {
   domain: {
     notDeployed: 'not deployed',
     imageUnknown: 'image not found',
+    drift: 'Kargo records {{tag}}',
+    driftHint: 'The pods run a different version from the one Kargo records — after an aborted blue-green or canary, or a change made outside Kargo. A new release starts from the Kargo record.',
     imageUnknownHint: 'The registry has no image under this tag, so there is no version or build time to show. A tag left as a placeholder in git looks exactly like this.',
     running: 'running',
     failed: 'failed',
@@ -932,6 +934,7 @@ const en: Messages = {
     restartAction: 'Rolling restart, keeping the version',
     from: 'From',
     firstDeploy: 'first deployment',
+    revert: 'Put back by',
     to: 'To',
     config: 'Config',
     withConfig: "Also syncing the repo's unsynced config ({{summary}})",

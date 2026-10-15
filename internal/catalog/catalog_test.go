@@ -417,3 +417,34 @@ func TestTheCachedSnapshotIsWhateverThereIsAndNeverABuild(t *testing.T) {
 		t.Fatalf("age must not disqualify the only answer there is: %+v", got)
 	}
 }
+
+// After an aborted blue-green the pods run the old version while Kargo still
+// records the new one. The page has to say so — but not while a promotion is
+// simply on its way to the pods.
+func TestTheVersionRunningIsShownWhenKargoRecordsAnother(t *testing.T) {
+	const repo = "registry.example.com/shop/order"
+	settled := func() *Deployment {
+		return &Deployment{Image: repo, Tag: "new", Sync: "Synced", Health: "Degraded", Operation: "Succeeded",
+			Images: []string{repo + ":old"}}
+	}
+	if got := drifted(settled()); got != "old" {
+		t.Errorf("aborted rollout: got %q, want old", got)
+	}
+	cases := map[string]func(d *Deployment){
+		"promotion running":        func(d *Deployment) { d.Promoting = "p1" },
+		"not synced yet":           func(d *Deployment) { d.Sync = "OutOfSync" },
+		"pods rolling":             func(d *Deployment) { d.Health = "Progressing" },
+		"sync running":             func(d *Deployment) { d.Operation = "Running" },
+		"blue-green waiting":       func(d *Deployment) { d.Images = []string{repo + ":old", repo + ":new"} },
+		"another image only":       func(d *Deployment) { d.Images = []string{"registry.example.com/shop/sidecar:old"} },
+		"no pods":                  func(d *Deployment) { d.Images = nil },
+		"running what Kargo names": func(d *Deployment) { d.Images = []string{repo + ":new@sha256:aa"} },
+	}
+	for name, change := range cases {
+		d := settled()
+		change(d)
+		if got := drifted(d); got != "" {
+			t.Errorf("%s: flagged %q", name, got)
+		}
+	}
+}

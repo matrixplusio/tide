@@ -3,8 +3,30 @@ import type { Deployment, ItemStatus, ReleaseStatus } from '../../lib/types'
 import { shortTag } from '../../lib/format'
 import { Pill, StatusDot, type Tone } from '../ui'
 
-export function VersionLabel({ a, full }: { a?: { version?: string; tag?: string; imageUnknown?: boolean } | null; full?: boolean }) {
+export function VersionLabel({
+  a,
+  full,
+}: {
+  a?: { version?: string; tag?: string; imageUnknown?: boolean; running?: string } | null
+  full?: boolean
+}) {
   if (!a || (!a.tag && !a.version)) return <span className="faint">{i18n.t('domain.notDeployed')}</span>
+  // Kargo records one version, the pods run another (an aborted blue-green,
+  // a change made outside Kargo). What runs is what people need to see; the
+  // record is what the next release replaces, so it stays, marked as such.
+  if (a.running) {
+    const running = shortTag(a.running)
+    return (
+      <span>
+        <span className={['mono', full || running === a.running ? '' : 'abbr'].filter(Boolean).join(' ')} title={full ? undefined : a.running}>
+          {full ? a.running : running}
+        </span>{' '}
+        <span style={{ color: 'var(--orange)' }} title={i18n.t('domain.driftHint')}>
+          {i18n.t('domain.drift', { tag: full ? a.tag : shortTag(a.tag) })}
+        </span>
+      </span>
+    )
+  }
   const short = shortTag(a.tag)
   return (
     <span>

@@ -479,6 +479,29 @@ func (r *Releases) MarkExecuted(ctx context.Context, item release.Item, ref stri
 	})
 }
 
+// MarkReverting stores the promotion that puts the previous version back
+// after an aborted rollout, and audits it. The execution timeout starts over:
+// the revert is owed a whole one, however long the rollout took to fail.
+func (r *Releases) MarkReverting(ctx context.Context, item release.Item, ref string) error {
+	return r.tx(ctx, func(tx *Releases) error {
+		res := tx.db.Exec(`UPDATE release_items SET revert_ref = $2, clock_from = now()
+			WHERE id = $1 AND revert_ref IS NULL AND status = 'executing'`, item.ID, ref)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return nil // another worker already recorded one
+		}
+		jira, err := tx.jira(item.ReleaseID)
+		if err != nil {
+			return err
+		}
+		detail := itemDetail(item)
+		detail["revertRef"] = ref
+		return tx.audit.Write(ctx, audit.System, "item.revert", item.ReleaseID, jira, detail)
+	})
+}
+
 // FinishItem records a terminal item status and audits it.
 func (r *Releases) FinishItem(ctx context.Context, item release.Item, status release.ItemStatus, errText string) error {
 	if !release.CanTransitionItem(item.Status, status) {
@@ -765,7 +788,7 @@ const releaseCols = `id, title, env, source, jira_ticket, reason, created_by, cr
 	confirmed_at, COALESCE(confirmed_by, ''), created_at, finished_at, now(), approval_rule, approval_expires_at`
 
 const itemCols = `id, release_id, kind, sequence, payload, status, COALESCE(external_ref, ''),
-	COALESCE(error, ''), started_at, finished_at, paused_since, reminded_at, clock_from`
+	COALESCE(error, ''), started_at, finished_at, paused_since, reminded_at, clock_from, COALESCE(revert_ref, '')`
 
 func scanReleases(rows *sql.Rows) ([]release.Release, error) {
 	defer func() { _ = rows.Close() }()
@@ -795,7 +818,7 @@ func scanItems(rows *sql.Rows) ([]release.Item, error) {
 		var it release.Item
 		var payload []byte
 		if err := rows.Scan(&it.ID, &it.ReleaseID, &it.Kind, &it.Sequence, &payload, &it.Status, &it.ExternalRef,
-			&it.Error, &it.StartedAt, &it.FinishedAt, &it.PausedSince, &it.RemindedAt, &it.ClockFrom); err != nil {
+			&it.Error, &it.StartedAt, &it.FinishedAt, &it.PausedSince, &it.RemindedAt, &it.ClockFrom, &it.RevertRef); err != nil {
 			return nil, err
 		}
 		it.Payload = payload
