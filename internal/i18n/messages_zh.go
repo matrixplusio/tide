@@ -441,6 +441,7 @@ var zhCNNotify = map[Key]string{
 	"n.viewRelease":          "查看发布单",
 	"n.viewPipeline":         "查看流水线",
 	"n.goConfirm":            "去确认",
+	"n.itemAwaitingSwitch":   "等待切换",
 	"n.goSwitch":             "去切换",
 }
 

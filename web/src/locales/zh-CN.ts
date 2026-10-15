@@ -846,6 +846,13 @@ const zhCN = {
     notPromotable: '{{service}} 的 {{ref}} 还不能发布到 {{env}}（未在上游验证）',
   },
   rollout: {
+    awaitingFor: '等待切换 · 已等 {{duration}}',
+    awaitingCell: '新版本已就绪，流量仍在旧版本',
+    allNext: '全部确认切换（{{count}}）',
+    allAbort: '全部中止（{{count}}）',
+    allNextHint: '下面这些服务会把流量切到新版本，金丝雀会进入下一步。每个服务单独执行并记审计，某个失败不影响其他。',
+    allAbortHint: '下面这些服务会中止发布，流量回到之前的版本，对应条目记为失败。',
+    allSent: '已提交 {{count}} 个服务',
     awaiting: '等待切换',
     blueGreenTitle: '蓝绿切换',
     canaryTitle: '金丝雀发布',

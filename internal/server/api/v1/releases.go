@@ -1309,3 +1309,116 @@ func (a *API) rolloutRelease(c *gin.Context) {
 	_ = a.PG.Audit.Write(ctx, u.Actor(), "release.rollout", rel.ID, rel.JiraTicket, detail)
 	a.respondRelease(c, rel)
 }
+
+type rolloutAllReq struct {
+	Action string `json:"action" binding:"required,oneof=next full abort" label:"rolloutAction"`
+	// The items the person was shown. Only these are acted on, and only
+	// those still waiting: one that started waiting after the list was drawn
+	// is left for its own decision.
+	Items []int64 `json:"items" binding:"required,min=1,max=50" label:"items"`
+}
+
+// RolloutResult is the outcome for one item of a batch decision.
+type RolloutResult struct {
+	ItemID  int64  `json:"itemId"`
+	Service string `json:"service,omitempty"`
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+}
+
+// rolloutReleaseAll applies one decision to every listed item of a release
+// that is waiting for one: a batch of blue-green services is switched, or
+// aborted, in one go instead of one click per service. Each item is acted on
+// and audited on its own, and one that fails does not stop the rest — the
+// response says which went through.
+func (a *API) rolloutReleaseAll(c *gin.Context) {
+	p := newParams(c)
+	id := p.releaseID()
+	if err := p.err(); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	var req rolloutAllReq
+	if err := bindJSON(c, &req); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	ctx := c.Request.Context()
+	u := currentUser(c)
+	rel, err := a.PG.Releases.Get(ctx, id)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	if err := a.requireKinds(c, rel); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	if !ownedBy(rel, u) {
+		respond.Fail(c, errcode.NewKey(errcode.Forbidden, "r.onlyCreatorSwitches"))
+		return
+	}
+	if rel.Status != release.Executing {
+		respond.Fail(c, errcode.NewKey(errcode.InvalidTransition, "r.rolloutNotRunning"))
+		return
+	}
+	action := executor.RolloutAction(req.Action)
+	wanted := map[int64]bool{}
+	for _, i := range req.Items {
+		wanted[i] = true
+	}
+	results := []RolloutResult{}
+	acted := 0
+	for _, it := range rel.Items {
+		if !wanted[it.ID] {
+			continue
+		}
+		res := RolloutResult{ItemID: it.ID}
+		tg, tgErr := rel.Target(it)
+		if tgErr == nil {
+			res.Service = tg.Service
+		}
+		switch {
+		case it.Status != release.ItemExecuting || it.PausedSince == nil:
+			res.Error = i18n.T(i18n.From(ctx), "r.rolloutNotWaiting")
+		default:
+			if err := executor.ActOnItem(ctx, a.Hub, rel, it, action); err != nil {
+				if errors.Is(err, executor.ErrNotWaiting) {
+					res.Error = i18n.T(i18n.From(ctx), "r.rolloutNotWaiting")
+				} else {
+					res.Error = errcode.From(err).Text(i18n.From(ctx))
+				}
+			} else {
+				res.OK = true
+				acted++
+				_ = a.PG.Audit.Write(ctx, u.Actor(), "release.rollout", rel.ID, rel.JiraTicket,
+					map[string]any{"item": it.ID, "action": req.Action, "env": rel.Env, "service": res.Service, "batch": true})
+			}
+		}
+		results = append(results, res)
+	}
+	// Nothing listed was waiting any more: say so as an error, not as a
+	// success that did nothing.
+	if acted == 0 && allNotWaiting(results, i18n.T(i18n.From(ctx), "r.rolloutNotWaiting")) {
+		respond.Fail(c, errcode.NewKey(errcode.Conflict, "r.rolloutNotWaiting"))
+		return
+	}
+	v, err := a.view(c, rel)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	respond.OK(c, gin.H{"release": v, "results": results})
+}
+
+func allNotWaiting(rs []RolloutResult, msg string) bool {
+	if len(rs) == 0 {
+		return true
+	}
+	for _, r := range rs {
+		if r.Error != msg {
+			return false
+		}
+	}
+	return true
+}

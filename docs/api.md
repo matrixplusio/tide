@@ -369,6 +369,11 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
 - 等待切换期间不计执行超时。条目的 `pausedSince` 记录开始等待的时间；等待超过发布策略的 `switchTimeoutMinutes`（默认 1440）自动中止。开始等待和过半时各发一次 `release.awaiting_switch` 通知，多副本只发一次。等待结束后执行超时重新计时。
 - `ItemLive.rollouts`：`[{ name, strategy: "blueGreen"|"canary", phase, message?, paused?: { since, strategy, reason?, step?, steps?, weight }, desired, updated, ready, stable?, current?, weight }]`，`weight` 为新版本流量百分比，未知为 -1。`ItemLive.deadline`：无人决定时自动中止的时间。
 
+### `POST /api/v1/releases/:id/rollout`
+`{ action: "next" | "full" | "abort", items: number[] }` → `{ release: ReleaseView, results: [{ itemId, service?, ok, error? }] }`。批量单里一次对多个等待中的条目做同一个决定。只处理 `items` 里列出、并且此刻 Tide 已记录在等待（`pausedSince` 不为空）的条目；列出但已不在等待的条目在结果里给出原因，其余照常执行。每个条目单独调用 Argo CD、单独写审计 `release.rollout`（`detail.batch = true`），一个失败不影响其他。权限同单条目接口。列出的条目都不在等待时返回 1005。
+
+通知：同一张发布单里多个条目同时等待时，「等待切换」和过半提醒都只发一次，由当前编号最小的等待条目发出，消息里的条目清单把等待中的标为「等待切换」。
+
 ### `POST /api/v1/releases/:id/approve`、`POST /api/v1/releases/:id/reject`
 审批一张 `approving` 状态的发布单。approve body `{ note? }`（≤ 500）；reject body `{ note }`（2–500，必填）→ `ReleaseView`。
 - 发布策略 `approvals` 中第一条匹配环境的规则在**确认时**快照到发布单（`approvalRule`、`approvalExpiresAt`），之后改规则不影响已提交的单。

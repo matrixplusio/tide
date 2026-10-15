@@ -134,6 +134,23 @@ export function useRolloutAction() {
   })
 }
 
+export interface RolloutResult {
+  itemId: number
+  service?: string
+  ok: boolean
+  error?: string
+}
+
+/** One decision for every listed item of a batch that is waiting for one. */
+export function useRolloutAll() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, items, action }: { id: string; items: number[]; action: RolloutAction }) =>
+      apiFetch<{ release: Release; results: RolloutResult[] }>(`/api/v1/releases/${encodeURIComponent(id)}/rollout`, { method: 'POST', body: { action, items } }),
+    onSuccess: (_d, v) => void qc.invalidateQueries({ queryKey: ['release', v.id] }),
+  })
+}
+
 export function useCancelRelease() {
   const qc = useQueryClient()
   return useMutation({

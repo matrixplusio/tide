@@ -551,3 +551,46 @@ func TestAWaitIsAnnouncedAndRemindedOnce(t *testing.T) {
 		t.Error("the next stop of the same rollout was not announced")
 	}
 }
+
+// A batch stops many items at once and each is looked at by its own
+// goroutine, possibly on another replica. They must agree on one of them to
+// announce the wait — the lowest id still waiting — and when that one is
+// decided, the next lowest takes over.
+func TestTheFirstWaitingItemSpeaksForTheBatch(t *testing.T) {
+	s, owner := testdb.Setup(t)
+	ctx := context.Background()
+	in := input("svc-a", "qa")
+	second := input("svc-b", "qa").Items[0]
+	in.Items = append(in.Items, second)
+	r, err := s.Releases.Create(ctx, alice, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.Exec(`UPDATE releases SET status = 'executing' WHERE id = $1`, r.ID)
+	owner.Exec(`UPDATE release_items SET status = 'executing', started_at = now() WHERE release_id = $1`, r.ID)
+	low, high := r.Items[0].ID, r.Items[1].ID
+	if low > high {
+		low, high = high, low
+	}
+	if first, err := s.Releases.FirstWaiting(ctx, r.ID); err != nil || first != 0 {
+		t.Fatalf("nothing waiting: got %d %v", first, err)
+	}
+	if _, err := s.Releases.MarkPaused(ctx, high, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if first, _ := s.Releases.FirstWaiting(ctx, r.ID); first != high {
+		t.Errorf("only %d waits, but %d was named", high, first)
+	}
+	if _, err := s.Releases.MarkPaused(ctx, low, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if first, _ := s.Releases.FirstWaiting(ctx, r.ID); first != low {
+		t.Errorf("both wait, want the lower %d, got %d", low, first)
+	}
+	if err := s.Releases.MarkResumed(ctx, low); err != nil {
+		t.Fatal(err)
+	}
+	if first, _ := s.Releases.FirstWaiting(ctx, r.ID); first != high {
+		t.Errorf("after %d was decided, want %d, got %d", low, high, first)
+	}
+}

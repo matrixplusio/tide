@@ -362,7 +362,11 @@ func (e *Engine) waitForDecision(ctx context.Context, ex ItemExecutor, it *relea
 		}
 		if started {
 			e.changed()
-			e.announce(ctx, it.ReleaseID, "awaiting_switch")
+			// A batch stops many items at once; the channel hears about it
+			// once, with every waiting service listed, not once per item.
+			if first, err := e.PG.Releases.FirstWaiting(ctx, it.ReleaseID); err == nil && first == it.ID {
+				e.announce(ctx, it.ReleaseID, "awaiting_switch")
+			}
 		}
 	}
 	waited := time.Since(since)
@@ -378,13 +382,22 @@ func (e *Engine) waitForDecision(ctx context.Context, ex ItemExecutor, it *relea
 		return e.PG.Releases.FinishItem(ctx, *it, release.ItemFailed,
 			fmt.Sprintf("nobody decided within %s, so the rollout was aborted; traffic is on the previous version", limit))
 	}
+	// The reminder, too, is the release's: only the first waiting item sends
+	// it. The others do not mark themselves reminded, so whichever becomes
+	// first once that one is decided still reminds about its own wait.
 	if waited > limit/2 && it.RemindedAt == nil {
-		reminded, err := e.PG.Releases.MarkReminded(ctx, it.ID)
+		first, err := e.PG.Releases.FirstWaiting(ctx, it.ReleaseID)
 		if err != nil {
 			return err
 		}
-		if reminded {
-			e.announce(ctx, it.ReleaseID, "awaiting_switch")
+		if first == it.ID {
+			reminded, err := e.PG.Releases.MarkReminded(ctx, it.ID)
+			if err != nil {
+				return err
+			}
+			if reminded {
+				e.announce(ctx, it.ReleaseID, "awaiting_switch")
+			}
 		}
 	}
 	return nil

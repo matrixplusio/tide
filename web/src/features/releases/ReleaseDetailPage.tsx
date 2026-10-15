@@ -11,7 +11,7 @@ import { changeSummary } from '../../lib/release'
 import { redoLink } from '../../lib/redo'
 import { isNoiseCommit } from '../../lib/changes'
 import { anomalyText, isNotice } from '../../lib/anomaly'
-import { useCancelRelease, useDecideRelease, useRelease, useRolloutAction, type RolloutAction } from './queries'
+import { useCancelRelease, useDecideRelease, useRelease, useRolloutAction, useRolloutAll, type RolloutAction } from './queries'
 import { subjectLabel } from '../../lib/permissions'
 import {
   Banner,
@@ -55,6 +55,7 @@ export function ReleaseDetailPage() {
   const canPods = !!can?.pods
   const canRollout = !!can?.rollout
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [batchAction, setBatchAction] = useState<RolloutAction | null>(null)
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null)
   // Fifty items is a page you scroll past, not one you read: the failures
   // are what somebody opened it for.
@@ -106,6 +107,16 @@ export function ReleaseDetailPage() {
           </Button>
         )}
         {r?.status === 'failed' && redo && <LinkButton to={redo}>{t('detail.restart')}</LinkButton>}
+        {r?.status === 'executing' && canRollout && r.items && r.items.length > 1 && r.items.some(isAwaiting) && (
+          <>
+            <Button variant="primary" onClick={() => setBatchAction('next')}>
+              {t('rollout.allNext', { count: r.items.filter(isAwaiting).length })}
+            </Button>
+            <Button variant="danger" onClick={() => setBatchAction('abort')}>
+              {t('rollout.allAbort', { count: r.items.filter(isAwaiting).length })}
+            </Button>
+          </>
+        )}
       </Toolbar>
       <Page wide>
         {q.isPending && <Loading />}
@@ -164,6 +175,7 @@ export function ReleaseDetailPage() {
         )}
       </Page>
       {cancelOpen && r && <CancelReleaseModal release={r} onClose={() => setCancelOpen(false)} />}
+      {batchAction && r && <BatchRolloutModal release={r} action={batchAction} onClose={() => setBatchAction(null)} />}
       {deciding && r && <DecideModal release={r} approve={deciding === 'approve'} onClose={() => setDeciding(null)} />}
       {sheet && r && (
         <ConfirmSheet
@@ -650,9 +662,70 @@ function syncStartedAt(it: Item): string | undefined {
 }
 
 /** Every service of a batch at a glance: order, change, status and how many new pods are ready. */
+/** One decision for every waiting item of a batch. The modal names each
+ *  service it will act on and sends exactly those, so an item that starts
+ *  waiting while it is open is left for its own decision. */
+function BatchRolloutModal({ release, action, onClose }: { release: Release; action: RolloutAction; onClose: () => void }) {
+  const { t } = useTranslation()
+  const toast = useToast()
+  const act = useRolloutAll()
+  const [items] = useState(() => (release.items ?? []).filter(isAwaiting))
+  const [failed, setFailed] = useState<{ service?: string; error?: string }[]>([])
+  const title = action === 'abort' ? t('rollout.allAbort', { count: items.length }) : t('rollout.allNext', { count: items.length })
+  return (
+    <ConfirmModal
+      title={title}
+      confirmLabel={title}
+      danger={action === 'abort'}
+      pending={act.isPending}
+      error={act.error}
+      onClose={onClose}
+      onConfirm={() =>
+        act.mutate(
+          { id: release.id, items: items.map((it) => it.id), action },
+          {
+            onSuccess: (d) => {
+              const bad = d.results.filter((x) => !x.ok)
+              const ok = d.results.length - bad.length
+              if (ok > 0) toast.success(t('rollout.allSent', { count: ok }))
+              if (bad.length > 0) setFailed(bad)
+              else onClose()
+            },
+          },
+        )
+      }
+    >
+      <div>{action === 'abort' ? t('rollout.allAbortHint') : t('rollout.allNextHint')}</div>
+      <ul className="mono" style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+        {items.map((it) => (
+          <li key={it.id}>{it.payload.service}</li>
+        ))}
+      </ul>
+      {failed.length > 0 && (
+        <div className="red" role="alert" style={{ marginTop: 8 }}>
+          {failed.map((f, i) => (
+            <div key={i}>
+              {f.service}: {f.error}
+            </div>
+          ))}
+        </div>
+      )}
+    </ConfirmModal>
+  )
+}
+
+const AWAITING = 'awaiting'
+
+/** An item stopped at a blue-green or canary rollout, waiting for a person. */
+function isAwaiting(it: Item): boolean {
+  return it.status === 'executing' && !!it.pausedSince
+}
+
 function BatchOverview({ items, status, lives, expanded, onToggle, onAll, filter, onFilter }: { items: Item[]; status: Release['status']; lives?: ItemLive[] | null; expanded: ReadonlySet<number>; onToggle: (id: number) => void; onAll: (open: boolean) => void; filter: string; onFilter: (s: string) => void }) {
   const { t } = useTranslation()
-  const sorted = [...items].sort((a, b) => a.sequence - b.sequence || a.payload.service.localeCompare(b.payload.service)).filter((it) => !filter || it.status === filter)
+  const sorted = [...items]
+    .sort((a, b) => a.sequence - b.sequence || a.payload.service.localeCompare(b.payload.service))
+    .filter((it) => !filter || (filter === AWAITING ? isAwaiting(it) : it.status === filter))
   const rows = sorted.map((it) => {
     const il = lives?.find((l) => l.itemId === it.id)
     const live = il?.supersededBy ? undefined : il?.live
@@ -668,6 +741,7 @@ function BatchOverview({ items, status, lives, expanded, onToggle, onAll, filter
     }
   })
   const done = items.filter((it) => !['planned', 'pending', 'executing'].includes(it.status)).length
+  const awaiting = items.filter(isAwaiting).length
   const counts = (['succeeded', 'executing', 'pending', 'failed', 'skipped', 'cancelled'] as const)
     .map((st) => [st, items.filter((it) => it.status === st).length] as const)
     .filter(([, n]) => n > 0)
@@ -701,7 +775,7 @@ function BatchOverview({ items, status, lives, expanded, onToggle, onAll, filter
                 <Segmented
                   label={t('detail.filterByStatus')}
                   value={filter}
-                  options={[['', t('detail.filterAll', { count: items.length })], ...counts.map(([st, n]): [string, string] => [st, `${itemStatusText(st)} ${n}`])]}
+                  options={[['', t('detail.filterAll', { count: items.length })], ...(awaiting > 0 ? [[AWAITING, `${t('rollout.awaiting')} ${awaiting}`] as [string, string]] : []), ...counts.map(([st, n]): [string, string] => [st, `${itemStatusText(st)} ${n}`])]}
                   onChange={onFilter}
                 />
               </div>
@@ -772,7 +846,11 @@ function BatchOverview({ items, status, lives, expanded, onToggle, onAll, filter
                     )}
                   </td>
                   <td>
-                    <ItemStatusPill status={it.status} />
+                    {isAwaiting(it) ? (
+                      <Pill tone="orange">{t('rollout.awaitingFor', { duration: fmtDuration(now - (sinceMs(it.pausedSince) ?? now)) })}</Pill>
+                    ) : (
+                      <ItemStatusPill status={it.status} />
+                    )}
                     {it.error && (
                       <div className="d red clamp1" title={it.error}>
                         {it.error}
@@ -780,7 +858,11 @@ function BatchOverview({ items, status, lives, expanded, onToggle, onAll, filter
                     )}
                   </td>
                   <td style={{ minWidth: 180 }}>
-                    {showPods && desired > 0 ? (
+                    {/* New pods ready reads as nearly done; until the switch
+                        no request reaches them, so a bar here would mislead. */}
+                    {isAwaiting(it) ? (
+                      <span className="orange">{t('rollout.awaitingCell')}</span>
+                    ) : showPods && desired > 0 ? (
                       <>
                         <span className={unhealthy ? 'red' : undefined}>
                           {t('detail.readyCell', { ready, desired, old: old > 0 ? t('detail.oldCell', { count: old }) : '' })}
