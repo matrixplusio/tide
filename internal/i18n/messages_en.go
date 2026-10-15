@@ -425,6 +425,7 @@ var enNotify = map[Key]string{
 	"n.firstTime":            "(first time)",
 	"n.goApprove":            "Review it",
 	"n.goConfirm":            "Confirm it",
+	"n.itemAwaitingSwitch":   "awaiting switch",
 	"n.goSwitch":             "Decide",
 	"n.itemRestart":          "· %s restart (staying on %s)\n",
 	"n.itemRestartStatus":    "· %s restart (staying on %s) [%s]\n",

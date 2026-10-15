@@ -844,6 +844,13 @@ const en: Messages = {
     notPromotable: "{{service}}'s {{ref}} cannot go to {{env}} yet (not verified upstream)",
   },
   rollout: {
+    awaitingFor: 'Awaiting switch · {{duration}}',
+    awaitingCell: 'New version ready; traffic still on the old one',
+    allNext: 'Switch all ({{count}})',
+    allAbort: 'Abort all ({{count}})',
+    allNextHint: 'These services send traffic to the new version; a canary goes to its next step. Each is done and audited on its own, and one failing does not stop the rest.',
+    allAbortHint: 'These services are aborted and traffic returns to the version that was running; their items are recorded as failed.',
+    allSent: 'Sent for {{count}} services',
     awaiting: 'Awaiting switch',
     blueGreenTitle: 'Blue-green switch',
     canaryTitle: 'Canary release',

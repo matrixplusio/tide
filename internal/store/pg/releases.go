@@ -441,6 +441,20 @@ func (r *Releases) MarkReminded(ctx context.Context, itemID int64) (bool, error)
 	return res.RowsAffected == 1, res.Error
 }
 
+// FirstWaiting is the lowest item id of a release that is waiting for a
+// decision now, or 0. A batch can have many items stop at once; announcing
+// the wait is the job of exactly one of them, and every replica and every
+// goroutine agrees on which one this is without talking to the others.
+func (r *Releases) FirstWaiting(ctx context.Context, releaseID string) (int64, error) {
+	var id *int64
+	err := r.db.WithContext(ctx).Raw(`SELECT min(id) FROM release_items
+		WHERE release_id = $1 AND status = 'executing' AND paused_since IS NOT NULL`, releaseID).Scan(&id).Error
+	if err != nil || id == nil {
+		return 0, err
+	}
+	return *id, nil
+}
+
 // MarkResumed ends a wait. The execution timeout counts from now: the rollout
 // has a whole timeout's worth of time to finish what it was let through to do.
 func (r *Releases) MarkResumed(ctx context.Context, itemID int64) error {

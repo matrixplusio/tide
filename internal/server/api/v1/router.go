@@ -150,6 +150,7 @@ func Register(r *gin.Engine, d Deps) {
 	h("POST", "/releases", needEnv(rbac.ReleasesCreate, rbac.ReleasesRestart, rbac.ReleasesSync), a.createRelease)
 	h("POST", "/releases/:id/confirm", needEnv(rbac.ReleasesCreate, rbac.ReleasesRestart, rbac.ReleasesSync), a.confirmRelease)
 	h("POST", "/releases/:id/items/:item/rollout", needEnv(rbac.ReleasesCreate, rbac.ReleasesRestart, rbac.ReleasesSync), a.rolloutRelease)
+	h("POST", "/releases/:id/rollout", needEnv(rbac.ReleasesCreate, rbac.ReleasesRestart, rbac.ReleasesSync), a.rolloutReleaseAll)
 	// Who may approve is decided by the release's approval rule, not a permission.
 	h("POST", "/releases/:id/approve", needScoped(rbac.ReleasesView), a.approveRelease)
 	h("POST", "/releases/:id/reject", needScoped(rbac.ReleasesView), a.rejectRelease)

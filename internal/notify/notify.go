@@ -596,7 +596,7 @@ func itemLines(r *release.Release) string {
 				// With its status: a card that lists seven services and marks
 				// none of them leaves the reader counting error lines to work
 				// out which one the headline is about.
-				fmt.Fprintf(&b, "· %s %s → **%s** [%s]\n", p.Service, label(p.From), label(&p.To), itemStatusText(it.Status))
+				fmt.Fprintf(&b, "· %s %s → **%s** [%s]\n", p.Service, label(p.From), label(&p.To), itemState(it))
 			}
 		}
 		if it.Error != "" {
@@ -650,7 +650,7 @@ func Text(r *release.Release, event string, sys settings.System) string {
 		if p, err := r.RestartPayload(it); err == nil {
 			fmt.Fprint(&b, t("n.itemRestartStatus", p.Service, label(&p.Current), itemStatusText(it.Status)))
 		} else if p, err := r.ImagePayload(it); err == nil {
-			fmt.Fprintf(&b, "· %s %s → %s [%s]\n", p.Service, label(p.From), label(&p.To), itemStatusText(it.Status))
+			fmt.Fprintf(&b, "· %s %s → %s [%s]\n", p.Service, label(p.From), label(&p.To), itemState(it))
 		} else {
 			continue
 		}
@@ -676,4 +676,14 @@ func label(a *release.Artifact) string {
 		return a.Version
 	}
 	return a.Tag
+}
+
+// itemState is an item's status as a message shows it: an item stopped at a
+// blue-green or canary rollout is "awaiting switch", not merely "executing" —
+// that is the word somebody reading the channel has to act on.
+func itemState(it release.Item) string {
+	if it.Status == release.ItemExecuting && it.PausedSince != nil {
+		return t("n.itemAwaitingSwitch")
+	}
+	return itemStatusText(it.Status)
 }

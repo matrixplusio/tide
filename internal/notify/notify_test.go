@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"tide/internal/i18n"
 	"tide/internal/release"
 	"tide/internal/settings"
 )
@@ -384,3 +385,31 @@ func TestItemStatusesAreTranslated(t *testing.T) {
 		t.Errorf("translated statuses missing:\n%s", text)
 	}
 }
+
+// In a batch, the services waiting for a switch are the ones the reader has to
+// act on; both the card and the plain text name them as such.
+func TestWaitingItemsAreNamedInBothMessages(t *testing.T) {
+	now := time.Now()
+	payload := func(svc string) json.RawMessage {
+		b, _ := json.Marshal(release.ImagePayload{Service: svc, Env: "qa", To: release.Artifact{Tag: "20260102000000-bbbbbbbb-0002"}})
+		return b
+	}
+	r := &release.Release{ID: "REL-1", Title: "batch → qa", Env: "qa", Items: []release.Item{
+		{ID: 1, Kind: release.KindImage, Status: release.ItemExecuting, PausedSince: &now, Payload: payload("order-web")},
+		{ID: 2, Kind: release.KindImage, Status: release.ItemExecuting, Payload: payload("cart-api")},
+	}}
+	want := t2("n.itemAwaitingSwitch")
+	text := Text(r, EventSwitch, settings.System{})
+	if !strings.Contains(text, "order-web") || !strings.Contains(text, "["+want+"]") {
+		t.Errorf("text does not mark the waiting service:\n%s", text)
+	}
+	if n := strings.Count(text, "["+want+"]"); n != 1 {
+		t.Errorf("only order-web waits; text marks %d items:\n%s", n, text)
+	}
+	card, _ := json.Marshal(LarkCard(Message{Release: r, Event: EventSwitch}))
+	if !strings.Contains(string(card), want) {
+		t.Errorf("card does not mark the waiting service: %s", card)
+	}
+}
+
+func t2(k string) string { return t(i18n.Key(k)) }
