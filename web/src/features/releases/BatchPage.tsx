@@ -187,10 +187,18 @@ export function BatchPage() {
       }
       const next: Record<string, { freight: string; sequence?: string }> = {}
       for (const e of scope.entries) {
-        const cands = await qc.fetchQuery({
-          queryKey: ['candidates', e.service, env, true],
-          queryFn: ({ signal }) => apiFetch<Candidates>(`/api/v1/services/${encodeURIComponent(e.service)}/envs/${encodeURIComponent(env)}/candidates`, { query: { all: true }, signal }),
-        })
+        // One service that cannot list its versions (not on Kargo, say) is
+        // that line's problem, not a reason to drop every other line.
+        let cands: Candidates
+        try {
+          cands = await qc.fetchQuery({
+            queryKey: ['candidates', e.service, env, true],
+            queryFn: ({ signal }) => apiFetch<Candidates>(`/api/v1/services/${encodeURIComponent(e.service)}/envs/${encodeURIComponent(env)}/candidates`, { query: { all: true }, signal }),
+          })
+        } catch (err) {
+          problems.push({ line: e.line, text: e.service, msg: `${e.service}: ${isApiError(err) ? err.msg : t('batch.readFreightFailed')}` })
+          continue
+        }
         const m = matchPastedFreight(cands.items ?? [], e.service, e.ref, env)
         if (m.freight) next[e.service] = { freight: m.freight, sequence: e.sequence }
         else problems.push({ line: e.line, text: `${e.service} ${e.ref}`, msg: m.msg ?? t('batch.unrecognised') })
@@ -201,7 +209,8 @@ export function BatchPage() {
         setProjectState(scope.project)
         setTypeState(scope.type)
       }
-      setImported(next)
+      // Nothing filled in: leave the list whole rather than show an empty one.
+      setImported(Object.keys(next).length ? next : null)
       setOnlyPasted(true)
       setPasteResult({ applied: Object.keys(next).length, problems: problems.sort((a, b) => a.line - b.line), renamed: scope.renamed })
     } catch (e) {
