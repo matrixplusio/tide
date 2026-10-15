@@ -73,7 +73,7 @@ export interface ReleaseDetail {
   changes?: Record<string, ItemChanges | null> | null
   release: Release
   /** What the viewer may do, with project / type scopes applied. */
-  can: { confirm: boolean; cancel: boolean; pods: boolean }
+  can: { confirm: boolean; cancel: boolean; pods: boolean; rollout?: boolean }
   live?: ItemLive[] | null
 }
 
@@ -119,6 +119,18 @@ export function useConfirmRelease() {
     mutationFn: ({ id, digests }: { id: string; digests: string[] }) =>
       apiFetch<Release>(`/api/v1/releases/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: { digests } }),
     onSuccess: () => void qc.invalidateQueries(),
+  })
+}
+
+/** A decision on a blue-green or canary rollout an executing item waits on. */
+export type RolloutAction = 'next' | 'full' | 'abort'
+
+export function useRolloutAction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, itemId, action }: { id: string; itemId: number; action: RolloutAction }) =>
+      apiFetch<Release>(`/api/v1/releases/${encodeURIComponent(id)}/items/${itemId}/rollout`, { method: 'POST', body: { action } }),
+    onSuccess: (_d, v) => void qc.invalidateQueries({ queryKey: ['release', v.id] }),
   })
 }
 

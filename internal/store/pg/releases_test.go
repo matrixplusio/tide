@@ -500,3 +500,54 @@ func TestSupersededByIsTheLaterChangeOnTheSameTarget(t *testing.T) {
 		t.Fatalf("the latest is superseded by %q", got)
 	}
 }
+
+// A rollout waiting for a decision is seen by every poll and, after a restart
+// or a change of leader, by another replica. Only the first of them may
+// announce the wait or send its reminder, and the end of the wait restarts
+// the execution clock.
+func TestAWaitIsAnnouncedAndRemindedOnce(t *testing.T) {
+	s, owner := testdb.Setup(t)
+	ctx := context.Background()
+	r, err := s.Releases.Create(ctx, alice, input("svc-a", "qa"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.Exec(`UPDATE releases SET status = 'executing' WHERE id = $1`, r.ID)
+	item := r.Items[0]
+	owner.Exec(`UPDATE release_items SET status = 'pending' WHERE id = $1`, item.ID)
+	if ok, err := s.Releases.StartItem(ctx, item.ID); err != nil || !ok {
+		t.Fatalf("start: %v %v", ok, err)
+	}
+	since := time.Now().Add(-time.Minute)
+
+	if first, err := s.Releases.MarkPaused(ctx, item.ID, since); err != nil || !first {
+		t.Fatalf("first pause: %v %v", first, err)
+	}
+	if again, _ := s.Releases.MarkPaused(ctx, item.ID, time.Now()); again {
+		t.Error("the same wait was announced twice")
+	}
+	if first, err := s.Releases.MarkReminded(ctx, item.ID); err != nil || !first {
+		t.Fatalf("first reminder: %v %v", first, err)
+	}
+	if again, _ := s.Releases.MarkReminded(ctx, item.ID); again {
+		t.Error("the same wait was reminded about twice")
+	}
+	items, err := s.Releases.Items(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := items[0].PausedSince; got == nil || got.Sub(since).Abs() > time.Second {
+		t.Errorf("paused since %v, want %v", got, since)
+	}
+	if err := s.Releases.MarkResumed(ctx, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	items, _ = s.Releases.Items(ctx, r.ID)
+	if it := items[0]; it.PausedSince != nil || it.RemindedAt != nil || it.ClockFrom == nil {
+		t.Errorf("after resuming: paused %v reminded %v clock %v, want the wait cleared and the clock restarted", it.PausedSince, it.RemindedAt, it.ClockFrom)
+	}
+	// A canary stops more than once; each stop is a new wait.
+	if first, _ := s.Releases.MarkPaused(ctx, item.ID, time.Now()); !first {
+		t.Error("the next stop of the same rollout was not announced")
+	}
+}

@@ -159,6 +159,15 @@ type Item struct {
 	Error       string          `json:"error,omitempty"`
 	StartedAt   *time.Time      `json:"startedAt,omitempty"`
 	FinishedAt  *time.Time      `json:"finishedAt,omitempty"`
+	// PausedSince is set while a blue-green or canary rollout waits for a
+	// person to let it continue; the list pages show it without asking the
+	// cluster.
+	PausedSince *time.Time `json:"pausedSince,omitempty"`
+	// RemindedAt and ClockFrom are the executor's bookkeeping: whether this
+	// wait has been reminded about, and where the execution timeout counts
+	// from once a wait is over.
+	RemindedAt *time.Time `json:"-"`
+	ClockFrom  *time.Time `json:"-"`
 }
 
 // Artifact pins an image by digest. Tag and version are for humans only.

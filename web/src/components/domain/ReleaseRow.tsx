@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import type { Release } from '../../lib/types'
 import { fmtTime } from '../../lib/format'
-import { Chev, Row } from '../ui'
+import { Chev, Pill, Row } from '../ui'
 import { AutoPill, ReleaseStatusPill } from './labels'
 
 export function ReleaseRow({ r }: { r: Release }) {
@@ -16,6 +16,8 @@ export function ReleaseRow({ r }: { r: Release }) {
       </div>
       <span className="pills">
         {r.automatic && <AutoPill />}
+        {/* Somebody has to act on it, so it is said in the list, not only on the release. */}
+        {r.status === 'executing' && r.items?.some((it) => it.status === 'executing' && it.pausedSince) && <Pill tone="orange">{t('rollout.awaiting')}</Pill>}
         <ReleaseStatusPill status={r.status} />
       </span>
       <Chev />

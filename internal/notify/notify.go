@@ -41,6 +41,10 @@ const (
 	// a person. Nobody is watching Tide for it, so the channel is how they
 	// find out there is something to confirm.
 	EventPending = "release.pending"
+	// EventSwitch: a blue-green or canary rollout has stopped for its
+	// creator to let it go on. Sent when the wait starts and once more
+	// halfway to the point where Tide aborts it.
+	EventSwitch = "release.awaiting_switch"
 	// EventBuildFailed and EventBuildWarning never become releases: the
 	// first built nothing, the second built something but could not hand it
 	// over. Both are green pipelines as far as GitLab is concerned, so a
@@ -57,13 +61,13 @@ const (
 	EventBuildReady = "build.ready"
 )
 
-var Events = []string{EventPending, EventApproval, EventStarted, EventSucceeded, EventFailed, EventRejected, EventCancelled,
+var Events = []string{EventPending, EventApproval, EventSwitch, EventStarted, EventSucceeded, EventFailed, EventRejected, EventCancelled,
 	EventBuildFailed, EventBuildWarning, EventBuildStranded, EventBuildReady}
 
 // A notification goes to a shared channel rather than to one person's session,
 // so there is no request to take a language from. Like audit records, these
 // render in the deployment's default language and read the same for everyone.
-var eventText = map[string]i18n.Key{EventPending: "n.eventPending", EventApproval: "n.eventApproval", EventStarted: "n.eventStarted",
+var eventText = map[string]i18n.Key{EventPending: "n.eventPending", EventApproval: "n.eventApproval", EventSwitch: "n.eventSwitch", EventStarted: "n.eventStarted",
 	EventSucceeded: "n.eventSucceeded", EventFailed: "n.eventFailed", EventRejected: "n.eventRejected", EventCancelled: "n.eventCancelled",
 	EventBuildFailed: "n.eventBuildFailed", EventBuildWarning: "n.eventBuildWarning", EventBuildStranded: "n.eventBuildStranded", EventBuildReady: "n.eventBuildReady"}
 
@@ -351,7 +355,7 @@ func payload(ch settings.Channel, msg Message, now time.Time) ([]byte, error) {
 // Orange is for the two cards that ask somebody to do something; the rest
 // only report.
 var cardColor = map[string]string{
-	EventPending: "orange", EventApproval: "orange", EventStarted: "blue", EventSucceeded: "green",
+	EventPending: "orange", EventApproval: "orange", EventSwitch: "orange", EventStarted: "blue", EventSucceeded: "green",
 	EventFailed: "red", EventRejected: "red", EventCancelled: "grey",
 	EventBuildFailed: "red", EventBuildWarning: "orange", EventBuildStranded: "orange", EventBuildReady: "green",
 }
@@ -410,6 +414,8 @@ func LarkCard(msg Message) map[string]any {
 			label = t("n.goApprove")
 		case EventPending:
 			label = t("n.goConfirm")
+		case EventSwitch:
+			label = t("n.goSwitch")
 		}
 		elements = append(elements, map[string]any{"tag": "action", "actions": []any{map[string]any{
 			"tag": "button", "type": "primary", "url": link,

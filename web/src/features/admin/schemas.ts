@@ -353,6 +353,7 @@ export const releasePolicySchema = z
     confirmReadSeconds: intField(3, 120),
     confirmTtlMinutes: intField(2, 60),
     executeTimeoutMinutes: intField(5, 240),
+    switchTimeoutMinutes: intField(60, 10080),
     minSoakMinutes: intField(0, 10080),
     multiVersionJump: intField(0, 100),
     jiraBaseUrl: optionalUrl({ base: true }),
@@ -419,7 +420,7 @@ export type ReleasePolicyValues = z.infer<typeof releasePolicySchema>
 // ---- notify (§6) --------------------------------------------------------------
 
 export const CHANNEL_KINDS = ['lark', 'teams', 'webhook'] as const
-export const NOTIFY_EVENTS = ['release.approval_requested', 'release.started', 'release.succeeded', 'release.failed', 'release.rejected', 'release.cancelled', 'build.failed', 'build.warning', 'build.stranded', 'build.ready'] as const
+export const NOTIFY_EVENTS = ['release.approval_requested', 'release.awaiting_switch', 'release.started', 'release.succeeded', 'release.failed', 'release.rejected', 'release.cancelled', 'build.failed', 'build.warning', 'build.stranded', 'build.ready'] as const
 
 /**
  * A rule's service filter is typed as one line, so the form holds a string

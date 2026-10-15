@@ -170,29 +170,47 @@ func (x Image) rollout(ctx context.Context, c *catalog.Clients, p *release.Image
 }
 
 func (x Image) workloads(ctx context.Context, c *catalog.Clients, p *release.ImagePayload, app *argocd.Application) ([]workload, error) {
-	var ws []workload
-	for _, r := range app.Status.Resources {
-		if r.Group != "apps" || (r.Kind != "Deployment" && r.Kind != "StatefulSet" && r.Kind != "DaemonSet") {
-			continue
-		}
-		obj, err := c.ArgoCD.Resource(ctx, p.App, r.Group, r.Version, r.Kind, r.Namespace, r.Name)
-		if err != nil {
-			return nil, fmt.Errorf("%s/%s: %w", r.Kind, r.Name, err)
-		}
-		ws = append(ws, workload{kind: r.Kind, name: r.Name, obj: obj})
-	}
-	return ws, nil
+	return observeWorkloads(ctx, c.ArgoCD, p.App, appWorkloads(app))
 }
 
 type workload struct {
-	kind, name string
-	obj        map[string]any
+	kind, name, namespace string
+	obj                   map[string]any
+	// tmpl holds the pod template of a Rollout: the Rollout itself, or the
+	// Deployment it adopts. Empty for every other kind.
+	tmpl map[string]any
+}
+
+// template is the object whose pod template says which version this
+// workload is meant to run.
+func (w workload) template() map[string]any {
+	if w.tmpl != nil {
+		return w.tmpl
+	}
+	return w.obj
 }
 
 func rolloutStatus(ws []workload, target release.Artifact) ItemStatus {
 	runs := false
 	var waiting []string
+	var paused *Pause
 	for _, w := range ws {
+		if w.kind == rolloutKind {
+			st := judgeRollout(w.obj, w.template(), target)
+			switch {
+			case st.failed != "":
+				return ItemStatus{Done: true, Error: fmt.Sprintf("%s/%s: %s", w.kind, w.name, st.failed)}
+			case st.paused != nil:
+				runs, paused = true, st.paused
+				waiting = append(waiting, fmt.Sprintf("%s/%s: waiting for a decision", w.kind, w.name))
+			case !st.done:
+				runs = runs || st.onTarget
+				waiting = append(waiting, fmt.Sprintf("%s/%s: %s", w.kind, w.name, st.waiting))
+			default:
+				runs = true
+			}
+			continue
+		}
 		// A verdict only counts once the workload's spec is this release's.
 		// Until the sync lands, whatever Kubernetes last concluded is about
 		// the version before — and a Deployment that was already broken (a
@@ -214,7 +232,20 @@ func rolloutStatus(ws []workload, target release.Artifact) ItemStatus {
 		waiting = append([]string{fmt.Sprintf("no workload runs %s yet", labelOf(target))}, waiting...)
 	}
 	if len(waiting) > 0 {
-		return ItemStatus{Waiting: strings.Join(waiting, "; ")}
+		return ItemStatus{Waiting: strings.Join(waiting, "; "), Paused: paused}
 	}
 	return ItemStatus{Done: true, Success: true}
+}
+
+// Rollout lets a waiting blue-green or canary rollout go on, or aborts it.
+func (x Image) Rollout(ctx context.Context, it *release.Item, action RolloutAction) error {
+	p, err := payload(it)
+	if err != nil {
+		return err
+	}
+	c, err := x.Hub.Named(ctx, p.Upstream)
+	if err != nil {
+		return err
+	}
+	return actOnRollouts(ctx, c, p.App, action)
 }

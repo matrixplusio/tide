@@ -19,6 +19,7 @@ const kinds = [
 const EVENT_LABELS: Record<NotifyEvent, string> = {
   'release.pending': 'notifyForm.evtPending',
   'release.approval_requested': 'notifyForm.evtApproval',
+  'release.awaiting_switch': 'notifyForm.evtSwitch',
   'release.started': 'notifyForm.evtStarted',
   'release.succeeded': 'notifyForm.evtSucceeded',
   'release.failed': 'notifyForm.evtFailed',

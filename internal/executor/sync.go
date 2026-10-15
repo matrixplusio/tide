@@ -50,13 +50,13 @@ func (x Sync) Validate(ctx context.Context, it *release.Item) error {
 			return fmt.Errorf("stage %s has promotion %s running; sync after it finishes", p.Stage, stage.Status.CurrentPromotion.Name)
 		}
 	}
-	for _, w := range p.Workloads {
-		obj, err := c.ArgoCD.Resource(ctx, p.App, w.Group, w.Version, w.Kind, w.Namespace, w.Name)
-		if err != nil {
-			return fmt.Errorf("%s/%s: %w", w.Kind, w.Name, err)
-		}
-		if !runsArtifact(obj, p.Current) {
-			return fmt.Errorf("%s/%s no longer runs %s; create a new release", w.Kind, w.Name, labelOf(p.Current))
+	ws, err := observeWorkloads(ctx, c.ArgoCD, p.App, p.Workloads)
+	if err != nil {
+		return err
+	}
+	for _, w := range ws {
+		if !runsArtifact(w.template(), p.Current) {
+			return fmt.Errorf("%s/%s no longer runs %s; create a new release", w.kind, w.name, labelOf(p.Current))
 		}
 	}
 	_, err = x.current(ctx, p, true)
@@ -156,30 +156,70 @@ func (x Sync) Poll(ctx context.Context, it *release.Item) (ItemStatus, error) {
 		return ItemStatus{Waiting: "Argo CD sync " + op.Phase + ": " + op.Message}, nil
 	}
 	a := c.ArgoCD
+	ws, err := observeWorkloads(ctx, a, p.App, p.Workloads)
+	if err != nil {
+		return ItemStatus{}, err
+	}
 	var waiting []string
-	for _, w := range p.Workloads {
-		obj, err := a.Resource(ctx, p.App, w.Group, w.Version, w.Kind, w.Namespace, w.Name)
-		if err != nil {
-			return ItemStatus{}, fmt.Errorf("%s/%s: %w", w.Kind, w.Name, err)
-		}
-		if p.Restart && !restartedSince(obj, started) {
-			if err := a.RunResourceAction(ctx, p.App, w.Group, w.Version, w.Kind, w.Namespace, w.Name, "restart"); err != nil {
-				return ItemStatus{}, fmt.Errorf("restart %s/%s: %w", w.Kind, w.Name, err)
+	var paused *Pause
+	for _, w := range ws {
+		if p.Restart && !restartedSince(w.obj, started) {
+			if err := a.RunResourceAction(ctx, p.App, groupOf(w), versionOf(w), w.kind, w.namespace, w.name, "restart"); err != nil {
+				return ItemStatus{}, fmt.Errorf("restart %s/%s: %w", w.kind, w.name, err)
 			}
-			waiting = append(waiting, fmt.Sprintf("%s/%s: restart requested", w.Kind, w.Name))
+			waiting = append(waiting, fmt.Sprintf("%s/%s: restart requested", w.kind, w.name))
 			continue
 		}
-		if failed, why := rolloutFailed(w.Kind, obj); failed {
-			return ItemStatus{Done: true, Error: fmt.Sprintf("%s/%s: %s", w.Kind, w.Name, why)}, nil
+		// A configuration change to a Rollout's pod template is a new
+		// revision like any other, and goes through the same blue-green or
+		// canary steps — including the stop for a person.
+		if w.kind == rolloutKind {
+			st := judgeRollout(w.obj, w.template(), p.Current)
+			switch {
+			case st.failed != "":
+				return ItemStatus{Done: true, Error: fmt.Sprintf("%s/%s: %s", w.kind, w.name, st.failed)}, nil
+			case st.paused != nil:
+				paused = st.paused
+				waiting = append(waiting, fmt.Sprintf("%s/%s: waiting for a decision", w.kind, w.name))
+			case !st.done:
+				waiting = append(waiting, fmt.Sprintf("%s/%s: %s", w.kind, w.name, st.waiting))
+			}
+			continue
 		}
-		if done, why := rolloutComplete(w.Kind, obj); !done {
-			waiting = append(waiting, fmt.Sprintf("%s/%s: %s", w.Kind, w.Name, why))
+		if failed, why := rolloutFailed(w.kind, w.obj); failed {
+			return ItemStatus{Done: true, Error: fmt.Sprintf("%s/%s: %s", w.kind, w.name, why)}, nil
+		}
+		if done, why := rolloutComplete(w.kind, w.obj); !done {
+			waiting = append(waiting, fmt.Sprintf("%s/%s: %s", w.kind, w.name, why))
 		}
 	}
 	if len(waiting) > 0 {
-		return ItemStatus{Waiting: strings.Join(waiting, "; ")}, nil
+		return ItemStatus{Waiting: strings.Join(waiting, "; "), Paused: paused}, nil
 	}
 	return ItemStatus{Done: true, Success: true}, nil
+}
+
+// Rollout lets a waiting blue-green or canary rollout go on, or aborts it.
+func (x Sync) Rollout(ctx context.Context, it *release.Item, action RolloutAction) error {
+	p, c, err := x.clients(ctx, it)
+	if err != nil {
+		return err
+	}
+	return actOnRollouts(ctx, c, p.App, action)
+}
+
+func groupOf(w workload) string {
+	if w.kind == rolloutKind {
+		return rolloutGroup
+	}
+	return "apps"
+}
+
+func versionOf(w workload) string {
+	if w.kind == rolloutKind {
+		return rolloutVersion
+	}
+	return "v1"
 }
 
 // restartedSince: the workload carries a restart annotation from t or later.

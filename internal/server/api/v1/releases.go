@@ -13,6 +13,7 @@ import (
 
 	"tide/internal/auth"
 	"tide/internal/catalog"
+	"tide/internal/executor"
 	"tide/internal/i18n"
 	"tide/internal/plan"
 	"tide/internal/rbac"
@@ -485,6 +486,10 @@ type ItemLive struct {
 	// The live state is then that release's doing, and measuring it against
 	// this item's target reads as a rollout stuck at zero.
 	SupersededBy string `json:"supersededBy,omitempty"`
+	// Rollouts are the Argo Rollouts of a blue-green or canary service, and
+	// Deadline is when an unattended wait gets aborted.
+	Rollouts []executor.RolloutView `json:"rollouts,omitempty"`
+	Deadline *time.Time             `json:"deadline,omitempty"`
 }
 
 func (a *API) getRelease(c *gin.Context) {
@@ -569,6 +574,19 @@ func (a *API) getRelease(c *gin.Context) {
 				if snap != nil {
 					if d := deploymentIn(snap, tg.Service, tg.Env); d != nil {
 						il.Live = a.live(ctx, d, tg.Digest, tag)
+					}
+				}
+				if it.Status == release.ItemExecuting {
+					if up, app, ok := executor.AppOf(rel, it); ok {
+						if rs, err := executor.ViewRollouts(ctx, a.Hub, up, app); err == nil && len(rs) > 0 {
+							il.Rollouts = rs
+						}
+					}
+					if it.PausedSince != nil {
+						if policy, err := a.Settings.ReleasePolicy(ctx); err == nil {
+							at := it.PausedSince.Add(policy.SwitchTimeout())
+							il.Deadline = &at
+						}
 					}
 				}
 				lives[i] = il
@@ -924,6 +942,9 @@ func (a *API) releaseAbilities(c *gin.Context, rel *release.Release) (gin.H, err
 	}
 	mine := ownedBy(rel, currentUser(c))
 	return gin.H{
+		// The same people who could confirm decide on the switch: it is the
+		// second half of the same decision.
+		"rollout": mine && rel.Status == release.Executing && all(kindPermission),
 		"confirm": mine && all(kindPermission),
 		"cancel":  (mine && all(kindPermission)) || all(func(string) rbac.Permission { return rbac.ReleasesCancelAny }),
 		"pods":    all(func(string) rbac.Permission { return rbac.PodsView }),
@@ -1210,4 +1231,81 @@ func shortSHA(sha string) string {
 		return sha[:8]
 	}
 	return sha
+}
+
+type rolloutReq struct {
+	Action string `json:"action" binding:"required,oneof=next full abort" label:"rolloutAction"`
+}
+
+// rolloutRelease applies a decision to a blue-green or canary rollout an
+// executing item is waiting on: let it switch or go to its next step, take
+// it all the way, or abort it back to the version that was running.
+//
+// Only the person who started the release decides, as with confirming it;
+// for a CI release, whoever holds the environment's permission.
+func (a *API) rolloutRelease(c *gin.Context) {
+	p := newParams(c)
+	id := p.releaseID()
+	itemID := p.id("item", "label.itemId")
+	if err := p.err(); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	var req rolloutReq
+	if err := bindJSON(c, &req); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	ctx := c.Request.Context()
+	u := currentUser(c)
+	rel, err := a.PG.Releases.Get(ctx, id)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	if err := a.requireKinds(c, rel); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	if !ownedBy(rel, u) {
+		respond.Fail(c, errcode.NewKey(errcode.Forbidden, "r.onlyCreatorSwitches"))
+		return
+	}
+	var item *release.Item
+	for i := range rel.Items {
+		if rel.Items[i].ID == itemID {
+			item = &rel.Items[i]
+		}
+	}
+	if item == nil {
+		respond.Fail(c, errcode.NewKey(errcode.ReleaseNotFound, "r.itemNotFound"))
+		return
+	}
+	if rel.Status != release.Executing || item.Status != release.ItemExecuting {
+		respond.Fail(c, errcode.NewKey(errcode.InvalidTransition, "r.rolloutNotRunning"))
+		return
+	}
+	action := executor.RolloutAction(req.Action)
+	// A Rollout can still show the stop of the revision before this one for a
+	// moment after the new image lands. Letting that through would decide on
+	// something nobody was shown; only a wait the executor has recorded for
+	// this item counts. Aborting needs no wait.
+	if action != executor.ActionAbort && item.PausedSince == nil {
+		respond.Fail(c, errcode.NewKey(errcode.Conflict, "r.rolloutNotWaiting"))
+		return
+	}
+	if err := executor.ActOnItem(ctx, a.Hub, rel, *item, action); err != nil {
+		if errors.Is(err, executor.ErrNotWaiting) {
+			respond.Fail(c, errcode.NewKey(errcode.Conflict, "r.rolloutNotWaiting"))
+			return
+		}
+		respond.Fail(c, err)
+		return
+	}
+	detail := map[string]any{"item": item.ID, "action": req.Action, "env": rel.Env}
+	if tg, err := rel.Target(*item); err == nil {
+		detail["service"] = tg.Service
+	}
+	_ = a.PG.Audit.Write(ctx, u.Actor(), "release.rollout", rel.ID, rel.JiraTicket, detail)
+	a.respondRelease(c, rel)
 }
