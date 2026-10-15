@@ -34,7 +34,7 @@ import {
   Textarea,
   Toolbar,
 } from '../../components/ui'
-import { ConfirmSheet, VersionLabel } from '../../components/domain'
+import { ConfirmSheet, ServiceName, VersionLabel } from '../../components/domain'
 import { useCandidates, useServices } from '../services/queries'
 import { normalizeJira } from '../services/schema'
 import { useCreateRelease } from './queries'
@@ -70,7 +70,7 @@ export function BatchPage() {
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pasteBusy, setPasteBusy] = useState(false)
-  const [pasteResult, setPasteResult] = useState<{ applied: number; problems: PasteProblem[] } | null>(null)
+  const [pasteResult, setPasteResult] = useState<{ applied: number; problems: PasteProblem[]; renamed?: { from: string; to: string }[] } | null>(null)
   const [env, setEnvState] = useState(envs[0]?.name ?? '')
   const kinds = KINDS.filter(([k]) => canEnv(me, KIND_PERMISSION[k], env))
   const [kind, setKindState] = useState<BatchKind>('image')
@@ -147,15 +147,14 @@ export function BatchPage() {
         setPasteResult({ applied: 0, problems: problems.length ? problems : [{ line: 0, text: '', msg: t('batch.noServicesRecognised') }] })
         return
       }
-      const scope = resolvePasteScope(entries, all, env, dim)
+      const scope = resolvePasteScope(entries, all, env, dim, effectiveProject)
       problems.push(...scope.problems)
       if (scope.problems.some((x) => x.line === 0)) {
         setPasteResult({ applied: 0, problems })
         return
       }
-      const bad = new Set(scope.problems.map((x) => x.text))
       const next: Record<string, { freight: string; sequence?: string }> = {}
-      for (const e of entries.filter((x) => !bad.has(x.service))) {
+      for (const e of scope.entries) {
         const cands = await qc.fetchQuery({
           queryKey: ['candidates', e.service, env, true],
           queryFn: ({ signal }) => apiFetch<Candidates>(`/api/v1/services/${encodeURIComponent(e.service)}/envs/${encodeURIComponent(env)}/candidates`, { query: { all: true }, signal }),
@@ -169,7 +168,7 @@ export function BatchPage() {
       setTypeState(scope.type)
       setImported(next)
       setOnlyPasted(true)
-      setPasteResult({ applied: Object.keys(next).length, problems: problems.sort((a, b) => a.line - b.line) })
+      setPasteResult({ applied: Object.keys(next).length, problems: problems.sort((a, b) => a.line - b.line), renamed: scope.renamed })
     } catch (e) {
       setPasteResult({ applied: 0, problems: [{ line: 0, text: '', msg: isApiError(e) ? e.msg : t('batch.readFreightFailed') }] })
     } finally {
@@ -240,6 +239,11 @@ export function BatchPage() {
                     {pasteResult && (
                       <div className="fhint" role="status">
                         {pasteResult.applied > 0 && <div className="green">{t('batch.recognised', { count: pasteResult.applied })}</div>}
+                        {(pasteResult.renamed ?? []).map((x) => (
+                          <div key={x.from} className="muted">
+                            {t('batch.readAs', { from: x.from, to: x.to })}
+                          </div>
+                        ))}
                         {pasteResult.problems.map((x, i) => (
                           <div key={i} className="red">
                             {x.line > 0 ? t('batch.lineNo', { line: x.line }) : ''}
@@ -315,7 +319,7 @@ export function BatchPage() {
                   const busy = !!inFlight[`${f.service}/${env}`] || !!dep?.promoting
                   const conflict = !!svc?.conflicts?.length
                   const allowed = canService(me, KIND_PERMISSION[effectiveKind], env, svc?.project || undefined, dim ? svc?.dimensions?.[dim.key] : undefined)
-                  return <BatchRowView key={f.id} form={form} index={i} env={env} kind={effectiveKind} current={dep} busy={busy} conflict={conflict} allowed={allowed} />
+                  return <BatchRowView key={f.id} form={form} index={i} env={env} kind={effectiveKind} current={dep} short={svc?.short} busy={busy} conflict={conflict} allowed={allowed} />
                 })}
               </Group>
             )}
@@ -395,6 +399,7 @@ function BatchRowView({
   env,
   kind,
   current,
+  short,
   busy,
   conflict,
   allowed,
@@ -405,6 +410,7 @@ function BatchRowView({
   kind: BatchKind
   allowed: boolean
   current: { tag?: string; version?: string; kargoProject?: string; sync?: string } | undefined
+  short?: string
   busy: boolean
   conflict: boolean
 }) {
@@ -424,7 +430,7 @@ function BatchRowView({
       <label className="check grow" style={{ alignItems: 'flex-start' }}>
         <input type="checkbox" {...register(`rows.${i}.selected`)} disabled={busy || conflict || !allowed} aria-label={t('batch.selectService', { service: row.service })} />
         <span>
-          <b>{row.service}</b>
+          <ServiceName name={row.service} short={short} />
           <span className="d block">
             {t('batch.current')} <VersionLabel a={current} full />
             {busy && <span className="orange">{t('batch.busy')}</span>}

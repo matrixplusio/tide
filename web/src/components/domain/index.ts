@@ -1,4 +1,4 @@
-export { VersionLabel, DeployDot, ReleaseStatusPill, ItemStatusPill, HealthPill, AutoPill } from './labels'
+export { VersionLabel, DeployDot, ReleaseStatusPill, ItemStatusPill, HealthPill, AutoPill, ServiceName } from './labels'
 export { ReleaseRow } from './ReleaseRow'
 export { RolloutView, PodsList, ResourcesList, PromotionSteps } from './Live'
 export type { ResourcePick } from './Live'

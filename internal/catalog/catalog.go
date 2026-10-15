@@ -117,7 +117,14 @@ type Service struct {
 	// Project groups domains; empty when neither a project label nor a Kargo
 	// project applies.
 	Project string `json:"project"`
-	Domain  string `json:"domain"`
+	// Short is the name without its project prefix: globex-x is x in project
+	// globex. Argo CD Application names are unique across the whole instance,
+	// so the lines whose services share names carry the line as a prefix,
+	// and the service name follows the Application. People and the images
+	// they paste use the bare name; Short is what they are matched against,
+	// within one project. Equal to Name when there is no such prefix.
+	Short  string `json:"short"`
+	Domain string `json:"domain"`
 	// Dimensions holds the value of each configured catalog dimension, by key.
 	Dimensions map[string]string      `json:"dimensions"`
 	Envs       map[string]*Deployment `json:"envs"`
@@ -717,6 +724,7 @@ func mergeService(deps []rawDeployment) Service {
 	if len(projects) > 0 {
 		svc.Project = projects[0]
 	}
+	svc.Short = shortName(svc.Name, svc.Project)
 	if len(projects) > 1 {
 		svc.Conflicts = append(svc.Conflicts, i18n.T(i18n.Default, "c.nameInManyProjects", svc.Name, strings.Join(projects, ", ")))
 	}
@@ -726,6 +734,15 @@ func mergeService(deps []rawDeployment) Service {
 		}
 	}
 	return svc
+}
+
+// shortName strips the project prefix off a service name, never down to
+// nothing.
+func shortName(name, project string) string {
+	if short, ok := strings.CutPrefix(name, project+"-"); ok && project != "" && short != "" {
+		return short
+	}
+	return name
 }
 
 type rawDeployment struct {

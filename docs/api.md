@@ -209,7 +209,9 @@ SSO 登录时，Tide 从 ID Token 的 `groupsClaim` 字段（默认 `groups`）�
 → `{ upstreams: UpstreamStatus[], upstreamError?: { code, msg }, envOrder, envStats: { [env]: { services, unexpected } }, unexpected: Deployment[], serviceCount, domainCount, inFlight: Release[], myInFlight, recentFailed: Release[], recent: Release[], today: { total, succeeded } }`
 
 ### `GET /api/v1/services?fresh=true`
-`Service = { name, project, domain, dimensions, envs }`
+`Service = { name, project, short, domain, dimensions, envs }`
+
+`short` 是去掉项目前缀的服务名：项目 globex 下的 `globex-x` 短名为 `x`；没有这个前缀时等于 `name`。服务身份仍是 `name`（Argo CD Application 名在整套 Argo 里唯一，服务名重名的业务线因此带前缀），`short` 只用于显示和识别人输入的名字（批量页粘贴时，全名匹配不到就在该环境的服务里按短名找，多个项目都有时按页面所选项目区分，仍区分不了就报错）。
 → `{ services: Service[], envOrder, upstreams: UpstreamStatus[], at, inFlight: { "<service>/<env>": releaseId } }`
 错误：4001。
 

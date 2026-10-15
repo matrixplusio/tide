@@ -9,7 +9,7 @@ import { dimensionOptions, dimensionValueName, matchesSearch } from '../../lib/c
 import { fmtTime } from '../../lib/format'
 import type { Service } from '../../lib/types'
 import { Button, Checkbox, EmptyState, ErrorState, GroupHeader, Input, Loading, Note, Page, Pill, Segmented, Select, Toolbar } from '../../components/ui'
-import { DeployDot, NoUpstreamsBanner, RefreshNow, VersionLabel } from '../../components/domain'
+import { DeployDot, NoUpstreamsBanner, RefreshNow, ServiceName, VersionLabel } from '../../components/domain'
 import { useServices } from './queries'
 
 // A dimension with at most this many values renders as a segmented control
@@ -238,7 +238,7 @@ export function ServicesPage() {
                             would render two different services identically. */}
                         <td className="svccol">
                           <Link className="inherit" to={`/services/${encodeURIComponent(s.name)}`} state={{ from: `/services?${params}` }}>
-                            <b>{s.name}</b>
+                            <ServiceName name={s.name} short={s.short} />
                           </Link>
                           {!!s.conflicts?.length && (
                             <>
