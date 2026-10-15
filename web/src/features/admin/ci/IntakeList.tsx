@@ -11,6 +11,7 @@ const FILTERS = [
   ['', 'ci.filterAll'],
   ['waiting', 'ci.filterWaiting'],
   ['released', 'ci.filterReleased'],
+  ['ready', 'ci.filterReady'],
   ['failed', 'ci.filterFailed'],
   ['expired', 'ci.filterExpired'],
   ['build_failed', 'ci.filterBuildFailed'],
@@ -22,6 +23,8 @@ const FILTERS = [
 const DOT: Record<IntakeStatus, 'ok' | 'off' | 'warn' | 'bad'> = {
   waiting: 'warn',
   released: 'ok',
+  // Found and pickable, which is all an announcing environment asks for.
+  ready: 'ok',
   failed: 'bad',
   expired: 'bad',
   build_failed: 'bad',
@@ -32,6 +35,7 @@ const DOT: Record<IntakeStatus, 'ok' | 'off' | 'warn' | 'bad'> = {
 const STATUS_LABELS: Record<IntakeStatus, string> = {
   waiting: 'ci.stWaiting',
   released: 'ci.stReleased',
+  ready: 'ci.stReady',
   failed: 'ci.stFailed',
   expired: 'ci.stExpired',
   build_failed: 'ci.stBuildFailed',

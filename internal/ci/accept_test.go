@@ -108,3 +108,28 @@ func TestARefusedReportIsRecordedAndDoesNotBlockTheRerun(t *testing.T) {
 		t.Fatalf("re-run after the fix: accepted=%v %+v %v", accepted, in, err)
 	}
 }
+
+// An environment that only announces builds takes the report in like any
+// other — it has to wait for Kargo to find the image — and ends it in a state
+// of its own that says the version can be picked and nothing was released.
+func TestAnAnnouncedBuildIsTakenInAndCanEndReady(t *testing.T) {
+	x, tok := service(t)
+	x.Hub = &catalog.Hub{Settings: x.Settings}
+	ctx := context.Background()
+	if err := x.Settings.Save(ctx, x.PG, audit.System, "environments", &settings.Environments{Items: []settings.Environment{
+		{Name: "dev", Tier: "development", CI: settings.CINotify},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	in, accepted, err := x.Accept(ctx, tok, Request{Service: "cart", Env: "dev", Digest: "sha256:" + strings.Repeat("d", 64)})
+	if err != nil || !accepted || in.Status != pg.IntakeWaiting {
+		t.Fatalf("announced build: accepted=%v %+v %v", accepted, in, err)
+	}
+	if err := x.PG.CI.Resolve(ctx, in.ID, pg.IntakeReady, "", ""); err != nil {
+		t.Fatalf("the database refused the ready state: %v", err)
+	}
+	list, total, err := x.PG.CI.ListIntakes(ctx, pg.IntakeFilter{Status: pg.IntakeReady}, 1, 10)
+	if err != nil || total != 1 || list[0].ReleaseID != "" {
+		t.Fatalf("ready intakes: %d %+v %v", total, list, err)
+	}
+}

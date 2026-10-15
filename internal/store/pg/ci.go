@@ -43,6 +43,10 @@ const (
 	// unknown environment, one that takes no CI releases, a service not
 	// deployed there. Kept so the refusal can be seen; never worked on.
 	IntakeRejected = "rejected"
+	// IntakeReady is a report from an environment that only wants its new
+	// images found: the freight is there and can be picked, and no release
+	// was made because none was asked for.
+	IntakeReady = "ready"
 )
 
 // CIIntake is one notification from a pipeline, kept until Tide can turn it

@@ -27,6 +27,7 @@ const EVENT_LABELS: Record<NotifyEvent, string> = {
   'build.failed': 'notifyForm.evtBuildFailed',
   'build.warning': 'notifyForm.evtBuildWarning',
   'build.stranded': 'notifyForm.evtBuildStranded',
+  'build.ready': 'notifyForm.evtBuildReady',
 }
 
 type ChannelValues = NotifyValues['channels'][number]

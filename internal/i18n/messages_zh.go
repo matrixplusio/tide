@@ -392,6 +392,7 @@ var zhCNNotify = map[Key]string{
 	"n.eventFailed":          "失败",
 	"n.eventBuildFailed":     "构建失败",
 	"n.eventBuildStranded":   "构建成功，但没有发出去",
+	"n.eventBuildReady":      "新版本已就绪，可以发布",
 	"n.eventBuildWarning":    "构建没能通知到 Tide",
 	"n.eventRejected":        "被拒绝",
 	"n.eventStarted":         "开始执行",

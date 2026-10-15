@@ -83,13 +83,14 @@ export interface Environment {
   ci: CIMode
 }
 
-/** off: refuse CI releases. approve: create one and wait for a person.
- *  auto: start it (an approval rule still applies). */
-export const CI_MODES = ['off', 'approve', 'auto'] as const
+/** off: refuse CI releases. notify: only have the new image found, release
+ *  nothing. approve: create one and wait for a person. auto: start it (an
+ *  approval rule still applies). */
+export const CI_MODES = ['off', 'notify', 'approve', 'auto'] as const
 export type CIMode = (typeof CI_MODES)[number]
 
 export type ChannelKind = 'lark' | 'teams' | 'webhook'
-export type NotifyEvent = 'release.pending' | 'release.approval_requested' | 'release.started' | 'release.succeeded' | 'release.failed' | 'release.rejected' | 'release.cancelled' | 'build.failed' | 'build.warning' | 'build.stranded'
+export type NotifyEvent = 'release.pending' | 'release.approval_requested' | 'release.started' | 'release.succeeded' | 'release.failed' | 'release.rejected' | 'release.cancelled' | 'build.failed' | 'build.warning' | 'build.stranded' | 'build.ready'
 
 export interface Channel {
   name: string
@@ -268,7 +269,7 @@ export interface CIToken {
   revokedAt?: string | null
 }
 
-export type IntakeStatus = 'waiting' | 'released' | 'failed' | 'expired' | 'build_failed' | 'rejected'
+export type IntakeStatus = 'waiting' | 'released' | 'failed' | 'expired' | 'build_failed' | 'rejected' | 'ready'
 
 /** One notification from a pipeline and what became of it. */
 export interface CIIntake {

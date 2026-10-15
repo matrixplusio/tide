@@ -28,7 +28,7 @@ var (
 	reIdemKey    = regexp.MustCompile(`^[A-Za-z0-9._:@/-]{1,200}$`)
 	reTokenID    = regexp.MustCompile(`^[0-9a-f-]{36}$`)
 	ciActorRe    = regexp.MustCompile(`^[^\x00-\x1f]{0,100}$`)
-	intakeStates = []string{pg.IntakeWaiting, pg.IntakeReleased, pg.IntakeFailed, pg.IntakeExpired, pg.IntakeBuildFailed, pg.IntakeRejected}
+	intakeStates = []string{pg.IntakeWaiting, pg.IntakeReleased, pg.IntakeFailed, pg.IntakeExpired, pg.IntakeBuildFailed, pg.IntakeRejected, pg.IntakeReady}
 )
 
 type ciReleaseReq struct {

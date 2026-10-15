@@ -372,20 +372,27 @@ type Environment struct {
 	// Kargo itself links the stages, or the environment takes CI builds.
 	PromotesFrom string `json:"promotesFrom"`
 	// CI decides what a build pipeline's webhook may do here: CIOff refuses
-	// it, CIApprove leaves the release for a person to confirm, CIAuto starts
-	// it without one. An approval rule still applies under CIAuto.
+	// it, CINotify only has the new image found, CIApprove leaves the release
+	// for a person to confirm, CIAuto starts it without one. An approval rule
+	// still applies under CIAuto.
 	CI string `json:"ci"`
 }
 
 // CI modes for Environment.CI. Empty means CIOff: an environment takes CI
 // releases only once somebody has said so.
 const (
-	CIOff     = "off"
+	CIOff = "off"
+	// CINotify: a build is only announced. Tide asks Kargo to look for it
+	// at once, so the version is there to pick when somebody wants it,
+	// rather than after the warehouse's next scheduled look — and nothing
+	// is released. For an environment where releasing is a person's
+	// decision but waiting a quarter of an hour for a build is not.
+	CINotify  = "notify"
 	CIApprove = "approve"
 	CIAuto    = "auto"
 )
 
-var CIModes = []string{CIOff, CIApprove, CIAuto}
+var CIModes = []string{CIOff, CINotify, CIApprove, CIAuto}
 
 // CIMode is e.CI with the default filled in.
 func (e Environment) CIMode() string {
