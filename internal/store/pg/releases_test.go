@@ -552,6 +552,46 @@ func TestAWaitIsAnnouncedAndRemindedOnce(t *testing.T) {
 	}
 }
 
+// An aborted rollout gets one revert promotion, recorded beside the original
+// one, audited, with the execution clock restarted. A second replica polling
+// the same item must not replace it.
+func TestARevertIsRecordedOnce(t *testing.T) {
+	s, owner := testdb.Setup(t)
+	ctx := context.Background()
+	r, err := s.Releases.Create(ctx, alice, input("svc-a", "qa"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.Exec(`UPDATE releases SET status = 'executing' WHERE id = $1`, r.ID)
+	item := r.Items[0]
+	owner.Exec(`UPDATE release_items SET status = 'pending' WHERE id = $1`, item.ID)
+	if ok, err := s.Releases.StartItem(ctx, item.ID); err != nil || !ok {
+		t.Fatalf("start: %v %v", ok, err)
+	}
+	item.Status = release.ItemExecuting
+	if err := s.Releases.MarkExecuted(ctx, item, "forward.1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Releases.MarkReverting(ctx, item, "revert.1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Releases.MarkReverting(ctx, item, "revert.2"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.Releases.Items(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it := items[0]; it.ExternalRef != "forward.1" || it.RevertRef != "revert.1" || it.ClockFrom == nil {
+		t.Errorf("refs %q / %q clock %v, want the forward and the first revert kept and the clock restarted", it.ExternalRef, it.RevertRef, it.ClockFrom)
+	}
+	var audits int
+	owner.Raw(`SELECT count(*) FROM audit_log WHERE action = 'item.revert' AND target = $1`, r.ID).Scan(&audits)
+	if audits != 1 {
+		t.Errorf("%d revert audits, want 1", audits)
+	}
+}
+
 // A batch stops many items at once and each is looked at by its own
 // goroutine, possibly on another replica. They must agree on one of them to
 // announce the wait — the lowest id still waiting — and when that one is

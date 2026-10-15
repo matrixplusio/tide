@@ -10,6 +10,7 @@ import (
 
 	"tide/internal/release"
 	"tide/internal/upstream/argocd"
+	"tide/internal/upstream/kargo"
 )
 
 // Shapes copied from Argo Rollouts v1.10 objects read off a cluster: the
@@ -111,12 +112,52 @@ func TestABlueGreenIsDoneOnlyOnceTrafficIsOnTheNewVersion(t *testing.T) {
 func TestAnAbortedOrDegradedRolloutFailsTheRelease(t *testing.T) {
 	aborted := canary(t, `{"phase":"Degraded","abort":true,"message":"RolloutAborted: Rollout aborted update to revision 3",
 		"observedGeneration":"1","workloadObservedGeneration":"4","currentPodHash":"new","stableRS":"old"}`)
-	if st := judgeRollout(aborted, deployment(t, v2, 4), roTarget); st.failed == "" {
-		t.Error("an aborted rollout did not fail the release")
+	if st := judgeRollout(aborted, deployment(t, v2, 4), roTarget); st.failed == "" || !st.aborted {
+		t.Errorf("an aborted rollout did not fail the release as aborted: %+v", st)
 	}
 	degraded := canary(t, `{"phase":"Degraded","message":"ProgressDeadlineExceeded","observedGeneration":"1","workloadObservedGeneration":"4"}`)
 	if st := judgeRollout(degraded, deployment(t, v2, 4), roTarget); st.failed == "" {
 		t.Error("a degraded rollout did not fail the release")
+	}
+}
+
+// After an abort the revert puts the old template back. Argo Rollouts may
+// keep the abort flag until it notices, but the template is the stable
+// version again: that is the revert done, not another failure.
+func TestAnAbortedRolloutBackOnItsStableVersionIsDone(t *testing.T) {
+	back := blueGreen(t, `{"phase":"Degraded","abort":true,"message":"RolloutAborted",
+		"observedGeneration":"1","workloadObservedGeneration":"5","currentPodHash":"old","stableRS":"old",
+		"blueGreen":{"activeSelector":"old"}}`)
+	oldTarget := release.Artifact{Tag: "20260101000000-aaaaaaaa-0001"}
+	if st := judgeRollout(back, deployment(t, v1, 5), oldTarget); !st.done || st.aborted {
+		t.Errorf("the reverted rollout is not done: %+v", st)
+	}
+	// Still on the new template: not the revert yet.
+	if st := judgeRollout(back, deployment(t, v2, 5), oldTarget); st.done {
+		t.Errorf("a rollout still on the new template counted as reverted: %+v", st)
+	}
+}
+
+func TestTheRevertFindsTheFreightTheReleaseReplaced(t *testing.T) {
+	var avail []kargo.Freight
+	if err := json.Unmarshal([]byte(`[
+		{"metadata":{"name":"f-new"},"images":[{"repoURL":"registry.example.com/shop/order","tag":"new","digest":"sha256:bb"}]},
+		{"metadata":{"name":"f-other"},"images":[{"repoURL":"registry.example.com/shop/other","tag":"old","digest":"sha256:aa"},
+			{"repoURL":"registry.example.com/shop/sidecar","tag":"x","digest":"sha256:cc"}]},
+		{"metadata":{"name":"f-old"},"images":[{"repoURL":"registry.example.com/shop/order","tag":"old","digest":"sha256:aa"}]}]`), &avail); err != nil {
+		t.Fatal(err)
+	}
+	p := &release.ImagePayload{Image: "registry.example.com/shop/order", From: &release.Artifact{Digest: "sha256:aa", Tag: "old"}}
+	if got := previousFreight(avail, p); got != "f-old" {
+		t.Errorf("by digest: got %q, want f-old", got)
+	}
+	p.From = &release.Artifact{Tag: "old"}
+	if got := previousFreight(avail, p); got != "f-old" {
+		t.Errorf("by tag: got %q, want f-old", got)
+	}
+	p.From = &release.Artifact{Digest: "sha256:gone"}
+	if got := previousFreight(avail, p); got != "" {
+		t.Errorf("garbage-collected freight: got %q, want none", got)
 	}
 }
 

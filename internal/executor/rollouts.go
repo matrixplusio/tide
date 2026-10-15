@@ -76,8 +76,11 @@ type rolloutState struct {
 	onTarget bool
 	done     bool
 	failed   string
-	paused   *Pause
-	waiting  string
+	// aborted: someone (or the switch timeout) aborted the rollout. Traffic
+	// is back on the old version, but git and Kargo still name the new one.
+	aborted bool
+	paused  *Pause
+	waiting string
 }
 
 // judgeRollout reads a Rollout. tmpl is the object holding its pod template:
@@ -97,7 +100,15 @@ func judgeRollout(ro, tmpl map[string]any, target release.Artifact) rolloutState
 	}
 	st := rolloutState{onTarget: true}
 	phase, msg := str(ro, "status", "phase"), str(ro, "status", "message")
+	current, stable := str(ro, "status", "currentPodHash"), str(ro, "status", "stableRS")
 	if v, _ := lookup(ro, "status", "abort"); v == true {
+		// Aborted, but the template is the stable version again: that is a
+		// rollback finished, which is what a revert waits for.
+		if current != "" && current == stable {
+			st.done = true
+			return st
+		}
+		st.aborted = true
 		st.failed = "rollout aborted; traffic is on the previous version"
 		if msg != "" {
 			st.failed += ": " + msg
@@ -112,7 +123,6 @@ func judgeRollout(ro, tmpl map[string]any, target release.Artifact) rolloutState
 		st.paused = p
 		return st
 	}
-	current, stable := str(ro, "status", "currentPodHash"), str(ro, "status", "stableRS")
 	settled := phase == "Healthy" && current != "" && current == stable
 	if _, bg := lookup(ro, "spec", "strategy", "blueGreen"); bg {
 		settled = settled && str(ro, "status", "blueGreen", "activeSelector") == current

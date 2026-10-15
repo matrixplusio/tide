@@ -252,6 +252,9 @@ func (a *API) getEnv(c *gin.Context) {
 			if it.ExternalRef != "" {
 				byRef[it.ExternalRef] = r.ID
 			}
+			if it.RevertRef != "" {
+				byRef[it.RevertRef] = r.ID
+			}
 		}
 	}
 	promos := []PromotionView{}

@@ -13,6 +13,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"tide/internal/audit"
 	"tide/internal/metrics"
 	"tide/internal/release"
 	"tide/internal/settings"
@@ -29,6 +30,13 @@ type ItemStatus struct {
 	// Paused is set while a blue-green or canary rollout waits for a person.
 	// The execution timeout does not run then; the switch timeout does.
 	Paused *Pause
+	// RevertRef is a promotion the executor started to put the previous
+	// version back; the engine records it so the next poll follows it.
+	RevertRef string
+
+	// aborted: a rollout was aborted, so the executor still has git and
+	// Kargo to put back. Never seen by the engine.
+	aborted bool
 }
 
 // RolloutDriver is implemented by the executors whose items can stop at a
@@ -278,6 +286,14 @@ func (e *Engine) step(ctx context.Context, ex ItemExecutor, it *release.Item, ti
 		if err != nil {
 			zap.L().Warn("poll item failed", zap.Int64("item", it.ID), zap.Error(err))
 		}
+		if err == nil && st.RevertRef != "" {
+			if err := e.PG.Releases.MarkReverting(ctx, *it, st.RevertRef); err != nil {
+				return err
+			}
+			now := time.Now()
+			it.RevertRef, it.ClockFrom = st.RevertRef, &now
+			e.changed()
+		}
 		if err == nil && !st.Done {
 			if st.Paused != nil {
 				return e.waitForDecision(ctx, ex, it, st.Paused)
@@ -378,9 +394,12 @@ func (e *Engine) waitForDecision(ctx context.Context, ex ItemExecutor, it *relea
 		if err := driver.Rollout(ctx, it, ActionAbort); err != nil && !errors.Is(err, ErrNotWaiting) {
 			return fmt.Errorf("abort after waiting %s: %w", limit, err)
 		}
+		// The item is not finished here: the next poll sees the abort like
+		// any other and puts the previous version back in git and Kargo.
+		_ = e.PG.Audit.Write(ctx, audit.System, "release.rollout", it.ReleaseID, "",
+			map[string]any{"item": it.ID, "action": ActionAbort, "reason": fmt.Sprintf("nobody decided within %s", limit)})
 		e.changed()
-		return e.PG.Releases.FinishItem(ctx, *it, release.ItemFailed,
-			fmt.Sprintf("nobody decided within %s, so the rollout was aborted; traffic is on the previous version", limit))
+		return nil
 	}
 	// The reminder, too, is the release's: only the first waiting item sends
 	// it. The others do not mark themselves reminded, so whichever becomes

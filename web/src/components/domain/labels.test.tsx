@@ -23,4 +23,14 @@ describe('VersionLabel', () => {
     expect(screen.getByText('v1.4.0')).toBeTruthy()
     expect(screen.queryByText('镜像不存在')).toBeNull()
   })
+
+  // After an aborted blue-green the pods run the old version while Kargo
+  // still records the new one. Showing the record as "current" is what made
+  // an abort look like it had gone through.
+  it('shows what runs, and the Kargo record beside it, when they differ', () => {
+    render(<VersionLabel a={{ version: 'v2.0.0', tag: '20261015093244-0e5615c8-1928', running: '20260529094630-38' }} full />)
+    expect(screen.getByText('20260529094630-38')).toBeTruthy()
+    expect(screen.getByText('Kargo 记录为 20261015093244-0e5615c8-1928')).toBeTruthy()
+    expect(screen.queryByText('v2.0.0')).toBeNull()
+  })
 })

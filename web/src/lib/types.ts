@@ -181,6 +181,8 @@ export interface Deployment {
   kargoProject?: string
   kargoStage?: string
   freight?: string
+  /** The tag the pods run, when it is not the one Kargo records. */
+  running?: string
   since?: string
   promoting?: string
   autoPromotion: boolean
@@ -368,6 +370,7 @@ interface ItemBase {
   sequence: number
   status: ItemStatus
   externalRef?: string
+  revertRef?: string
   error?: string
   startedAt?: string
   finishedAt?: string

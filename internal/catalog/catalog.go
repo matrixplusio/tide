@@ -84,6 +84,10 @@ type Deployment struct {
 	KargoProject  string     `json:"kargoProject,omitempty"`
 	KargoStage    string     `json:"kargoStage,omitempty"`
 	Freight       string     `json:"freight,omitempty"`
+	// Running is the tag the workloads actually run, set only when it is not
+	// the one Kargo records (Tag above) and the difference is not a rollout
+	// in progress: an aborted blue-green, say, or a change made outside Kargo.
+	Running       string     `json:"running,omitempty"`
 	Since         *time.Time `json:"since,omitempty"`
 	Promoting     string     `json:"promoting,omitempty"` // current Kargo promotion name
 	AutoPromotion bool       `json:"autoPromotion"`
@@ -1010,9 +1014,40 @@ func applyStage(d *Deployment, s *kargo.Stage) {
 			break
 		}
 	}
+	d.Running = drifted(d)
 	if s.Status.LastPromotion != nil && s.Status.LastPromotion.FinishedAt != nil {
 		d.Since = s.Status.LastPromotion.FinishedAt
 	}
+}
+
+// drifted returns the tag the pods run when it is not the one Kargo records.
+// Kargo's record stays what releases are planned against — it is what the
+// next promotion replaces — so this is only said, never substituted.
+//
+// The images come from the pods, so they lag behind every promotion: until
+// Argo CD has synced and the new pods are up, the Kargo tag is missing from
+// them for good reason. Only a settled Application counts — synced, nothing
+// running, not progressing. A blue-green waiting for its switch runs both
+// versions and is not flagged either.
+func drifted(d *Deployment) string {
+	if d.Promoting != "" || d.Sync != "Synced" || d.Health == "Progressing" ||
+		d.Operation == "Running" || d.Operation == "Terminating" || d.Tag == "" {
+		return ""
+	}
+	running := ""
+	for _, ref := range d.Images {
+		repo, tag := splitRef(ref)
+		if !sameRepo(repo, d.Image) {
+			continue
+		}
+		if tag == d.Tag {
+			return ""
+		}
+		if running == "" {
+			running = tag
+		}
+	}
+	return running
 }
 
 // fillVersions adds image metadata where the registry answers; misses leave

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"tide/internal/catalog"
 	"tide/internal/plan"
@@ -114,6 +115,9 @@ func (x Image) Poll(ctx context.Context, it *release.Item) (ItemStatus, error) {
 	if err != nil {
 		return ItemStatus{}, err
 	}
+	if it.RevertRef != "" && p.From != nil {
+		return x.pollRevert(ctx, c, p, it)
+	}
 	promo, err := c.Kargo.GetPromotion(ctx, p.Project, it.ExternalRef)
 	if err != nil {
 		return ItemStatus{}, err
@@ -122,23 +126,15 @@ func (x Image) Poll(ctx context.Context, it *release.Item) (ItemStatus, error) {
 		return ItemStatus{}, nil
 	}
 	if promo.Status.Phase == "Succeeded" {
-		// Kargo's argocd-update step ends when the sync finishes, not when the
-		// new pods are ready: wait for the rollout before calling it done.
-		if p.App == "" {
-			return ItemStatus{Done: true, Success: true}, nil
+		since := promo.Status.FinishedAt
+		if since == nil {
+			since = it.StartedAt
 		}
-		app, err := c.ArgoCD.GetApplication(ctx, p.App)
-		if err != nil {
-			return ItemStatus{}, err
+		st, err := x.landed(ctx, c, p, since)
+		if err == nil && st.aborted {
+			return x.revert(ctx, c, p, st.Error)
 		}
-		if !app.AutoSync() {
-			since := promo.Status.FinishedAt
-			if since == nil {
-				since = it.StartedAt
-			}
-			return x.syncThenRollout(ctx, c, p, app, since)
-		}
-		return x.rollout(ctx, c, p, app)
+		return st, err
 	}
 	msg := promo.Status.Phase
 	if promo.Status.Message != "" {
@@ -154,6 +150,23 @@ func (x Image) Poll(ctx context.Context, it *release.Item) (ItemStatus, error) {
 		msg += "\n" + strings.Join(steps, "\n")
 	}
 	return ItemStatus{Done: true, Error: msg}, nil
+}
+
+// landed follows a promotion that succeeded at p.To into the cluster. Kargo's
+// part ends with the commit, not when the new pods are ready: wait for the
+// rollout before calling it done. since is when the promotion finished.
+func (x Image) landed(ctx context.Context, c *catalog.Clients, p *release.ImagePayload, since *time.Time) (ItemStatus, error) {
+	if p.App == "" {
+		return ItemStatus{Done: true, Success: true}, nil
+	}
+	app, err := c.ArgoCD.GetApplication(ctx, p.App)
+	if err != nil {
+		return ItemStatus{}, err
+	}
+	if !app.AutoSync() {
+		return x.syncThenRollout(ctx, c, p, app, since)
+	}
+	return x.rollout(ctx, c, p, app)
 }
 
 // rollout turns the Application's workloads into the item status: done when
@@ -199,7 +212,7 @@ func rolloutStatus(ws []workload, target release.Artifact) ItemStatus {
 			st := judgeRollout(w.obj, w.template(), target)
 			switch {
 			case st.failed != "":
-				return ItemStatus{Done: true, Error: fmt.Sprintf("%s/%s: %s", w.kind, w.name, st.failed)}
+				return ItemStatus{Done: true, Error: fmt.Sprintf("%s/%s: %s", w.kind, w.name, st.failed), aborted: st.aborted}
 			case st.paused != nil:
 				runs, paused = true, st.paused
 				waiting = append(waiting, fmt.Sprintf("%s/%s: waiting for a decision", w.kind, w.name))

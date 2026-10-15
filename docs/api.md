@@ -213,6 +213,9 @@ SSO 登录时，Tide 从 ID Token 的 `groupsClaim` 字段（默认 `groups`）�
 → `{ services: Service[], envOrder, upstreams: UpstreamStatus[], at, inFlight: { "<service>/<env>": releaseId } }`
 错误：4001。
 
+`Service.envs[env].tag / digest / freight` 是 Kargo 记录的当前版本，新发布单以它为起点。
+`running` 只在实际运行的版本和它不一致、且不是发布进行中时出现（Argo CD 已同步、没有进行中的操作和晋级、不在滚动中），值是 Pod 实际运行的 tag。蓝绿或金丝雀在 Tide 之外被中止、或有人绕过 Kargo 改了版本时会这样；页面显示实际运行的版本，并标出 Kargo 的记录。
+
 `UpstreamStatus.expiring = CredentialExpiry[]`（`{ upstream, kind, expires, days }`，`kind` 为
 `kargo` / `argocd` / `registry`，`days` 过期后为负）列出 14 天内到期的上游凭据，按剩余天数升序。
 只有在「管理 → 上游」里填了到期日的凭据才会出现——Tide 不解析 token 本身。没有填的、以及
@@ -367,6 +370,7 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
 执行中的行为：
 - 条目的工作负载是 Rollout 时，按 Rollout 的状态判断：已暂停为「等待切换」，终止或降级为失败，切换完成（蓝绿还要求正式 Service 已指向新版本）为成功。用 `workloadRef` 接管 Deployment 的 Rollout，镜像从被接管的 Deployment 读，该 Deployment 本身不参与判断。
 - 等待切换期间不计执行超时。条目的 `pausedSince` 记录开始等待的时间；等待超过发布策略的 `switchTimeoutMinutes`（默认 1440）自动中止。开始等待和过半时各发一次 `release.awaiting_switch` 通知，多副本只发一次。等待结束后执行超时重新计时。
+- 中止后（发起人点中止、批量全部中止、超时自动中止、在 Tide 之外中止都一样）流量已回到旧版本，但 git 和 Kargo 仍记着新版本。条目会再向 Kargo 晋级发布前的 Freight，把 git 改回旧版本（未开自动同步的应用由 Tide 触发同步），等工作负载回到旧版本后以失败结束，`error` 写明已放回上一版；回退晋级名记在条目的 `revertRef`，写审计 `item.revert`，执行超时从此重新计时。首次部署（没有上一版）、上一版的 Freight 已被回收、或 Kargo 在此期间已被晋级到别的版本时不回退，`error` 说明原因，需要发一次实际运行的版本来对齐。超时自动中止写审计 `release.rollout`（操作人为系统，`detail.reason` 说明超时）。
 - `ItemLive.rollouts`：`[{ name, strategy: "blueGreen"|"canary", phase, message?, paused?: { since, strategy, reason?, step?, steps?, weight }, desired, updated, ready, stable?, current?, weight }]`，`weight` 为新版本流量百分比，未知为 -1。`ItemLive.deadline`：无人决定时自动中止的时间。
 
 ### `POST /api/v1/releases/:id/rollout`

@@ -156,9 +156,12 @@ type Item struct {
 	Payload     json.RawMessage `json:"payload"`
 	Status      ItemStatus      `json:"status"`
 	ExternalRef string          `json:"externalRef,omitempty"`
-	Error       string          `json:"error,omitempty"`
-	StartedAt   *time.Time      `json:"startedAt,omitempty"`
-	FinishedAt  *time.Time      `json:"finishedAt,omitempty"`
+	// RevertRef is the promotion that put the version before back after the
+	// rollout was aborted.
+	RevertRef  string     `json:"revertRef,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	StartedAt  *time.Time `json:"startedAt,omitempty"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
 	// PausedSince is set while a blue-green or canary rollout waits for a
 	// person to let it continue; the list pages show it without asking the
 	// cluster.
