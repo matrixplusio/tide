@@ -81,7 +81,7 @@ gateway-backend,v2.0.0
   it('requires one project and one type, deployed in the env', () => {
     const all = [svc('a', 'acme', 'backend'), svc('b', 'acme', 'backend'), svc('web', 'acme', 'frontend'), svc('gateway', 'globex', 'backend'), svc('c', 'acme', 'backend', ['prod'])]
     const e = (s: string, line: number) => ({ line, service: s, ref: 't' })
-    expect(resolvePasteScope([e('a', 1), e('b', 2)], all, 'qa', role)).toEqual({ project: 'acme', type: 'backend', problems: [] })
+    expect(resolvePasteScope([e('a', 1), e('b', 2)], all, 'qa', role)).toMatchObject({ project: 'acme', type: 'backend', problems: [], renamed: [] })
     const mixed = resolvePasteScope([e('a', 1), e('web', 2), e('gateway', 3), e('c', 4), e('zzz', 5)], all, 'qa', role)
     expect(mixed.problems.map((p) => p.msg)).toEqual([
       'c 没有部署到 qa',
@@ -89,6 +89,32 @@ gateway-backend,v2.0.0
       '粘贴的服务分属多个项目（acme、globex），一次只能发布一个项目',
       '粘贴的服务包含多种类型（后端、前端），一次只能发布一种',
     ])
+  })
+  // globex's services are named globex-x after their Argo CD Application, while
+  // people and image paths say x. The short name is matched within the
+  // environment; one that several projects share needs the project picked.
+  it('reads a short name as the service it is short for', () => {
+    const named = (name: string, project: string, short: string, envs = ['qa']) => ({ ...svc(name, project, 'backend', envs), short })
+    const all = [
+      named('globex-billing', 'globex', 'billing'),
+      named('globex-ledger', 'globex', 'ledger'),
+      named('ledger', 'acme', 'ledger'),
+      named('initech-dice', 'initech', 'dice'),
+      named('umbrella-dice', 'umbrella', 'dice'),
+      named('umbrella-only-prod', 'umbrella', 'only-prod', ['prod']),
+    ]
+    const e = (s: string, line: number) => ({ line, service: s, ref: 't' })
+    const one = resolvePasteScope([e('billing', 1), e('globex-ledger', 2)], all, 'qa', role)
+    expect(one.problems).toEqual([])
+    expect(one.entries.map((x) => x.service)).toEqual(['globex-billing', 'globex-ledger'])
+    expect(one.renamed).toEqual([{ from: 'billing', to: 'globex-billing' }])
+    // The full name of another service wins over a short name.
+    expect(resolvePasteScope([e('ledger', 1)], all, 'qa', role, 'globex').entries.map((x) => x.service)).toEqual(['ledger'])
+    // Shared by two projects: the page's project settles it, else it is refused.
+    expect(resolvePasteScope([e('dice', 1)], all, 'qa', role, 'umbrella').entries.map((x) => x.service)).toEqual(['umbrella-dice'])
+    expect(resolvePasteScope([e('dice', 1)], all, 'qa', role, 'acme').problems.map((p) => p.msg)).toEqual(['dice 在多个项目里都有（initech-dice、umbrella-dice），请先选项目或写全名'])
+    // Not deployed to the environment: not a match at all.
+    expect(resolvePasteScope([e('only-prod', 1)], all, 'qa', role).problems.map((p) => p.msg)).toEqual(['没有服务 only-prod'])
   })
   it('matches a pasted ref to freight by tag, version or freight prefix', () => {
     const items = [

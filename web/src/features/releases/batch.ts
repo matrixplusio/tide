@@ -113,30 +113,66 @@ export function parsePaste(text: string): { entries: PasteEntry[]; problems: Pas
 }
 
 /**
+ * Finds the service a pasted name means. The full name wins. Otherwise the
+ * name is taken as a short name — the service name without its project
+ * prefix, which is how people and image paths name globex-x — among the
+ * services deployed to env. A short name several projects share is settled
+ * by the project picked on the page, and never guessed.
+ */
+export function findPastedService(
+  name: string,
+  services: readonly Service[],
+  env: string,
+  project: string,
+): { service?: Service; ambiguous?: string[] } {
+  const exact = services.find((x) => x.name === name)
+  if (exact) return { service: exact }
+  const byShort = services.filter((x) => x.short && x.short !== x.name && x.short === name && x.envs[env])
+  if (byShort.length === 1) return { service: byShort[0] }
+  const inProject = byShort.filter((x) => x.project === project)
+  if (inProject.length === 1) return { service: inProject[0] }
+  if (byShort.length > 1) return { ambiguous: byShort.map((x) => x.name) }
+  return {}
+}
+
+/**
  * Checks pasted services against the catalog for one environment: each must
  * exist and be deployed there, and together they must be one project and one
  * type (when a batch dimension applies) — the same rules as picking by hand.
+ * Entries come back under the full service name; renamed lists the short
+ * names that were read as one, so the person sees what was matched.
  */
 export function resolvePasteScope(
   entries: readonly PasteEntry[],
   services: readonly Service[],
   env: string,
   dim: Dimension | undefined,
-): { project: string; type: string; problems: PasteProblem[] } {
+  project = '',
+): { project: string; type: string; problems: PasteProblem[]; entries: PasteEntry[]; renamed: { from: string; to: string }[] } {
   const problems: PasteProblem[] = []
   const found: Service[] = []
+  const resolved: PasteEntry[] = []
+  const renamed: { from: string; to: string }[] = []
   for (const e of entries) {
-    const s = services.find((x) => x.name === e.service)
+    const { service: s, ambiguous } = findPastedService(e.service, services, env, project)
+    if (ambiguous) {
+      problems.push({ line: e.line, text: e.service, msg: i18n.t('releases.ambiguousService', { service: e.service, list: ambiguous.join(i18n.t('scope.listSeparator')) }) })
+      continue
+    }
     if (!s) problems.push({ line: e.line, text: e.service, msg: i18n.t('releases.noSuchService', { service: e.service }) })
     else if (!s.envs[env]) problems.push({ line: e.line, text: e.service, msg: i18n.t('releases.notInEnv', { service: e.service, env }) })
     else if (!s.project) problems.push({ line: e.line, text: e.service, msg: i18n.t('releases.noProject', { service: e.service }) })
-    else found.push(s)
+    else {
+      found.push(s)
+      resolved.push({ ...e, service: s.name })
+      if (s.name !== e.service) renamed.push({ from: e.service, to: s.name })
+    }
   }
   const projects = [...new Set(found.map((s) => s.project ?? ''))]
   const types = dim ? [...new Set(found.map((s) => s.dimensions?.[dim.key] ?? ''))] : ['']
   if (projects.length > 1) problems.push({ line: 0, text: '', msg: i18n.t('releases.manyProjects', { list: projects.join(i18n.t('scope.listSeparator')) }) })
   if (types.length > 1) problems.push({ line: 0, text: '', msg: i18n.t('releases.manyTypes', { what: dim?.name ?? i18n.t('releases.kindWord'), list: types.map((t) => dim?.values?.find((v) => v.value === t)?.name || t || i18n.t('releases.unset')).join(i18n.t('scope.listSeparator')) }) })
-  return { project: projects[0] ?? '', type: types[0] ?? '', problems }
+  return { project: projects[0] ?? '', type: types[0] ?? '', problems, entries: resolved, renamed }
 }
 
 /** Finds the freight a pasted ref means for one service: by tag, version label, or freight name prefix. */

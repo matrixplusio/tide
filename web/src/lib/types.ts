@@ -197,6 +197,8 @@ export interface Service {
   name: string
   /** Groups domains; "" when unassigned. */
   project?: string
+  /** The name without its project prefix (globex-x → x); equal to name when there is none. */
+  short?: string
   domain: string
   /** Value of each catalog dimension, by dimension key. */
   dimensions?: Record<string, string | undefined> | null

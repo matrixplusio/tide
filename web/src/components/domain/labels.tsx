@@ -119,3 +119,19 @@ export function HealthPill({ health, sync }: { health?: string; sync?: string })
     </span>
   )
 }
+
+/**
+ * A service name with its project prefix dimmed: globex-x reads as x, which is
+ * what people call it and what its images are named, while the prefix stays
+ * on screen — two projects may each have an x, and the full name is still
+ * the one that identifies the service.
+ */
+export function ServiceName({ name, short }: { name: string; short?: string }) {
+  if (!short || short === name || !name.endsWith(short)) return <b>{name}</b>
+  return (
+    <span title={name}>
+      <span className="faint">{name.slice(0, name.length - short.length)}</span>
+      <b>{short}</b>
+    </span>
+  )
+}

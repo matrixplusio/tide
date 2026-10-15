@@ -448,3 +448,32 @@ func TestTheVersionRunningIsShownWhenKargoRecordsAnother(t *testing.T) {
 		}
 	}
 }
+
+// Lines whose service names collide carry the line as a prefix on the
+// Application name, and the service name follows it. The short name is what
+// people type and what images are named after.
+func TestTheShortNameDropsTheProjectPrefix(t *testing.T) {
+	for _, c := range []struct{ name, project, want string }{
+		{"globex-order-api", "globex", "order-api"},
+		{"payments-api", "acme", "payments-api"},
+		{"globex-", "globex", "globex-"},
+		{"globex2-x", "globex", "globex2-x"},
+		{"x", "", "x"},
+	} {
+		if got := shortName(c.name, c.project); got != c.want {
+			t.Errorf("shortName(%q, %q) = %q, want %q", c.name, c.project, got, c.want)
+		}
+	}
+}
+
+func TestMergedServicesCarryTheirShortName(t *testing.T) {
+	deps := []rawDeployment{
+		{Deployment: Deployment{Service: "globex-orders", Env: "qa", Project: "globex", App: "globex-orders-qa", Upstream: "local"}, dimensions: map[string]string{}},
+		{Deployment: Deployment{Service: "orders", Env: "qa", Project: "acme", App: "orders-qa", Upstream: "local"}, dimensions: map[string]string{}},
+	}
+	for _, s := range mergeServices(deps) {
+		if want := map[string]string{"globex-orders": "orders", "orders": "orders"}[s.Name]; s.Short != want {
+			t.Errorf("%s: short %q, want %q", s.Name, s.Short, want)
+		}
+	}
+}
