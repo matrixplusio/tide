@@ -218,6 +218,10 @@ var zhCNReleases = map[Key]string{ //nolint:gosec // G101: message templates, no
 	"r.jiraRequiredHere":      "该环境要求填写 Jira 单号",
 	"r.kindEnum":              "类型只能是 image、restart 或 sync",
 	"r.onlyCreatorConfirms":   "只有发起人本人可以确认发布单",
+	"r.onlyCreatorSwitches":   "只有发起人本人可以决定切换",
+	"r.itemNotFound":          "发布单里没有这个条目",
+	"r.rolloutNotRunning":     "这个条目不在执行中，不能操作切换",
+	"r.rolloutNotWaiting":     "没有在等待决定的 Rollout",
 	"r.pruneSyncOnly":         "允许删除和同步后重启只用于配置同步",
 	"r.reasonRequiredHere":    "该环境要求填写原因",
 	"r.reasonTooLong":         "原因不能超过 2000 字，详细说明请放 Confluence",
@@ -303,6 +307,8 @@ var zhCNBind = map[Key]string{ //nolint:gosec // G101: message templates, not cr
 	"label.envName":          "环境名",
 	"label.podName":          "Pod 名",
 	"label.releaseId":        "发布单号",
+	"label.itemId":           "条目编号",
+	"label.rolloutAction":    "切换操作",
 	"label.serviceName":      "服务名",
 	"label.sessionId":        "会话 ID",
 	"p.badValue":             "%s 包含不支持的值 %s",
@@ -388,6 +394,7 @@ var zhCNNotify = map[Key]string{
 	"n.approvalLine":         "%s · %s · 审批人：%s",
 	"n.eventApproval":        "等待审批",
 	"n.eventPending":         "等待确认",
+	"n.eventSwitch":          "等待切换",
 	"n.eventCancelled":       "已取消",
 	"n.eventFailed":          "失败",
 	"n.eventBuildFailed":     "构建失败",
@@ -434,6 +441,7 @@ var zhCNNotify = map[Key]string{
 	"n.viewRelease":          "查看发布单",
 	"n.viewPipeline":         "查看流水线",
 	"n.goConfirm":            "去确认",
+	"n.goSwitch":             "去切换",
 }
 
 // Auth, routing and catalog messages.

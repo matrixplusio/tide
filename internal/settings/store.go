@@ -543,12 +543,18 @@ func DefaultSecurity() Security {
 // ReleasePolicy tunes the release flow. ConfirmReadSeconds can only be raised
 // above the product minimum (MinConfirmReadSeconds).
 type ReleasePolicy struct {
-	ConfirmReadSeconds    int    `json:"confirmReadSeconds"`
-	ConfirmTTLMinutes     int    `json:"confirmTtlMinutes"`
-	ExecuteTimeoutMinutes int    `json:"executeTimeoutMinutes"`
-	MinSoakMinutes        int    `json:"minSoakMinutes"`   // a candidate that ran upstream shorter than this is flagged
-	MultiVersionJump      int    `json:"multiVersionJump"` // flag when the target is more than this many builds ahead
-	JiraBaseURL           string `json:"jiraBaseUrl"`
+	ConfirmReadSeconds    int `json:"confirmReadSeconds"`
+	ConfirmTTLMinutes     int `json:"confirmTtlMinutes"`
+	ExecuteTimeoutMinutes int `json:"executeTimeoutMinutes"`
+	// SwitchTimeoutMinutes is how long a blue-green or canary rollout may wait
+	// for a person to let it continue. Past it the rollout is aborted: that
+	// only ever sends traffic back to the version already running, and a wait
+	// nobody is attending to holds two copies of the service and blocks its
+	// next release.
+	SwitchTimeoutMinutes int    `json:"switchTimeoutMinutes"`
+	MinSoakMinutes       int    `json:"minSoakMinutes"`   // a candidate that ran upstream shorter than this is flagged
+	MultiVersionJump     int    `json:"multiVersionJump"` // flag when the target is more than this many builds ahead
+	JiraBaseURL          string `json:"jiraBaseUrl"`
 	// JiraRequired selects the environments where a Jira ticket is mandatory
 	// ("*", "tier:<tier>", env names). Empty: optional everywhere.
 	// SoakEnforced / VersionJumpEnforced select the environments where the
@@ -579,7 +585,7 @@ type Freeze struct {
 }
 
 func DefaultReleasePolicy() ReleasePolicy {
-	return ReleasePolicy{ConfirmReadSeconds: 10, ConfirmTTLMinutes: 10, ExecuteTimeoutMinutes: 15, MinSoakMinutes: 30,
+	return ReleasePolicy{ConfirmReadSeconds: 10, ConfirmTTLMinutes: 10, ExecuteTimeoutMinutes: 15, SwitchTimeoutMinutes: DefaultSwitchTimeoutMinutes, MinSoakMinutes: 30,
 		MultiVersionJump: 3, Approvals: []ApprovalPolicy{}, SoakEnforced: []string{}, VersionJumpEnforced: []string{}, ConfigDriftEnforced: []string{}, JiraRequired: []string{"tier:production"}, ReasonRequired: []string{"*"}, JiraProjects: []string{}, Freezes: []Freeze{}}
 }
 
@@ -593,6 +599,19 @@ func (p ReleasePolicy) ConfirmTTL() time.Duration {
 
 func (p ReleasePolicy) ExecuteTimeout() time.Duration {
 	return time.Duration(p.ExecuteTimeoutMinutes) * time.Minute
+}
+
+// DefaultSwitchTimeoutMinutes is a day: long enough to wait overnight for the
+// person who started it, short enough that a forgotten wait does not linger.
+const DefaultSwitchTimeoutMinutes = 1440
+
+// SwitchTimeout is SwitchTimeoutMinutes with the default for a policy saved
+// before the setting existed.
+func (p ReleasePolicy) SwitchTimeout() time.Duration {
+	if p.SwitchTimeoutMinutes <= 0 {
+		return DefaultSwitchTimeoutMinutes * time.Minute
+	}
+	return time.Duration(p.SwitchTimeoutMinutes) * time.Minute
 }
 
 // MinConfirmReadSeconds is a product boundary, not a setting.

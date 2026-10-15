@@ -5,13 +5,13 @@ import { Link, useParams } from 'react-router-dom'
 import { useMe } from '../../app/session'
 import { fmtDuration, fmtTime, sinceMs } from '../../lib/format'
 import { itemStatusText } from '../../lib/status'
-import type { BuildInfo, Item, ItemChanges, ItemKind, ItemLive, Live, Release } from '../../lib/types'
+import type { BuildInfo, Item, ItemChanges, ItemKind, ItemLive, Live, Release, RolloutState } from '../../lib/types'
 import { summarizeRollout } from '../../lib/rollout'
 import { changeSummary } from '../../lib/release'
 import { redoLink } from '../../lib/redo'
 import { isNoiseCommit } from '../../lib/changes'
 import { anomalyText, isNotice } from '../../lib/anomaly'
-import { useCancelRelease, useDecideRelease, useRelease } from './queries'
+import { useCancelRelease, useDecideRelease, useRelease, useRolloutAction, type RolloutAction } from './queries'
 import { subjectLabel } from '../../lib/permissions'
 import {
   Banner,
@@ -20,6 +20,7 @@ import {
   ButtonRow,
   FormErrorBanner,
   Modal,
+  ConfirmModal,
   useToast,
   ErrorState,
   Group,
@@ -52,6 +53,7 @@ export function ReleaseDetailPage() {
   const canConfirm = !!can?.confirm
   const canCancelOther = !mine && !!can?.cancel
   const canPods = !!can?.pods
+  const canRollout = !!can?.rollout
   const [cancelOpen, setCancelOpen] = useState(false)
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null)
   // Fifty items is a page you scroll past, not one you read: the failures
@@ -155,7 +157,7 @@ export function ReleaseDetailPage() {
 
             {items.map((it) =>
               (items.length > 1 && !expanded.has(it.id)) || (itemFilter && it.status !== itemFilter) ? null : (
-                <ItemSection key={it.id} it={it} live={q.data?.live?.find((l) => l.itemId === it.id)} release={r} canPods={canPods} onCollapse={items.length > 1 ? () => toggleItem(it.id) : undefined} builds={q.data?.builds ?? undefined} changes={q.data?.changes ?? undefined} />
+                <ItemSection key={it.id} it={it} live={q.data?.live?.find((l) => l.itemId === it.id)} release={r} canPods={canPods} canRollout={canRollout} onCollapse={items.length > 1 ? () => toggleItem(it.id) : undefined} builds={q.data?.builds ?? undefined} changes={q.data?.changes ?? undefined} />
               ),
             )}
           </>
@@ -280,7 +282,7 @@ function CancelReleaseModal({ release, onClose }: { release: Release; onClose: (
   )
 }
 
-function ItemSection({ it, live, release, canPods, onCollapse, builds, changes }: { it: Item; live?: ItemLive; release: Release; canPods: boolean; onCollapse?: () => void; builds?: Record<string, BuildInfo | null>; changes?: Record<string, ItemChanges | null> }) {
+function ItemSection({ it, live, release, canPods, canRollout, onCollapse, builds, changes }: { it: Item; live?: ItemLive; release: Release; canPods: boolean; canRollout?: boolean; onCollapse?: () => void; builds?: Record<string, BuildInfo | null>; changes?: Record<string, ItemChanges | null> }) {
   const { t } = useTranslation()
   const p = it.payload
   const base = `/services/${encodeURIComponent(p.service)}/envs/${encodeURIComponent(p.env)}`
@@ -439,7 +441,8 @@ function ItemSection({ it, live, release, canPods, onCollapse, builds, changes }
               <div className="err">{it.error}</div>
             </>
           )}
-          {it.status === 'executing' && live?.live && (it.kind !== 'image' || live.promotion?.phase === 'Succeeded') && <WaitingForPods live={live.live} kind={it.kind} since={restartSince(it)} />}
+          {it.status === 'executing' && (live?.rollouts?.length ?? 0) > 0 && <RolloutPanel release={release} it={it} rollouts={live?.rollouts ?? []} deadline={live?.deadline} canAct={!!canRollout} />}
+          {it.status === 'executing' && !live?.rollouts?.length && live?.live && (it.kind !== 'image' || live.promotion?.phase === 'Succeeded') && <WaitingForPods live={live.live} kind={it.kind} since={restartSince(it)} />}
           {live?.promotion ? (
             <>
               <GroupHeader>{t('detail.promotionSteps')}</GroupHeader>
@@ -524,6 +527,97 @@ function ItemSection({ it, live, release, canPods, onCollapse, builds, changes }
 }
 
 /** Kargo is done but the release is not: say what it still waits for. */
+/** Where a blue-green or canary rollout is, and — while it waits for its
+ *  creator — the decisions it is waiting for. Every one of them changes where
+ *  traffic goes, so each asks once more before it is sent. */
+function RolloutPanel({ release, it, rollouts, deadline, canAct }: { release: Release; it: Item; rollouts: RolloutState[]; deadline?: string; canAct: boolean }) {
+  const { t } = useTranslation()
+  const toast = useToast()
+  const act = useRolloutAction()
+  const [asking, setAsking] = useState<RolloutAction | null>(null)
+  // Only a wait Tide has recorded for this item: right after a new image lands
+  // a Rollout can still show the stop of the revision before.
+  const waiting = it.pausedSince ? rollouts.find((r) => r.paused) : undefined
+  const canary = rollouts.some((r) => r.strategy === 'canary')
+  const labels: Record<RolloutAction, string> = {
+    next: canary ? t('rollout.next') : t('rollout.switch'),
+    full: t('rollout.full'),
+    abort: t('rollout.abort'),
+  }
+  return (
+    <>
+      <GroupHeader>{canary ? t('rollout.canaryTitle') : t('rollout.blueGreenTitle')}</GroupHeader>
+      <Group>
+        {rollouts.map((r) => (
+          <Row key={r.name}>
+            <div className="grow">
+              <div className="t">
+                <span className="mono">{r.name}</span>
+              </div>
+              <div className="d">
+                {r.paused
+                  ? r.strategy === 'canary'
+                    ? t('rollout.pausedCanary', { step: r.paused.step ?? '?', steps: r.paused.steps ?? '?', weight: r.paused.weight >= 0 ? r.paused.weight : '?' })
+                    : t('rollout.pausedBlueGreen')
+                  : t('rollout.moving', { phase: r.phase || '-', ready: r.ready, desired: r.desired })}
+                {r.paused?.since && <> · {t('rollout.waitingSince', { at: fmtTime(r.paused.since, true) })}</>}
+              </div>
+            </div>
+            {r.weight >= 0 && <Pill tone={r.paused ? 'orange' : 'blue'}>{t('rollout.weight', { weight: r.weight })}</Pill>}
+          </Row>
+        ))}
+        {waiting && deadline && (
+          <Row>
+            <div className="grow d">{t('rollout.deadline', { at: fmtTime(deadline, true) })}</div>
+          </Row>
+        )}
+      </Group>
+      {canAct ? (
+        <ButtonRow style={{ marginTop: 8 }}>
+          {waiting && (
+            <Button variant="primary" onClick={() => setAsking('next')}>
+              {labels.next}
+            </Button>
+          )}
+          {waiting && canary && <Button onClick={() => setAsking('full')}>{labels.full}</Button>}
+          <span className="grow" />
+          <Button variant="danger" onClick={() => setAsking('abort')}>
+            {labels.abort}
+          </Button>
+        </ButtonRow>
+      ) : (
+        waiting && <Note>{t('rollout.onlyCreator')}</Note>
+      )}
+      {asking && (
+        <ConfirmModal
+          title={labels[asking]}
+          confirmLabel={labels[asking]}
+          danger={asking === 'abort'}
+          pending={act.isPending}
+          error={act.error}
+          onClose={() => {
+            act.reset()
+            setAsking(null)
+          }}
+          onConfirm={() =>
+            act.mutate(
+              { id: release.id, itemId: it.id, action: asking },
+              {
+                onSuccess: () => {
+                  toast.success(t('rollout.sent', { action: labels[asking] }))
+                  setAsking(null)
+                },
+              },
+            )
+          }
+        >
+          {asking === 'abort' ? t('rollout.abortHint') : asking === 'full' ? t('rollout.fullHint') : canary ? t('rollout.nextHint') : t('rollout.switchHint')}
+        </ConfirmModal>
+      )}
+    </>
+  )
+}
+
 function WaitingForPods({ live, kind, since }: { live: Live; kind: string; since?: string }) {
   const { t } = useTranslation()
   const same = kind === 'scale'

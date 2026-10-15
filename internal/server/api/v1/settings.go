@@ -753,6 +753,11 @@ func validateReleasePolicy(s *settings.ReleasePolicy, envs settings.Environments
 	intRange(add, "confirmReadSeconds", s.ConfirmReadSeconds, settings.MinConfirmReadSeconds, 120)
 	intRange(add, "confirmTtlMinutes", s.ConfirmTTLMinutes, 2, 60)
 	intRange(add, "executeTimeoutMinutes", s.ExecuteTimeoutMinutes, 5, 240)
+	// A client that predates the setting sends nothing for it.
+	if s.SwitchTimeoutMinutes == 0 {
+		s.SwitchTimeoutMinutes = settings.DefaultSwitchTimeoutMinutes
+	}
+	intRange(add, "switchTimeoutMinutes", s.SwitchTimeoutMinutes, 60, 10080)
 	intRange(add, "minSoakMinutes", s.MinSoakMinutes, 0, 10080)
 	intRange(add, "multiVersionJump", s.MultiVersionJump, 0, 100)
 	if s.ConfirmTTLMinutes*60 <= s.ConfirmReadSeconds {

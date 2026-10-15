@@ -76,7 +76,7 @@ func DiffConfig(ctx context.Context, hub *catalog.Hub, d *catalog.Deployment, re
 		}
 		out.Changes = append(out.Changes, *ch)
 		switch {
-		case slices.Contains(RestartableKinds, r.Kind):
+		case slices.Contains(RestartableKinds, r.Kind) || r.Kind == "Rollout":
 			workloadChanged = true
 		case (r.Kind == "ConfigMap" || r.Kind == "Secret") && ch.Action == release.ChangeUpdate:
 			configChanged = true
@@ -182,12 +182,9 @@ func BuildSync(ctx context.Context, hub *catalog.Hub, d *catalog.Deployment, pru
 		Prune:    prune && diff.Deletes() > 0,
 		Restart:  restart || diff.NeedsRestart,
 	}
-	for _, n := range tree.Nodes {
-		if len(n.ParentRefs) == 0 && n.Group == "apps" && slices.Contains(RestartableKinds, n.Kind) {
-			p.Workloads = append(p.Workloads, release.Workload{Group: n.Group, Version: n.Version, Kind: n.Kind, Namespace: n.Namespace, Name: n.Name})
-		}
+	if p.Workloads, err = topWorkloads(ctx, c, d.App, tree.Nodes); err != nil {
+		return nil, err
 	}
-	slices.SortFunc(p.Workloads, func(a, b release.Workload) int { return cmpStr(a.Kind+"/"+a.Name, b.Kind+"/"+b.Name) })
 	return p, nil
 }
 

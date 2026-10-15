@@ -136,7 +136,7 @@ func (x Image) syncThenRollout(ctx context.Context, c *catalog.Clients, p *relea
 	if err != nil {
 		return ItemStatus{}, err
 	}
-	runs := slices.ContainsFunc(ws, func(w workload) bool { return runsArtifact(w.obj, p.To) })
+	runs := slices.ContainsFunc(ws, func(w workload) bool { return runsArtifact(w.template(), p.To) })
 	if len(diff.Changes) == 0 && runs {
 		return rolloutStatus(ws, p.To), nil // nothing left to apply
 	}

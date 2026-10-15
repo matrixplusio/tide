@@ -21,6 +21,7 @@ function toValues(p: ReleasePolicy | null | undefined): ReleasePolicyValues {
     confirmReadSeconds: String(p?.confirmReadSeconds ?? 10),
     confirmTtlMinutes: String(p?.confirmTtlMinutes ?? 10),
     executeTimeoutMinutes: String(p?.executeTimeoutMinutes ?? 15),
+    switchTimeoutMinutes: String(p?.switchTimeoutMinutes ?? 1440),
     minSoakMinutes: String(p?.minSoakMinutes ?? 30),
     multiVersionJump: String(p?.multiVersionJump ?? 3),
     jiraBaseUrl: p?.jiraBaseUrl ?? '',
@@ -74,6 +75,7 @@ export function ReleasePolicyForm({ initial }: { initial: ReleasePolicy | null |
         confirmReadSeconds: Number(v.confirmReadSeconds.trim()),
         confirmTtlMinutes: Number(v.confirmTtlMinutes.trim()),
         executeTimeoutMinutes: Number(v.executeTimeoutMinutes.trim()),
+        switchTimeoutMinutes: Number(v.switchTimeoutMinutes.trim()),
         minSoakMinutes: Number(v.minSoakMinutes.trim()),
         multiVersionJump: Number(v.multiVersionJump.trim()),
         jiraBaseUrl: v.jiraBaseUrl.trim(),
@@ -121,6 +123,9 @@ export function ReleasePolicyForm({ initial }: { initial: ReleasePolicy | null |
         </FormField>
         <FormField label={t('policyForm.execTimeout')} error={errors.executeTimeoutMinutes?.message} required hint={t('policyForm.execTimeoutHint')}>
           {(p) => <Input {...p} {...register('executeTimeoutMinutes')} {...numberInput} />}
+        </FormField>
+        <FormField label={t('policyForm.switchTimeout')} error={errors.switchTimeoutMinutes?.message} required hint={t('policyForm.switchTimeoutHint')}>
+          {(p) => <Input {...p} {...register('switchTimeoutMinutes')} {...numberInput} />}
         </FormField>
       </Group>
 

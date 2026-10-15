@@ -33,7 +33,7 @@ describe('security form', () => {
 })
 
 describe('release policy', () => {
-  const base = { confirmReadSeconds: '10', confirmTtlMinutes: '10', executeTimeoutMinutes: '15', minSoakMinutes: '30', multiVersionJump: '3', jiraBaseUrl: '', jiraRequired: ['tier:production'], reasonRequired: ['*'], approvals: [], soakEnforced: [], versionJumpEnforced: [], configDriftEnforced: [], jiraProjects: [], freezes: [] }
+  const base = { confirmReadSeconds: '10', confirmTtlMinutes: '10', executeTimeoutMinutes: '15', switchTimeoutMinutes: '1440', minSoakMinutes: '30', multiVersionJump: '3', jiraBaseUrl: '', jiraRequired: ['tier:production'], reasonRequired: ['*'], approvals: [], soakEnforced: [], versionJumpEnforced: [], configDriftEnforced: [], jiraProjects: [], freezes: [] }
   it('confirm reading time never goes below 3 seconds', () => {
     expect(issues(releasePolicySchema.safeParse({ ...base, confirmReadSeconds: '2' }))).toEqual({ confirmReadSeconds: '需在 3 到 120 之间' })
     expect(issues(releasePolicySchema.safeParse({ ...base, confirmReadSeconds: '3' }))).toEqual({})
@@ -46,7 +46,7 @@ describe('release policy', () => {
 
 describe('release policy cross-field', () => {
   it('confirm TTL must outlast the reading time', () => {
-    const base = { confirmReadSeconds: '120', confirmTtlMinutes: '2', executeTimeoutMinutes: '15', minSoakMinutes: '30', multiVersionJump: '3', jiraBaseUrl: '', jiraRequired: ['tier:production'], reasonRequired: ['*'], approvals: [], soakEnforced: [], versionJumpEnforced: [], configDriftEnforced: [], jiraProjects: [{ value: 'A' }], freezes: [] }
+    const base = { confirmReadSeconds: '120', confirmTtlMinutes: '2', executeTimeoutMinutes: '15', switchTimeoutMinutes: '1440', minSoakMinutes: '30', multiVersionJump: '3', jiraBaseUrl: '', jiraRequired: ['tier:production'], reasonRequired: ['*'], approvals: [], soakEnforced: [], versionJumpEnforced: [], configDriftEnforced: [], jiraProjects: [{ value: 'A' }], freezes: [] }
     expect(issues(releasePolicySchema.safeParse(base))).toEqual({ confirmTtlMinutes: '确认有效期需长于阅读时间' })
   })
 })

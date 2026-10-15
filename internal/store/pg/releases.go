@@ -424,6 +424,30 @@ func (r *Releases) StartItem(ctx context.Context, itemID int64) (bool, error) {
 	return res.RowsAffected == 1, res.Error
 }
 
+// MarkPaused records that an executing item's rollout is waiting for a person,
+// since since. It reports whether this call started the wait: only the first
+// observation announces it, whichever replica makes it.
+func (r *Releases) MarkPaused(ctx context.Context, itemID int64, since time.Time) (bool, error) {
+	res := r.db.WithContext(ctx).Exec(`UPDATE release_items SET paused_since = $2
+		WHERE id = $1 AND status = 'executing' AND paused_since IS NULL`, itemID, since)
+	return res.RowsAffected == 1, res.Error
+}
+
+// MarkReminded records the reminder for the current wait, and reports whether
+// this call sent it, for the same reason as MarkPaused.
+func (r *Releases) MarkReminded(ctx context.Context, itemID int64) (bool, error) {
+	res := r.db.WithContext(ctx).Exec(`UPDATE release_items SET reminded_at = now()
+		WHERE id = $1 AND status = 'executing' AND paused_since IS NOT NULL AND reminded_at IS NULL`, itemID)
+	return res.RowsAffected == 1, res.Error
+}
+
+// MarkResumed ends a wait. The execution timeout counts from now: the rollout
+// has a whole timeout's worth of time to finish what it was let through to do.
+func (r *Releases) MarkResumed(ctx context.Context, itemID int64) error {
+	return r.db.WithContext(ctx).Exec(`UPDATE release_items SET paused_since = NULL, reminded_at = NULL, clock_from = now()
+		WHERE id = $1 AND paused_since IS NOT NULL`, itemID).Error
+}
+
 // MarkExecuted stores the upstream reference (the Kargo Promotion name as
 // rewritten by its webhook) and audits the execution.
 func (r *Releases) MarkExecuted(ctx context.Context, item release.Item, ref string) error {
@@ -727,7 +751,7 @@ const releaseCols = `id, title, env, source, jira_ticket, reason, created_by, cr
 	confirmed_at, COALESCE(confirmed_by, ''), created_at, finished_at, now(), approval_rule, approval_expires_at`
 
 const itemCols = `id, release_id, kind, sequence, payload, status, COALESCE(external_ref, ''),
-	COALESCE(error, ''), started_at, finished_at`
+	COALESCE(error, ''), started_at, finished_at, paused_since, reminded_at, clock_from`
 
 func scanReleases(rows *sql.Rows) ([]release.Release, error) {
 	defer func() { _ = rows.Close() }()
@@ -757,7 +781,7 @@ func scanItems(rows *sql.Rows) ([]release.Item, error) {
 		var it release.Item
 		var payload []byte
 		if err := rows.Scan(&it.ID, &it.ReleaseID, &it.Kind, &it.Sequence, &payload, &it.Status, &it.ExternalRef,
-			&it.Error, &it.StartedAt, &it.FinishedAt); err != nil {
+			&it.Error, &it.StartedAt, &it.FinishedAt, &it.PausedSince, &it.RemindedAt, &it.ClockFrom); err != nil {
 			return nil, err
 		}
 		it.Payload = payload

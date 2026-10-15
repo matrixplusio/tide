@@ -28,6 +28,7 @@ export const actionLabel: Record<string, string> = {
   'release.failed': 'Release failed',
   'release.cancelled': 'Release cancelled',
   'release.rejected': 'Release rejected',
+  'release.rollout': 'Blue-green / canary decision',
 
   // release items
   'item.execute': 'Promotion created',

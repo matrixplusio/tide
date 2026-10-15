@@ -90,7 +90,7 @@ export const CI_MODES = ['off', 'notify', 'approve', 'auto'] as const
 export type CIMode = (typeof CI_MODES)[number]
 
 export type ChannelKind = 'lark' | 'teams' | 'webhook'
-export type NotifyEvent = 'release.pending' | 'release.approval_requested' | 'release.started' | 'release.succeeded' | 'release.failed' | 'release.rejected' | 'release.cancelled' | 'build.failed' | 'build.warning' | 'build.stranded' | 'build.ready'
+export type NotifyEvent = 'release.pending' | 'release.approval_requested' | 'release.awaiting_switch' | 'release.started' | 'release.succeeded' | 'release.failed' | 'release.rejected' | 'release.cancelled' | 'build.failed' | 'build.warning' | 'build.stranded' | 'build.ready'
 
 export interface Channel {
   name: string
@@ -140,6 +140,7 @@ export interface ReleasePolicy {
   confirmReadSeconds: number
   confirmTtlMinutes: number
   executeTimeoutMinutes: number
+  switchTimeoutMinutes?: number
   minSoakMinutes: number
   multiVersionJump: number
   jiraBaseUrl: string

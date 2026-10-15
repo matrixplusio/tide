@@ -544,17 +544,41 @@ func (a *API) live(ctx context.Context, d *catalog.Deployment, targets ...string
 	if app.Status.OperationState != nil {
 		out.Operation = app.Status.OperationState.Phase
 	}
+	// A Deployment a Rollout adopts through workloadRef is scaled to nothing
+	// and kept only for its template; listed, it reads "1 of 0 on the new
+	// version" next to the Rollout that actually runs the pods.
+	adopted := map[string]bool{}
+	type progress struct {
+		key string
+		r   Rollout
+	}
+	var found []progress
 	for _, res := range app.Status.Resources {
 		rr := Resource{Group: res.Group, Version: res.Version, Kind: res.Kind, Name: res.Name, Namespace: res.Namespace, Sync: res.Status}
 		if res.Health != nil {
 			rr.Health, rr.Message = res.Health.Status, res.Health.Message
 		}
 		out.Resources = append(out.Resources, rr)
-		if res.Kind == "Deployment" || res.Kind == "StatefulSet" {
+		// A Rollout reports replicas in the same fields as a Deployment.
+		isRollout := res.Kind == "Rollout" && res.Group == "argoproj.io"
+		if res.Kind == "Deployment" || res.Kind == "StatefulSet" || isRollout {
 			if m, err := cl.ArgoCD.Resource(ctx, d.App, res.Group, res.Version, res.Kind, res.Namespace, res.Name); err == nil {
-				out.Rollouts = append(out.Rollouts, rolloutFrom(res.Name, m))
+				if isRollout {
+					spec, _ := m["spec"].(map[string]any)
+					ref, _ := spec["workloadRef"].(map[string]any)
+					if name, _ := ref["name"].(string); name != "" {
+						adopted[res.Namespace+"/"+name] = true
+					}
+				}
+				found = append(found, progress{key: res.Kind + "/" + res.Namespace + "/" + res.Name, r: rolloutFrom(res.Name, m)})
 			}
 		}
+	}
+	for _, f := range found {
+		if strings.HasPrefix(f.key, "Deployment/") && adopted[strings.TrimPrefix(f.key, "Deployment/")] {
+			continue
+		}
+		out.Rollouts = append(out.Rollouts, f.r)
 	}
 	tree, err := cl.ArgoCD.ResourceTree(ctx, d.App)
 	if err != nil {

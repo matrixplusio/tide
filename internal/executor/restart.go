@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,14 +59,13 @@ func (x Restart) Validate(ctx context.Context, it *release.Item) error {
 			return fmt.Errorf("stage %s has promotion %s running; restart after it finishes", p.Stage, stage.Status.CurrentPromotion.Name)
 		}
 	}
-	a := c.ArgoCD
-	for _, w := range p.Workloads {
-		obj, err := a.Resource(ctx, p.App, w.Group, w.Version, w.Kind, w.Namespace, w.Name)
-		if err != nil {
-			return fmt.Errorf("%s/%s: %w", w.Kind, w.Name, err)
-		}
-		if !runsArtifact(obj, p.Current) {
-			return fmt.Errorf("%s/%s no longer runs %s; create a new release", w.Kind, w.Name, labelOf(p.Current))
+	ws, err := observeWorkloads(ctx, c.ArgoCD, p.App, p.Workloads)
+	if err != nil {
+		return err
+	}
+	for _, w := range ws {
+		if !runsArtifact(w.template(), p.Current) {
+			return fmt.Errorf("%s/%s no longer runs %s; create a new release", w.kind, w.name, labelOf(p.Current))
 		}
 	}
 	return nil
@@ -154,6 +154,11 @@ func rolledOut(kind string, obj map[string]any) (bool, string) {
 	if restartedAt(obj) == "" {
 		return false, "restart annotation not applied yet"
 	}
+	// A Rollout restarts its pods in place, without a new revision, and says
+	// it has finished by recording the restart it carried out.
+	if kind == rolloutKind && str(obj, "status", "restartedAt") < restartedAt(obj) {
+		return false, "rollout still restarting pods"
+	}
 	return rolloutComplete(kind, obj)
 }
 
@@ -185,6 +190,18 @@ func rolloutComplete(kind string, obj map[string]any) (bool, string) {
 		if kind == "Deployment" && num(obj, "status", "availableReplicas") < want {
 			return false, "not all replicas available"
 		}
+	case rolloutKind:
+		want := int64(1)
+		if r, ok := lookup(obj, "spec", "replicas"); ok {
+			want = toInt(r)
+		}
+		phase, current := str(obj, "status", "phase"), str(obj, "status", "currentPodHash")
+		if phase != "Healthy" || current == "" || current != str(obj, "status", "stableRS") {
+			return false, "rollout " + strings.ToLower(orNone(phase))
+		}
+		if num(obj, "status", "readyReplicas") < want {
+			return false, fmt.Sprintf("%d/%d ready", num(obj, "status", "readyReplicas"), want)
+		}
 	case "DaemonSet":
 		desired := num(obj, "status", "desiredNumberScheduled")
 		if num(obj, "status", "updatedNumberScheduled") < desired || num(obj, "status", "numberAvailable") < desired {
@@ -198,6 +215,18 @@ func rolloutComplete(kind string, obj map[string]any) (bool, string) {
 // the new pods did not become available within progressDeadlineSeconds
 // (crash loop, image pull failure, failing readiness probe...).
 func rolloutFailed(kind string, obj map[string]any) (bool, string) {
+	if kind == rolloutKind {
+		if !observedCurrent(obj) {
+			return false, ""
+		}
+		if v, _ := lookup(obj, "status", "abort"); v == true {
+			return true, "rollout aborted: " + str(obj, "status", "message")
+		}
+		if str(obj, "status", "phase") == "Degraded" {
+			return true, "rollout degraded: " + str(obj, "status", "message")
+		}
+		return false, ""
+	}
 	if kind != "Deployment" {
 		return false, ""
 	}
@@ -232,7 +261,13 @@ func observedCurrent(obj map[string]any) bool {
 	return num(obj, "status", "observedGeneration") >= num(obj, "metadata", "generation")
 }
 
+// restartedAt is when a restart was asked for: the annotation Argo CD's
+// restart action puts on a pod template, or the field the same action sets
+// on a Rollout.
 func restartedAt(obj map[string]any) string {
+	if at := str(obj, "spec", "restartAt"); at != "" {
+		return at
+	}
 	return str(obj, "spec", "template", "metadata", "annotations", restartedAtAnnotation)
 }
 
@@ -280,6 +315,10 @@ func toInt(v any) int64 {
 		return n
 	case json.Number:
 		i, _ := n.Int64()
+		return i
+	case string:
+		// A Rollout states its observed generation as a string.
+		i, _ := strconv.ParseInt(n, 10, 64)
 		return i
 	}
 	return 0

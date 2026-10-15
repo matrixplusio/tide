@@ -356,6 +356,19 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
 人工建的单**只有发起人本人能确认**（十秒阅读是他的阅读）；`source = "ci"` 的单没有发起人可言（建单的是令牌），持有该环境权限的人都能确认，digest 回显照旧。
 错误：1003、3001、3003、3004、3005、3006。
 
+### `POST /api/v1/releases/:id/items/:item/rollout`
+`{ action: "next" | "full" | "abort" }` → `ReleaseView`。对条目正在等待的 Argo Rollout（蓝绿或金丝雀）做决定，经 Argo CD 的资源操作执行，Tide 不直连集群。
+- `next`：蓝绿切换流量；金丝雀进入下一步。对应 Argo CD 操作 `resume`。
+- `full`：金丝雀跳过剩余步骤直接全量。对应 `promote-full`。
+- `abort`：中止，流量回到之前的版本，条目随后记为失败。对应 `abort`。进行中未暂停时也可用。
+- 权限同确认：人工建的单只有发起人本人；CI 建的单由持有该环境权限的人决定。写审计 `release.rollout`。
+- 错误：1003（不是发起人）、3001、3005（发布单或条目不在执行中）、1005（`next`、`full` 时没有在等待决定的 Rollout）。
+
+执行中的行为：
+- 条目的工作负载是 Rollout 时，按 Rollout 的状态判断：已暂停为「等待切换」，终止或降级为失败，切换完成（蓝绿还要求正式 Service 已指向新版本）为成功。用 `workloadRef` 接管 Deployment 的 Rollout，镜像从被接管的 Deployment 读，该 Deployment 本身不参与判断。
+- 等待切换期间不计执行超时。条目的 `pausedSince` 记录开始等待的时间；等待超过发布策略的 `switchTimeoutMinutes`（默认 1440）自动中止。开始等待和过半时各发一次 `release.awaiting_switch` 通知，多副本只发一次。等待结束后执行超时重新计时。
+- `ItemLive.rollouts`：`[{ name, strategy: "blueGreen"|"canary", phase, message?, paused?: { since, strategy, reason?, step?, steps?, weight }, desired, updated, ready, stable?, current?, weight }]`，`weight` 为新版本流量百分比，未知为 -1。`ItemLive.deadline`：无人决定时自动中止的时间。
+
 ### `POST /api/v1/releases/:id/approve`、`POST /api/v1/releases/:id/reject`
 审批一张 `approving` 状态的发布单。approve body `{ note? }`（≤ 500）；reject body `{ note }`（2–500，必填）→ `ReleaseView`。
 - 发布策略 `approvals` 中第一条匹配环境的规则在**确认时**快照到发布单（`approvalRule`、`approvalExpiresAt`），之后改规则不影响已提交的单。
@@ -589,11 +602,11 @@ POST `{ id, name, description, permissions }`；PUT `{ name, description, permis
 - `Environment = { name, displayName, tier: Tier, description, upstream, promotesFrom, ci }`：`name` 规则 `^[a-z][a-z0-9-]{0,31}$`；`displayName` ≤ 32；`description` ≤ 200；`upstream` 可为空（未接入），非空时必须存在；`promotesFrom` 可为空，非空时必须是排在它前面的环境（跨站点验证来源，见候选制品 `gate`）；`ci` ∈ `off`（默认，拒绝 CI 调用）/ `notify`（只让 Kargo 立即去发现新镜像，找到后上报记为 `ready`，不建单；发布策略的 Jira、原因、封版不适用）/ `approve`（建单等人确认）/ `auto`（直接发布，该环境若配了审批规则仍走审批）。
 - `Dimension = { key, name, label, values: { value, name }[] }`：`key` 规则 `^[a-z][a-z0-9-]{0,31}$`（不能是 `q`、`domain`），`name` ≤ 16，`label` 为合法 Kubernetes label 键且各维度不重复，最多 5 个维度、每个 50 个取值。
 - `Channel = { name, kind: "lark" | "teams" | "webhook", url🔒, secret🔒, enabled }`：`name` ≤ 32 唯一。
-- `NotifyRule = { name, enabled, envs: string[], events: ("release.pending" | "release.approval_requested" | "release.started" | "release.succeeded" | "release.failed" | "release.rejected" | "release.cancelled")[], channels: string[] }`（`release.pending`：CI 建了一张待确认的单）。构建类事件另有 `build.failed`、`build.warning`、`build.stranded`、`build.ready`；`build.ready` 是 `ci=notify` 的环境里新版本已就绪，默认没有规则订阅
+- `NotifyRule = { name, enabled, envs: string[], events: ("release.pending" | "release.approval_requested" | "release.awaiting_switch" | "release.started" | "release.succeeded" | "release.failed" | "release.rejected" | "release.cancelled")[], channels: string[] }`（`release.pending`：CI 建了一张待确认的单；`release.awaiting_switch`：蓝绿或金丝雀在等发起人决定）。构建类事件另有 `build.failed`、`build.warning`、`build.stranded`、`build.ready`；`build.ready` 是 `ci=notify` 的环境里新版本已就绪，默认没有规则订阅
 - `Security = { sessionTtlMinutes, loginWindowMinutes, captchaAfterUserFailures, captchaAfterIpFailures, lockAfterUserFailures, lockAfterIpFailures, localLoginAdminsOnly }`
 - `ApprovalPolicy = { name, envs: string[], projects: string[], types: string[], approvers: string[], mode: "any" | "all" | "count", minApprovals, timeoutMinutes }`（`all` 只能指定 `user:`；`timeoutMinutes` 10–1440；`projects`、`types` 规则同授权范围，空表示不限）
   匹配发布单时取**最具体**的一条：限定了项目的优先于只限定类型的，两者都限定的最优先；同样具体时取靠前的一条。批量单同项目同类型，按第一个条目判断。
-- `ReleasePolicy = { confirmReadSeconds, confirmTtlMinutes, executeTimeoutMinutes, minSoakMinutes, multiVersionJump, approvals: ApprovalPolicy[], soakEnforced: string[], versionJumpEnforced: string[], configDriftEnforced: string[], jiraBaseUrl, jiraRequired: string[], reasonRequired: string[], jiraProjects: string[], freezes: Freeze[] }`（`jiraRequired`、`reasonRequired` 为环境选择器，空数组表示都不必填；`soakEnforced`、`versionJumpEnforced` 为环境选择器，选中的环境里对应阈值不满足时建单返回 3010，其余环境只在确认清单里提醒，默认都为空；`configDriftEnforced` 同为环境选择器，见发布单 `withConfig`）
+- `ReleasePolicy = { confirmReadSeconds, confirmTtlMinutes, executeTimeoutMinutes, switchTimeoutMinutes, minSoakMinutes, multiVersionJump, approvals: ApprovalPolicy[], soakEnforced: string[], versionJumpEnforced: string[], configDriftEnforced: string[], jiraBaseUrl, jiraRequired: string[], reasonRequired: string[], jiraProjects: string[], freezes: Freeze[] }`（`jiraRequired`、`reasonRequired` 为环境选择器，空数组表示都不必填；`soakEnforced`、`versionJumpEnforced` 为环境选择器，选中的环境里对应阈值不满足时建单返回 3010，其余环境只在确认清单里提醒，默认都为空；`configDriftEnforced` 同为环境选择器，见发布单 `withConfig`；`switchTimeoutMinutes` 为 60–10080，不传按 1440）
 - `Freeze = { name, envs: string[], startsAt, endsAt, reason }`
 - `System = { siteName, baseUrl, announcement: { enabled, level: "info" | "warning", text } }`
 

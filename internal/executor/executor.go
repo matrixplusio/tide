@@ -26,6 +26,16 @@ type ItemStatus struct {
 	// Waiting says what a not-yet-done item is waiting for; it ends up in the
 	// failure message if the item times out.
 	Waiting string
+	// Paused is set while a blue-green or canary rollout waits for a person.
+	// The execution timeout does not run then; the switch timeout does.
+	Paused *Pause
+}
+
+// RolloutDriver is implemented by the executors whose items can stop at a
+// blue-green or canary rollout, so the engine can abort a wait nobody
+// attended to.
+type RolloutDriver interface {
+	Rollout(ctx context.Context, it *release.Item, action RolloutAction) error
 }
 
 type ItemExecutor interface {
@@ -51,6 +61,9 @@ type Engine struct {
 	Interval  time.Duration
 	// OnChange is called after any state change (cache invalidation).
 	OnChange func()
+
+	// switchTimeout is the release policy's, read once per tick.
+	switchTimeout time.Duration
 }
 
 // Run polls until ctx ends. With several replicas only the one holding the
@@ -88,6 +101,7 @@ func (e *Engine) Tick(ctx context.Context) {
 		return
 	}
 	e.publishState(ctx, list)
+	e.switchTimeout = policy.SwitchTimeout()
 	for i := range list {
 		if err := e.advance(ctx, &list[i], policy.ExecuteTimeout()); err != nil {
 			zap.L().Error("advance release failed", zap.String("release", list[i].ID), zap.Error(err))
@@ -264,14 +278,40 @@ func (e *Engine) step(ctx context.Context, ex ItemExecutor, it *release.Item, ti
 		if err != nil {
 			zap.L().Warn("poll item failed", zap.Int64("item", it.ID), zap.Error(err))
 		}
+		if err == nil && !st.Done {
+			if st.Paused != nil {
+				return e.waitForDecision(ctx, ex, it, st.Paused)
+			}
+			if it.PausedSince != nil {
+				if err := e.PG.Releases.MarkResumed(ctx, it.ID); err != nil {
+					return err
+				}
+				now := time.Now()
+				it.ClockFrom = &now
+				e.changed()
+			}
+		}
 		if err == nil && st.Done {
+			// A wait that ended with the item is over too; left set, a list
+			// would go on saying the release waits for somebody.
+			if it.PausedSince != nil {
+				if err := e.PG.Releases.MarkResumed(ctx, it.ID); err != nil {
+					return err
+				}
+			}
 			e.changed()
 			if st.Success {
 				return e.PG.Releases.FinishItem(ctx, *it, release.ItemSucceeded, "")
 			}
 			return e.PG.Releases.FinishItem(ctx, *it, release.ItemFailed, st.Error)
 		}
-		if it.StartedAt != nil && time.Since(*it.StartedAt) > timeout {
+		// After a wait for a decision the clock starts again: the rollout
+		// was let through just now and is owed a whole timeout.
+		from := it.StartedAt
+		if it.ClockFrom != nil {
+			from = it.ClockFrom
+		}
+		if from != nil && time.Since(*from) > timeout {
 			e.changed()
 			msg := fmt.Sprintf("timed out after %s without a terminal state from upstream", timeout)
 			if st.Waiting != "" {
@@ -284,4 +324,78 @@ func (e *Engine) step(ctx context.Context, ex ItemExecutor, it *release.Item, ti
 		}
 	}
 	return nil
+}
+
+// waitForDecision keeps the books on a rollout stopped for a person: it
+// announces the wait once, reminds once halfway through, and aborts it when
+// the switch timeout has passed. Aborting only ever sends traffic back to the
+// version that was already running.
+//
+// The database, not this process, remembers what was said: whichever replica
+// leads next must not announce the same wait again.
+func (e *Engine) waitForDecision(ctx context.Context, ex ItemExecutor, it *release.Item, p *Pause) error {
+	limit := e.switchTimeout
+	if limit <= 0 {
+		limit = settings.DefaultSwitchTimeoutMinutes * time.Minute
+	}
+	// A canary that is let through often reaches its next stop between two
+	// polls, so the executor never sees it moving. The rollout's own record
+	// tells the stops apart: one that began after the wait on file is a new
+	// wait, with its own announcement and its own deadline.
+	if it.PausedSince != nil && !p.Since.IsZero() && p.Since.After(it.PausedSince.Add(time.Second)) {
+		if err := e.PG.Releases.MarkResumed(ctx, it.ID); err != nil {
+			return err
+		}
+		it.PausedSince, it.RemindedAt = nil, nil
+	}
+	since := p.Since
+	if since.IsZero() || since.After(time.Now()) {
+		since = time.Now()
+	}
+	if it.PausedSince != nil && it.PausedSince.Before(since) {
+		since = *it.PausedSince
+	}
+	if it.PausedSince == nil {
+		started, err := e.PG.Releases.MarkPaused(ctx, it.ID, since)
+		if err != nil {
+			return err
+		}
+		if started {
+			e.changed()
+			e.announce(ctx, it.ReleaseID, "awaiting_switch")
+		}
+	}
+	waited := time.Since(since)
+	if waited > limit {
+		driver, ok := ex.(RolloutDriver)
+		if !ok {
+			return e.PG.Releases.FinishItem(ctx, *it, release.ItemFailed, "waited too long for a decision")
+		}
+		if err := driver.Rollout(ctx, it, ActionAbort); err != nil && !errors.Is(err, ErrNotWaiting) {
+			return fmt.Errorf("abort after waiting %s: %w", limit, err)
+		}
+		e.changed()
+		return e.PG.Releases.FinishItem(ctx, *it, release.ItemFailed,
+			fmt.Sprintf("nobody decided within %s, so the rollout was aborted; traffic is on the previous version", limit))
+	}
+	if waited > limit/2 && it.RemindedAt == nil {
+		reminded, err := e.PG.Releases.MarkReminded(ctx, it.ID)
+		if err != nil {
+			return err
+		}
+		if reminded {
+			e.announce(ctx, it.ReleaseID, "awaiting_switch")
+		}
+	}
+	return nil
+}
+
+// announce sends a release event with the release as it is now.
+func (e *Engine) announce(ctx context.Context, releaseID, event string) {
+	if e.Notifier == nil {
+		return
+	}
+	if r, err := e.PG.Releases.Get(ctx, releaseID); err == nil {
+		e.Notifier.ReleaseEvent(ctx, r, event)
+	}
 }

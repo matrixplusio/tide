@@ -371,6 +371,8 @@ interface ItemBase {
   error?: string
   startedAt?: string
   finishedAt?: string
+  /** Set while a blue-green or canary rollout waits for its creator. */
+  pausedSince?: string
 }
 
 /** How many replicas a service runs in one environment. Written into git, so
@@ -566,6 +568,35 @@ export interface ItemLive {
   error?: string
   /** A later release on the same service and environment. */
   supersededBy?: string
+  /** The Argo Rollouts of a blue-green or canary service. */
+  rollouts?: RolloutState[]
+  /** When an unattended wait for a decision gets aborted. */
+  deadline?: string
+}
+
+export interface RolloutPause {
+  since: string
+  strategy: 'blueGreen' | 'canary'
+  reason?: string
+  /** A canary's place in its plan, from one. */
+  step?: number
+  steps?: number
+  /** Share of traffic on the new version; -1 when unknown. */
+  weight: number
+}
+
+export interface RolloutState {
+  name: string
+  strategy: 'blueGreen' | 'canary'
+  phase: string
+  message?: string
+  paused?: RolloutPause
+  desired: number
+  updated: number
+  ready: number
+  stable?: string
+  current?: string
+  weight: number
 }
 
 export interface AuditEntry {
