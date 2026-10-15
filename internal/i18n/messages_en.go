@@ -387,6 +387,7 @@ var enNotify = map[Key]string{
 	"n.eventFailed":          "Failed",
 	"n.eventBuildFailed":     "Build failed",
 	"n.eventBuildStranded":   "Build succeeded, nothing shipped",
+	"n.eventBuildReady":      "New version ready to release",
 	"n.eventBuildWarning":    "Build could not reach Tide",
 	"n.eventRejected":        "Rejected",
 	"n.eventStarted":         "Started",

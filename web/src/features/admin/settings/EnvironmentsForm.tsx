@@ -14,12 +14,19 @@ import { i18n } from '../../../lib/i18n'
 // a literal that locales/keys.test.ts can check.
 const ciOptions = (): [string, string][] => [
   ['off', i18n.t('envForm.ciOff')],
+  ['notify', i18n.t('envForm.ciNotify')],
   ['approve', i18n.t('envForm.ciApprove')],
   ['auto', i18n.t('envForm.ciAuto')],
 ]
 
 const ciHint = (mode: CIMode): string =>
-  mode === 'auto' ? i18n.t('envForm.ciAutoHint') : mode === 'approve' ? i18n.t('envForm.ciApproveHint') : i18n.t('envForm.ciOffHint')
+  mode === 'auto'
+    ? i18n.t('envForm.ciAutoHint')
+    : mode === 'approve'
+      ? i18n.t('envForm.ciApproveHint')
+      : mode === 'notify'
+        ? i18n.t('envForm.ciNotifyHint')
+        : i18n.t('envForm.ciOffHint')
 
 const emptyEnv = (): EnvironmentsValues['items'][number] => ({ name: '', displayName: '', tier: 'development', description: '', upstream: '', promotesFrom: '', ci: 'off' })
 

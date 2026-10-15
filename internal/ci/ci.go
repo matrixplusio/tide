@@ -35,6 +35,9 @@ const (
 // again on the next tick.
 var errWaiting = errors.New("freight not available yet")
 
+// errReady: the freight is there, and the environment only wanted it found.
+var errReady = errors.New("freight available; the environment only announces builds")
+
 type Service struct {
 	// pass is held for the duration of a Process pass; see Process.
 	pass     atomic.Bool
@@ -494,6 +497,19 @@ func (s *Service) process(ctx context.Context, in pg.CIIntake) {
 	defer cancel()
 	rel, err := s.release(ctx, in)
 	switch {
+	case errors.Is(err, errReady):
+		if err := s.PG.CI.Resolve(ctx, in.ID, pg.IntakeReady, "", ""); err != nil {
+			zap.L().Warn("ci: resolving ready intake failed", zap.Int64("intake_id", in.ID), zap.Error(err))
+			return
+		}
+		zap.L().Info("ci: build ready", zap.Int64("intake_id", in.ID), zap.String("service", in.Service), zap.String("env", in.Env))
+		if s.Notifier != nil {
+			s.Notifier.BuildEvent(ctx, notify.Build{
+				Service: in.Service, Env: in.Env, Stage: in.Stage, Commit: in.Commit,
+				Pipeline: in.Pipeline, Actor: in.Actor, Reason: in.Reason,
+			}, notify.EventBuildReady)
+		}
+		return
 	case errors.Is(err, errWaiting):
 		// Ask the warehouse again, now and then. The nudge on arrival is one
 		// request, and one request can fail — Kargo busy, a timeout, a token
@@ -548,8 +564,12 @@ func (s *Service) release(ctx context.Context, in pg.CIIntake) (*release.Release
 	if err != nil {
 		return nil, err
 	}
-	if err := checkPolicy(policy, env, in); err != nil {
-		return nil, err
+	// The release policy — a ticket, a reason, a freeze — governs releases.
+	// Announcing a build releases nothing, so none of it applies.
+	if mode != settings.CINotify {
+		if err := checkPolicy(policy, env, in); err != nil {
+			return nil, err
+		}
 	}
 	// Fresh: the whole point is that something changed upstream a moment ago.
 	snap, err := s.Hub.Snapshot(ctx, true)
@@ -570,6 +590,9 @@ func (s *Service) release(ctx context.Context, in pg.CIIntake) (*release.Release
 	freight, err := s.freightFor(ctx, d, gate, in.Digest)
 	if err != nil {
 		return nil, err
+	}
+	if mode == settings.CINotify {
+		return nil, errReady
 	}
 	ever, err := s.PG.Releases.EverDeployed(ctx, in.Service, in.Env)
 	if err != nil {

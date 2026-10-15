@@ -434,7 +434,7 @@ CI 建的单：`createdBy` 是 `ci:<令牌id>`（据此区分人和 CI），`cre
   否则恰好是那些没开自动发布的环境，构建坏了反而最安静。
 
 ### `GET /api/v1/ci/intakes?status=&service=&env=&page=&page_size=`
-收到的通知与结果（`releases.view`）。`service` 匹配服务名的任意一部分（不区分大小写，按字面匹配），`env` 精确匹配，可与 `status` 组合。`status` ∈ `waiting` / `released` / `failed` / `expired` / `build_failed` / `rejected`。
+收到的通知与结果（`releases.view`）。`service` 匹配服务名的任意一部分（不区分大小写，按字面匹配），`env` 精确匹配，可与 `status` 组合。`status` ∈ `waiting` / `released` / `failed` / `expired` / `build_failed` / `rejected` / `ready`。`ready` 只出现在 `ci=notify` 的环境：Kargo 已发现这个 digest 的版本，可以在 Tide 里选，没有建发布单。
 `failed` 是 Tide 拿到镜像却没能发出去，`build_failed` 是根本没构建出东西，两者不同。
 `rejected` 是上报在入库前就被拒了（环境不存在、环境没开 CI、服务未部署到该环境、该环境不直接收镜像）：
 仍然留一条记录写明原因，并发「构建成功但没发出去」通知，因为流水线这边吞掉了非 2xx，没有这条记录就哪里都看不到。
@@ -586,10 +586,10 @@ POST `{ id, name, description, permissions }`；PUT `{ name, description, permis
 | `system` | settings.manage | 通用 |
 
 - `Upstream = { name, kargoUrl, kargoToken🔒, argocdUrl, argocdToken🔒, registryUrl, registryUser, registryToken🔒, insecureTls, grafanaUrl? }`
-- `Environment = { name, displayName, tier: Tier, description, upstream, promotesFrom, ci }`：`name` 规则 `^[a-z][a-z0-9-]{0,31}$`；`displayName` ≤ 32；`description` ≤ 200；`upstream` 可为空（未接入），非空时必须存在；`promotesFrom` 可为空，非空时必须是排在它前面的环境（跨站点验证来源，见候选制品 `gate`）；`ci` ∈ `off`（默认，拒绝 CI 调用）/ `approve`（建单等人确认）/ `auto`（直接发布，该环境若配了审批规则仍走审批）。
+- `Environment = { name, displayName, tier: Tier, description, upstream, promotesFrom, ci }`：`name` 规则 `^[a-z][a-z0-9-]{0,31}$`；`displayName` ≤ 32；`description` ≤ 200；`upstream` 可为空（未接入），非空时必须存在；`promotesFrom` 可为空，非空时必须是排在它前面的环境（跨站点验证来源，见候选制品 `gate`）；`ci` ∈ `off`（默认，拒绝 CI 调用）/ `notify`（只让 Kargo 立即去发现新镜像，找到后上报记为 `ready`，不建单；发布策略的 Jira、原因、封版不适用）/ `approve`（建单等人确认）/ `auto`（直接发布，该环境若配了审批规则仍走审批）。
 - `Dimension = { key, name, label, values: { value, name }[] }`：`key` 规则 `^[a-z][a-z0-9-]{0,31}$`（不能是 `q`、`domain`），`name` ≤ 16，`label` 为合法 Kubernetes label 键且各维度不重复，最多 5 个维度、每个 50 个取值。
 - `Channel = { name, kind: "lark" | "teams" | "webhook", url🔒, secret🔒, enabled }`：`name` ≤ 32 唯一。
-- `NotifyRule = { name, enabled, envs: string[], events: ("release.pending" | "release.approval_requested" | "release.started" | "release.succeeded" | "release.failed" | "release.rejected" | "release.cancelled")[], channels: string[] }`（`release.pending`：CI 建了一张待确认的单）
+- `NotifyRule = { name, enabled, envs: string[], events: ("release.pending" | "release.approval_requested" | "release.started" | "release.succeeded" | "release.failed" | "release.rejected" | "release.cancelled")[], channels: string[] }`（`release.pending`：CI 建了一张待确认的单）。构建类事件另有 `build.failed`、`build.warning`、`build.stranded`、`build.ready`；`build.ready` 是 `ci=notify` 的环境里新版本已就绪，默认没有规则订阅
 - `Security = { sessionTtlMinutes, loginWindowMinutes, captchaAfterUserFailures, captchaAfterIpFailures, lockAfterUserFailures, lockAfterIpFailures, localLoginAdminsOnly }`
 - `ApprovalPolicy = { name, envs: string[], projects: string[], types: string[], approvers: string[], mode: "any" | "all" | "count", minApprovals, timeoutMinutes }`（`all` 只能指定 `user:`；`timeoutMinutes` 10–1440；`projects`、`types` 规则同授权范围，空表示不限）
   匹配发布单时取**最具体**的一条：限定了项目的优先于只限定类型的，两者都限定的最优先；同样具体时取靠前的一条。批量单同项目同类型，按第一个条目判断。
