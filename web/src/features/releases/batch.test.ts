@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { batchCandidates, batchSchema, loadBatchScope, mapBatchField, saveBatchScope, matchPastedFreight, parsePaste, resolvePasteScope, shownAfterPaste } from './batch'
+import { batchCandidates, batchSchema, loadBatchScope, loadLastBatch, mapBatchField, reuseLastBatch, saveBatchScope, saveLastBatch, matchPastedFreight, parsePaste, resolvePasteScope, shownAfterPaste } from './batch'
 import type { Dimension, Service } from '../../lib/types'
 
 const dep = { env: 'qa' } as never
@@ -147,17 +147,36 @@ describe('after a paste', () => {
   })
 })
 
-describe('batch scope memory', () => {
-  // The scope of the last batch comes back on the next visit; anything that
-  // is not a known value is dropped rather than trusted.
-  it('keeps the scope and drops what it does not recognise', () => {
+describe('batch memory', () => {
+  // Only the environment and kind come back by themselves; anything that is
+  // not a known value is dropped rather than trusted.
+  it('keeps the environment and kind and drops what it does not recognise', () => {
     localStorage.clear()
     expect(loadBatchScope()).toEqual({})
-    saveBatchScope({ env: 'qa', kind: 'sync', project: 'acme', type: 'backend', domain: 'd' })
-    expect(loadBatchScope()).toEqual({ env: 'qa', kind: 'sync', project: 'acme', type: 'backend', domain: 'd' })
-    localStorage.setItem('tide.batch.scope', JSON.stringify({ env: 3, kind: 'delete-everything', project: 'acme' }))
-    expect(loadBatchScope()).toEqual({ env: undefined, kind: undefined, project: 'acme', type: undefined, domain: undefined })
+    saveBatchScope({ env: 'qa', kind: 'sync' })
+    expect(loadBatchScope()).toEqual({ env: 'qa', kind: 'sync' })
+    localStorage.setItem('tide.batch.scope', JSON.stringify({ env: 3, kind: 'delete-everything' }))
+    expect(loadBatchScope()).toEqual({ env: undefined, kind: undefined })
     localStorage.setItem('tide.batch.scope', 'not json')
     expect(loadBatchScope()).toEqual({})
+  })
+
+  // The last batch is kept per environment and brings back its services and
+  // order, never its versions; services gone from the environment, moved to
+  // another project or out of reach are named instead of silently dropped.
+  it('reuses the last batch of the environment without its versions', () => {
+    localStorage.clear()
+    const last = { at: '2026-10-15T11:00:00Z', kind: 'image' as const, project: 'acme', type: 'backend', services: [{ service: 'a', sequence: '1' }, { service: 'b', sequence: '2' }, { service: 'gone', sequence: '1' }, { service: 'gateway', sequence: '1' }, { service: 'c', sequence: '1' }] }
+    saveLastBatch('qa', last)
+    saveLastBatch('prod', { ...last, project: 'globex' })
+    expect(loadLastBatch('qa')).toEqual(last)
+    expect(loadLastBatch('prod')?.project).toEqual('globex')
+    expect(loadLastBatch('dev')).toBeUndefined()
+    const all = [svc('a', 'acme', 'backend'), svc('b', 'acme', 'backend'), svc('gateway', 'globex', 'backend'), svc('c', 'acme', 'backend')]
+    const { picked, missing } = reuseLastBatch(last, all, 'qa', (s) => s.name !== 'c')
+    expect(picked).toEqual({ a: { freight: '', sequence: '1' }, b: { freight: '', sequence: '2' } })
+    expect(missing).toEqual(['gone', 'gateway', 'c'])
+    localStorage.setItem('tide.batch.last', JSON.stringify({ qa: { ...last, services: [{ service: 'a', sequence: 'x' }] } }))
+    expect(loadLastBatch('qa')).toBeUndefined()
   })
 })

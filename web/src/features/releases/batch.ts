@@ -209,42 +209,92 @@ export function shownAfterPaste(imported: Record<string, unknown> | null, onlyPa
   return Object.prototype.hasOwnProperty.call(imported, service)
 }
 
-/** What the batch page was last set to, kept per browser. */
+/** The environment and kind the batch page was last set to, kept per browser. */
 export interface BatchScope {
   env?: string
   kind?: BatchKind
-  project?: string
-  type?: string
-  domain?: string
 }
 
 const SCOPE_KEY = 'tide.batch.scope'
+const LAST_KEY = 'tide.batch.last'
 
-/**
- * The scope of the last batch, so that someone sending one batch after
- * another does not pick the environment, project and type again each time.
- * Only the scope: which services were ticked and which versions chosen
- * belong to the release that was sent, not to the next one. Whatever is no
- * longer offered falls back to the page's default.
- */
-export function loadBatchScope(): BatchScope {
+const isKind = (v: unknown): v is BatchKind => v === 'image' || v === 'restart' || v === 'sync'
+
+function readJSON(key: string): Record<string, unknown> {
   try {
-    const v: unknown = JSON.parse(localStorage.getItem(SCOPE_KEY) ?? '{}')
-    if (!v || typeof v !== 'object') return {}
-    const o = v as Record<string, unknown>
-    const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : undefined)
-    const kind = str('kind')
-    return { env: str('env'), kind: kind === 'image' || kind === 'restart' || kind === 'sync' ? kind : undefined, project: str('project'), type: str('type'), domain: str('domain') }
+    const v: unknown = JSON.parse(localStorage.getItem(key) ?? '{}')
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
   } catch {
-    // Private windows and blocked site data throw; the defaults will do.
+    // Private windows and blocked site data throw; nothing remembered then.
     return {}
   }
 }
 
-export function saveBatchScope(scope: BatchScope): void {
+function writeJSON(key: string, v: unknown): void {
   try {
-    localStorage.setItem(SCOPE_KEY, JSON.stringify(scope))
+    localStorage.setItem(key, JSON.stringify(v))
   } catch {
     // Remembering is a convenience, never a requirement.
   }
+}
+
+/**
+ * The environment comes first and is what the next batch most often shares
+ * with the last, so it is restored by itself; project, type and services
+ * are only brought back when someone asks to reuse the last batch.
+ */
+export function loadBatchScope(): BatchScope {
+  const o = readJSON(SCOPE_KEY)
+  return { env: typeof o.env === 'string' ? o.env : undefined, kind: isKind(o.kind) ? o.kind : undefined }
+}
+
+export function saveBatchScope(scope: BatchScope): void {
+  writeJSON(SCOPE_KEY, scope)
+}
+
+/** The last batch sent to one environment, as far as reusing it needs. */
+export interface LastBatch {
+  at: string
+  kind: BatchKind
+  project: string
+  type: string
+  services: { service: string; sequence: string }[]
+}
+
+/** The last batch sent to env from this browser, or undefined. */
+export function loadLastBatch(env: string): LastBatch | undefined {
+  const v = readJSON(LAST_KEY)[env]
+  if (!v || typeof v !== 'object') return undefined
+  const o = v as Record<string, unknown>
+  if (typeof o.at !== 'string' || !isKind(o.kind) || typeof o.project !== 'string' || typeof o.type !== 'string' || !Array.isArray(o.services)) return undefined
+  const services = o.services
+    .filter((x): x is { service: string; sequence: string } => !!x && typeof x.service === 'string' && typeof x.sequence === 'string' && /^\d+$/.test(x.sequence))
+    .slice(0, 200)
+  return services.length ? { at: o.at, kind: o.kind, project: o.project, type: o.type, services } : undefined
+}
+
+export function saveLastBatch(env: string, batch: LastBatch): void {
+  writeJSON(LAST_KEY, { ...readJSON(LAST_KEY), [env]: batch })
+}
+
+/**
+ * What reusing the last batch selects now: its services that are still
+ * deployed to env in the same project, with their order but no version —
+ * the version sent last time is most likely the one running now. The rest
+ * are named, so nobody wonders where a service went.
+ */
+export function reuseLastBatch(
+  last: LastBatch,
+  services: readonly Service[],
+  env: string,
+  allowed: (s: Service) => boolean,
+): { picked: Record<string, { freight: string; sequence: string }>; missing: string[] } {
+  const picked: Record<string, { freight: string; sequence: string }> = {}
+  const missing: string[] = []
+  for (const x of last.services) {
+    const s = services.find((y) => y.name === x.service)
+    if (s && s.envs[env] && (s.project ?? '') === last.project && allowed(s)) picked[s.name] = { freight: '', sequence: x.sequence }
+    else missing.push(x.service)
+  }
+  return { picked, missing }
 }
