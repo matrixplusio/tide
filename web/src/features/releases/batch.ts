@@ -67,7 +67,7 @@ export function mapBatchField(rows: readonly BatchRow[], field: string): string 
 export interface PasteEntry {
   line: number
   service: string
-  /** Image tag, version label, or freight name prefix. */
+  /** Image tag, version label, or freight name prefix; empty when only the service was given. */
   ref: string
   sequence?: string
 }
@@ -82,6 +82,9 @@ export interface PasteProblem {
  * Parses pasted lines into service + tag (+ optional sequence). Accepted per line:
  *   `svc tag`, `svc tag 2`, `svc,tag`, `svc:tag`, `svc=tag`, or an image reference
  *   `registry/path/svc:tag`. Blank lines and `#` comments are ignored.
+ * A line may also be just the service, or an image without a tag: that picks
+ * the service and leaves its version to the person — only a tag that was
+ * pasted ever fills one in.
  */
 export function parsePaste(text: string): { entries: PasteEntry[]; problems: PasteProblem[] } {
   const entries: PasteEntry[] = []
@@ -92,14 +95,17 @@ export function parsePaste(text: string): { entries: PasteEntry[]; problems: Pas
     if (!t) return
     let parts = t.split(/[\s,;=]+/).filter(Boolean)
     // image reference or svc:tag in the first field
-    if (parts[0]?.includes(':') && !/^https?:/.test(parts[0])) {
-      const first = parts[0]
-      const at = first.lastIndexOf(':')
+    const first = parts[0] ?? ''
+    const at = first.lastIndexOf(':')
+    // A colon followed by a slash is a registry port, not a tag.
+    if (at >= 0 && !/^https?:/.test(first) && !first.slice(at + 1).includes('/')) {
       const repo = first.slice(0, at)
       parts = [repo.slice(repo.lastIndexOf('/') + 1), first.slice(at + 1), ...parts.slice(1)]
+    } else if (parts.length === 1 && first.includes('/')) {
+      parts = [first.slice(first.lastIndexOf('/') + 1)]
     }
     const [service = '', ref = '', sequence, ...rest] = parts
-    if (!service || !ref || rest.length > 0 || (sequence !== undefined && !/^\d+$/.test(sequence))) {
+    if (!service || (parts.length > 1 && !ref) || rest.length > 0 || (sequence !== undefined && !/^\d+$/.test(sequence))) {
       problems.push({ line, text: raw.trim(), msg: i18n.t('releases.pasteFormat') })
       return
     }
