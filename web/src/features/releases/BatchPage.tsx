@@ -71,7 +71,7 @@ export function BatchPage() {
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pasteBusy, setPasteBusy] = useState(false)
-  const [pasteResult, setPasteResult] = useState<{ applied: number; problems: PasteProblem[]; renamed?: { from: string; to: string }[] } | null>(null)
+  const [pasteResult, setPasteResult] = useState<{ applied: number; filled?: number; tagged?: boolean; problems: PasteProblem[]; renamed?: { from: string; to: string }[] } | null>(null)
   // Restored from the last batch; each value still has to be on offer, or the default applies.
   const [saved] = useState(loadBatchScope)
   // Services the last reuse could not bring back; null when nothing was reused.
@@ -187,6 +187,11 @@ export function BatchPage() {
       }
       const next: Record<string, { freight: string; sequence?: string }> = {}
       for (const e of scope.entries) {
+        // Only the service was pasted: pick it, and leave the version to the person.
+        if (!e.ref) {
+          next[e.service] = { freight: '', sequence: e.sequence }
+          continue
+        }
         // One service that cannot list its versions (not on Kargo, say) is
         // that line's problem, not a reason to drop every other line.
         let cands: Candidates
@@ -203,7 +208,8 @@ export function BatchPage() {
         if (m.freight) next[e.service] = { freight: m.freight, sequence: e.sequence }
         else problems.push({ line: e.line, text: `${e.service} ${e.ref}`, msg: m.msg ?? t('batch.unrecognised') })
       }
-      setKindState('image')
+      // Tags mean an upgrade; bare names can as well be a restart or a sync.
+      if (scope.entries.some((e) => e.ref)) setKindState('image')
       // Nothing recognised says nothing about the project: keep the one picked.
       if (scope.project) {
         setProjectState(scope.project)
@@ -212,7 +218,7 @@ export function BatchPage() {
       // Nothing filled in: leave the list whole rather than show an empty one.
       setImported(Object.keys(next).length ? next : null)
       setOnlyPasted(true)
-      setPasteResult({ applied: Object.keys(next).length, problems: problems.sort((a, b) => a.line - b.line), renamed: scope.renamed })
+      setPasteResult({ applied: Object.keys(next).length, filled: Object.values(next).filter((x) => x.freight).length, tagged: scope.entries.some((e) => e.ref), problems: problems.sort((a, b) => a.line - b.line), renamed: scope.renamed })
     } catch (e) {
       setPasteResult({ applied: 0, problems: [{ line: 0, text: '', msg: isApiError(e) ? e.msg : t('batch.readFreightFailed') }] })
     } finally {
@@ -314,7 +320,14 @@ export function BatchPage() {
                     </span>
                     {pasteResult && (
                       <div className="fhint" role="status">
-                        {pasteResult.applied > 0 && <div className="green">{t('batch.recognised', { count: pasteResult.applied })}</div>}
+                        {pasteResult.applied > 0 &&
+                          (pasteResult.filled === pasteResult.applied ? (
+                            <div className="green">{t('batch.recognised', { count: pasteResult.applied })}</div>
+                          ) : !pasteResult.tagged ? (
+                            <div className="green">{t('batch.recognisedNames', { count: pasteResult.applied })}</div>
+                          ) : (
+                            <div className="green">{t('batch.recognisedPartly', { count: pasteResult.applied, filled: pasteResult.filled ?? 0, open: pasteResult.applied - (pasteResult.filled ?? 0) })}</div>
+                          ))}
                         {(pasteResult.renamed ?? []).map((x) => (
                           <div key={x.from} className="muted">
                             {t('batch.readAs', { from: x.from, to: x.to })}

@@ -70,12 +70,24 @@ gateway-backend,v2.0.0
     ])
   })
   it('reports malformed and duplicate lines with their line numbers', () => {
-    const { entries, problems } = parsePaste('a\nb v1 x\nc v1\nc v2')
+    const { entries, problems } = parsePaste('b v1 x\nc v1\nc v2\nd v1 2 extra')
     expect(entries.map((e) => e.service)).toEqual(['c'])
     expect(problems.map((p) => [p.line, p.msg])).toEqual([
-      [1, '格式应为「服务 tag [顺序]」或「镜像地址:tag」'],
-      [2, '格式应为「服务 tag [顺序]」或「镜像地址:tag」'],
-      [4, 'c 重复'],
+      [1, '格式应为「服务」「服务 tag [顺序]」或「镜像地址[:tag]」'],
+      [3, 'c 重复'],
+      [4, '格式应为「服务」「服务 tag [顺序]」或「镜像地址[:tag]」'],
+    ])
+  })
+  // A name alone picks the service and leaves its version empty; so does an
+  // image without a tag, including one behind a registry port.
+  it('takes a bare service or an untagged image as the service alone', () => {
+    const { entries, problems } = parsePaste('order-api\nregistry.example.com/shop-qa/media-api\nregistry.example.com:5000/shop/task-worker\nregistry.example.com:5000/shop/admin-web:v1.4.0')
+    expect(problems).toEqual([])
+    expect(entries.map((e) => [e.service, e.ref])).toEqual([
+      ['order-api', ''],
+      ['media-api', ''],
+      ['task-worker', ''],
+      ['admin-web', 'v1.4.0'],
     ])
   })
   it('requires one project and one type, deployed in the env', () => {
