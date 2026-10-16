@@ -6,7 +6,7 @@
 # means QEMU runs pnpm, vite and the Go compiler — that took two hours on a
 # GitHub runner, against a few minutes this way. The frontend bundle is just
 # static files and has no architecture at all.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:25-alpine AS web
 WORKDIR /src/web
 RUN corepack enable
 COPY web/package.json web/pnpm-lock.yaml ./
@@ -14,7 +14,7 @@ RUN CI=true pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
 
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 # Passed by the release workflow; a plain `docker build` produces a binary
 # that honestly reports itself as "dev".
 ARG VERSION=""
