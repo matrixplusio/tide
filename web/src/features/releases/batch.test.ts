@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { batchCandidates, batchSchema, loadBatchScope, loadLastBatch, mapBatchField, reuseLastBatch, saveBatchScope, saveLastBatch, matchPastedFreight, parsePaste, resolvePasteScope, shownAfterPaste } from './batch'
+import { batchCandidates, batchSchema, loadBatchScope, loadLastBatch, mapBatchField, reuseLastBatch, saveBatchScope, saveLastBatch, matchPastedFreight, parsePaste, resolvePasteScope, shownAfterPaste, tidyPaste } from './batch'
 import type { Dimension, Service } from '../../lib/types'
 
 const dep = { env: 'qa' } as never
@@ -76,6 +76,21 @@ gateway-backend,v2.0.0
       [1, '格式应为「服务」「服务 tag [顺序]」或「镜像地址[:tag]」'],
       [3, 'c 重复'],
       [4, '格式应为「服务」「服务 tag [顺序]」或「镜像地址[:tag]」'],
+    ])
+  })
+  // Columns copied from a spreadsheet are tab separated, and a tab is eight
+  // columns wide in the box; what lands there is one space per gap.
+  it('tidies pasted blanks into single spaces', () => {
+    expect(tidyPaste('order-api\t\t20260917150452-938efb5c-0006  \r\nmedia-api\u3000\u00a0v1.4.0\t2')).toBe('order-api 20260917150452-938efb5c-0006\nmedia-api v1.4.0 2')
+  })
+  // Tide shows a version as "v1.4.0 <tag>"; copied from there, the tag wins.
+  it('reads a version copied from Tide as its tag', () => {
+    const { entries, problems } = parsePaste('order-api v1.4.0 20260917150452-938efb5c-0006\ntask-worker 1.2.0 20260917150455-6458e234-0007 2\nmedia-api v1.4.0 2')
+    expect(problems).toEqual([])
+    expect(entries.map((e) => [e.service, e.ref, e.sequence])).toEqual([
+      ['order-api', '20260917150452-938efb5c-0006', undefined],
+      ['task-worker', '20260917150455-6458e234-0007', '2'],
+      ['media-api', 'v1.4.0', '2'],
     ])
   })
   // A name alone picks the service and leaves its version empty; so does an
