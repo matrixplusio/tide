@@ -10,9 +10,15 @@ updates:
     schedule: { interval: weekly }
     groups:
       web: { patterns: ["*"] }
+  # One pull request per ecosystem and run: ungrouped, every action got its
+  # own, and five sat open at once.
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }
+    groups:
+      actions: { patterns: ["*"] }
   - package-ecosystem: docker
     directory: /
     schedule: { interval: monthly }
+    groups:
+      docker: { patterns: ["*"] }
