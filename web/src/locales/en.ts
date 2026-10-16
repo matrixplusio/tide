@@ -1049,7 +1049,7 @@ const en: Messages = {
     reuseMissing: '{{service}} is no longer in this environment or not yours to change; skipped',
     scope: 'Scope',
     pasteLabel: 'Paste',
-    pasteHint: 'One service per line: "service tag [order]", or "image:tag"; a version works in place of a tag. A service name alone (or an image without a tag) only selects the service; you pick its version. Lines are read against the current environment ({{env}}), and the project, kind, services and artifacts are filled in for you to check below.',
+    pasteHint: 'One service per line: "service tag [order]", or "image:tag"; a version works in place of a tag. A service name alone (or an image without a tag) only selects the service; you pick its version. Columns copied from a spreadsheet work, and so does a version as Tide shows it ("v1.4.0 <tag>"). Lines are read against the current environment ({{env}}), and the project, kind, services and artifacts are filled in for you to check below.',
     recognising: 'Reading…',
     recognise: 'Read and fill in',
     recognised: 'Recognised {{count}} services, selected them and filled in the artifacts; check them below.',

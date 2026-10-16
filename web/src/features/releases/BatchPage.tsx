@@ -39,7 +39,7 @@ import { ConfirmSheet, ServiceName, VersionLabel } from '../../components/domain
 import { useCandidates, useServices } from '../services/queries'
 import { normalizeJira } from '../services/schema'
 import { useCreateRelease } from './queries'
-import { batchCandidates, batchSchema, loadBatchScope, loadLastBatch, mapBatchField, reuseLastBatch, saveBatchScope, saveLastBatch, matchPastedFreight, parsePaste, requiredFields, resolvePasteScope, shownAfterPaste, type BatchKind, type BatchRow, type BatchValues, type PasteProblem } from './batch'
+import { batchCandidates, batchSchema, loadBatchScope, loadLastBatch, mapBatchField, reuseLastBatch, saveBatchScope, saveLastBatch, tidyPaste, matchPastedFreight, parsePaste, requiredFields, resolvePasteScope, shownAfterPaste, type BatchKind, type BatchRow, type BatchValues, type PasteProblem } from './batch'
 
 const KINDS = [
   ['image', 'releases.kindImage'],
@@ -303,6 +303,18 @@ export function BatchPage() {
                       {...p}
                       value={pasteText}
                       onChange={(e) => setPasteText(e.target.value)}
+                      onPaste={(e) => {
+                        const raw = e.clipboardData.getData('text/plain')
+                        const tidy = tidyPaste(raw)
+                        if (tidy === raw) return
+                        e.preventDefault()
+                        // insertText keeps the browser's undo working; the fallback writes the value itself.
+                        if (!document.execCommand('insertText', false, tidy)) {
+                          const el = e.currentTarget
+                          const at = el.selectionStart
+                          setPasteText(el.value.slice(0, at) + tidy + el.value.slice(el.selectionEnd))
+                        }
+                      }}
                       mono
                       rows={5}
                       spellCheck={false}

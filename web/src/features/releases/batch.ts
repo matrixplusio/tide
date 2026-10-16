@@ -79,9 +79,29 @@ export interface PasteProblem {
 }
 
 /**
+ * What a paste turns into in the box: every run of blanks inside a line —
+ * the tabs a spreadsheet or document puts between columns, non-breaking and
+ * full-width spaces — becomes one space. A tab is eight columns wide in the
+ * box, and a cursor dropped into one lands at either end of it, which reads
+ * as a gap that cannot be edited. The parser treats all of them alike, so
+ * nothing about what is recognised changes.
+ */
+export function tidyPaste(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/[\t \u00a0\u3000]+/g, ' ').trimEnd())
+    .join('\n')
+}
+
+// The way Tide itself shows a version: a label before the tag.
+const VERSION_LABEL = /^v?\d+(\.\d+)+([-+][\w.]+)?$/
+
+/**
  * Parses pasted lines into service + tag (+ optional sequence). Accepted per line:
  *   `svc tag`, `svc tag 2`, `svc,tag`, `svc:tag`, `svc=tag`, or an image reference
  *   `registry/path/svc:tag`. Blank lines and `#` comments are ignored.
+ * A version copied from Tide's own pages comes as "v1.4.0 <tag>"; the tag is
+ * the exact one, so it is the one used.
  * A line may also be just the service, or an image without a tag: that picks
  * the service and leaves its version to the person — only a tag that was
  * pasted ever fills one in.
@@ -103,6 +123,9 @@ export function parsePaste(text: string): { entries: PasteEntry[]; problems: Pas
       parts = [repo.slice(repo.lastIndexOf('/') + 1), first.slice(at + 1), ...parts.slice(1)]
     } else if (parts.length === 1 && first.includes('/')) {
       parts = [first.slice(first.lastIndexOf('/') + 1)]
+    }
+    if (parts.length >= 3 && VERSION_LABEL.test(parts[1] ?? '') && !/^\d+$/.test(parts[2] ?? '')) {
+      parts = [parts[0] ?? '', ...parts.slice(2)]
     }
     const [service = '', ref = '', sequence, ...rest] = parts
     if (!service || (parts.length > 1 && !ref) || rest.length > 0 || (sequence !== undefined && !/^\d+$/.test(sequence))) {
