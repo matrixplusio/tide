@@ -265,7 +265,7 @@ func (s *Service) announce(ctx context.Context, req Request, event, detail strin
 		return
 	}
 	s.Notifier.BuildEvent(ctx, notify.Build{
-		Service: req.Service, Env: req.Env, Stage: req.Stage, Commit: req.Commit,
+		Service: req.Service, Env: req.Env, Stage: req.Stage, Commit: req.Commit, Image: req.Image,
 		Pipeline: req.Pipeline, Actor: req.Actor, Reason: req.Reason, Detail: detail,
 	}, event)
 }
@@ -451,7 +451,7 @@ func (s *Service) stranded(ctx context.Context, in pg.CIIntake, freightMsg strin
 		snap = s.Hub.Recent(10 * time.Minute)
 	}
 	s.Notifier.BuildEvent(ctx, notify.Build{
-		Service: in.Service, Env: in.Env, Stage: in.Stage, Commit: in.Commit,
+		Service: in.Service, Env: in.Env, Stage: in.Stage, Commit: in.Commit, Image: in.Image,
 		Pipeline: in.Pipeline, Actor: in.Actor, Reason: in.Reason,
 		Detail: strandedReason(snap, in.Service, in.Env, freightMsg),
 	}, notify.EventBuildStranded)
@@ -505,7 +505,7 @@ func (s *Service) process(ctx context.Context, in pg.CIIntake) {
 		zap.L().Info("ci: build ready", zap.Int64("intake_id", in.ID), zap.String("service", in.Service), zap.String("env", in.Env))
 		if s.Notifier != nil {
 			s.Notifier.BuildEvent(ctx, notify.Build{
-				Service: in.Service, Env: in.Env, Stage: in.Stage, Commit: in.Commit,
+				Service: in.Service, Env: in.Env, Stage: in.Stage, Commit: in.Commit, Image: in.Image,
 				Pipeline: in.Pipeline, Actor: in.Actor, Reason: in.Reason,
 			}, notify.EventBuildReady)
 		}

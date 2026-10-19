@@ -426,6 +426,7 @@ var zhCNNotify = map[Key]string{
 	"n.count.executing":      "%d 项执行中",
 	"n.count.pending":        "%d 项待执行",
 	"n.fieldStage":           "**阶段**\n",
+	"n.fieldTag":             "**镜像 tag**\n",
 	"n.fieldRelease":         "**发布单**\n",
 	"n.firstTime":            "(首次)",
 	"n.goApprove":            "去审批",

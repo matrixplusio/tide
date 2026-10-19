@@ -421,6 +421,7 @@ var enNotify = map[Key]string{
 	"n.count.executing":      "%d running",
 	"n.count.pending":        "%d waiting",
 	"n.fieldStage":           "**Stage**\n",
+	"n.fieldTag":             "**Image tag**\n",
 	"n.fieldRelease":         "**Release**\n",
 	"n.firstTime":            "(first time)",
 	"n.goApprove":            "Review it",

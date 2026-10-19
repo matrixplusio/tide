@@ -247,6 +247,7 @@ type Build struct {
 	Actor    string
 	Reason   string // the commit title
 	Detail   string // the failing job's last lines, or the warning
+	Image    string // the image reference the pipeline reported; empty when the build failed
 }
 
 func (m Message) text() string {
@@ -265,6 +266,9 @@ func BuildText(b *Build, event string, sys settings.System) string {
 	fmt.Fprintf(&w, "[%s] %s → %s  %s\n", sys.SiteName, b.Service, b.Env, t(eventText[event]))
 	if b.Stage != "" {
 		fmt.Fprint(&w, t("n.fieldStage")+b.Stage+"\n")
+	}
+	if tag := imageTag(b.Image); tag != "" {
+		fmt.Fprint(&w, t("n.fieldTag")+tag+"\n")
 	}
 	if b.Actor != "" {
 		fmt.Fprint(&w, t("n.fieldCreator")+b.Actor+"\n")
@@ -476,6 +480,9 @@ func larkBuildCard(msg Message) map[string]any {
 	if b.Commit != "" {
 		fields = append(fields, larkField("**Commit**\n"+clip(b.Commit, 12)))
 	}
+	if tag := imageTag(b.Image); tag != "" {
+		fields = append(fields, larkField(t("n.fieldTag")+tag))
+	}
 	elements := []any{map[string]any{"tag": "div", "fields": fields}}
 	if b.Reason != "" {
 		elements = append(elements, map[string]any{"tag": "div", "text": larkText(t("n.fieldReason") + b.Reason)})
@@ -668,14 +675,32 @@ func Text(r *release.Release, event string, sys settings.System) string {
 	return b.String()
 }
 
+// label names an artifact with its tag always: the version alone is what a
+// person reads, but the tag is what they copy into the next release, a
+// rollback or a search of the registry.
 func label(a *release.Artifact) string {
 	if a == nil {
 		return t("n.firstTime")
 	}
-	if a.Version != "" {
+	switch {
+	case a.Version != "" && a.Tag != "" && a.Version != a.Tag:
+		return a.Version + " · " + a.Tag
+	case a.Version != "":
 		return a.Version
 	}
 	return a.Tag
+}
+
+// imageTag is the tag of an image reference, or "" when it has none — a
+// port in the registry host is not a tag.
+func imageTag(ref string) string {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		ref = ref[:i]
+	}
+	if c := strings.LastIndex(ref, ":"); c > strings.LastIndex(ref, "/") {
+		return ref[c+1:]
+	}
+	return ""
 }
 
 // itemState is an item's status as a message shows it: an item stopped at a

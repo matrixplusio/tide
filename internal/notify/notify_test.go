@@ -413,3 +413,45 @@ func TestWaitingItemsAreNamedInBothMessages(t *testing.T) {
 }
 
 func t2(k string) string { return t(i18n.Key(k)) }
+
+// The tag is what people copy from a notification into the next release or
+// a rollback; a version label alone used to hide it.
+func TestAnArtifactIsShownWithItsTag(t *testing.T) {
+	for _, c := range []struct {
+		a    *release.Artifact
+		want string
+	}{
+		{&release.Artifact{Version: "v1.4.0", Tag: "20260917150452-938efb5c-0006"}, "v1.4.0 · 20260917150452-938efb5c-0006"},
+		{&release.Artifact{Tag: "20260917150452-938efb5c-0006"}, "20260917150452-938efb5c-0006"},
+		{&release.Artifact{Version: "v1.4.0", Tag: "v1.4.0"}, "v1.4.0"},
+	} {
+		if got := label(c.a); got != c.want {
+			t.Errorf("label(%+v) = %q, want %q", *c.a, got, c.want)
+		}
+	}
+	for ref, want := range map[string]string{
+		"registry.example.com/shop/order:20260917150452-938efb5c-0006":                  "20260917150452-938efb5c-0006",
+		"registry.example.com:5000/shop/order":                                          "",
+		"registry.example.com:5000/shop/order:v1.4.0@sha256:0123456789abcdef0123456789": "v1.4.0",
+		"": "",
+	} {
+		if got := imageTag(ref); got != want {
+			t.Errorf("imageTag(%q) = %q, want %q", ref, got, want)
+		}
+	}
+}
+
+func TestABuildNoticeCarriesItsTag(t *testing.T) {
+	b := &Build{Service: "order", Env: "qa", Image: "registry.example.com/shop/order:20260917150452-938efb5c-0006"}
+	if txt := BuildText(b, EventBuildReady, settings.System{SiteName: "Tide"}); !strings.Contains(txt, "20260917150452-938efb5c-0006") {
+		t.Errorf("plain text lacks the tag:\n%s", txt)
+	}
+	card, _ := json.Marshal(larkBuildCard(Message{Build: b, Event: EventBuildReady}))
+	if !strings.Contains(string(card), "20260917150452-938efb5c-0006") {
+		t.Errorf("card lacks the tag: %s", card)
+	}
+	b.Image = ""
+	if txt := BuildText(b, EventBuildReady, settings.System{SiteName: "Tide"}); strings.Contains(txt, "**") && strings.Contains(txt, "tag") {
+		t.Errorf("a build without an image shows a tag line:\n%s", txt)
+	}
+}
