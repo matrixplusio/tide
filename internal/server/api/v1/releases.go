@@ -321,11 +321,17 @@ type ReleaseView struct {
 
 func view(r *release.Release, policy settings.ReleasePolicy) ReleaseView {
 	v := ReleaseView{Release: r, Automatic: r.Automatic()}
+	loaded := r.Items != nil
 	if r.Items == nil {
 		r.Items = []release.Item{}
 	}
 	if r.Status == release.Confirming && r.SubmittedAt != nil {
-		ca, ea := r.SubmittedAt.Add(policy.ConfirmRead()), r.SubmittedAt.Add(policy.ConfirmTTL())
+		read := policy.ConfirmRead()
+		// A list without its items cannot tell; it shows the longer wait.
+		if loaded && !r.NeedsReading() {
+			read = 0 // the same rule Releases.Confirm applies
+		}
+		ca, ea := r.SubmittedAt.Add(read), r.SubmittedAt.Add(policy.ConfirmTTL())
 		v.ConfirmableAt, v.ExpiresAt = &ca, &ea
 	}
 	return v

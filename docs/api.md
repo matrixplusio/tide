@@ -62,7 +62,7 @@ Accept-Language: zh-CN  → {"code":1002,"msg":"请先登录"}
 | **发布单** ||||
 | 3001 | 404 | 发布单不存在 | |
 | 3002 | 409 | 该服务在这个环境已有进行中的发布单 | |
-| 3003 | 425 | 请先阅读清单 | 阅读时间未到（发布策略 `confirmReadSeconds`，最低 3 秒） |
+| 3003 | 425 | 请先阅读清单 | 阅读时间未到（发布策略 `confirmReadSeconds`，最低 3 秒；没有需要注意内容的单不等待） |
 | 3004 | 410 | 确认已过期，请取消后重新建单 | |
 | 3005 | 409 | 发布单当前状态不允许该操作 | |
 | 3006 | 409 | 确认的制品与发布单不一致，请刷新 | |
@@ -393,6 +393,8 @@ base64、更新还得带被替换文件的 blob SHA；创建分支的方式也�
 `{ reason?: string }`（≤ 500）→ `ReleaseView`。错误：1003、3001、3005。
 
 `ReleaseView = Release & { confirmableAt?, expiresAt?, automatic, ciToken? }`，倒计时以服务端时间 `now` 计算。
+
+阅读时间只对有需要注意内容的单生效：任一条目带提醒（「首次部署」这类纯提示除外，以后新增的提醒默认也算）、镜像升级带着未同步的配置变更、配置同步单、副本数单。只有无提醒的镜像升级和滚动重启的单，提交后立即可确认，`confirmableAt` 等于提交时间。服务端在确认时按库里的条目重新判断，确认审计 `release.confirm` 的 `detail.readRequired` 记录当时是否要求阅读。
 CI 建的单：`createdBy` 是 `ci:<令牌id>`（据此区分人和 CI），`createdByName` 是上报里的 `actor`（触发流水线的人，为空时退回令牌名），`ciToken` 是令牌名。
 详情里的 `changes`（按条目）`note` 取值：`firstDeploy`（没有正在运行的上一版可比）、`noBuild`、`noHistory`、`tooFar`。
 `Release.source` 是 `"ui"`（默认）或 `"ci"`。`automatic` 表示**没有人放行**（CI 建的单且确认主体就是那个令牌）；

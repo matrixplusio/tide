@@ -26,6 +26,17 @@ func input(service, env string) release.CreateInput {
 		Items: []release.ItemInput{{Kind: release.KindImage, Sequence: 1, Payload: p}}}
 }
 
+// warned is input with a rollback flagged, the kind of release whose
+// confirmation has to wait for the reading time.
+func warned(service, env string) release.CreateInput {
+	in := input(service, env)
+	var p release.ImagePayload
+	_ = json.Unmarshal(in.Items[0].Payload, &p)
+	p.Anomalies = []release.Anomaly{{Code: "rollback", Message: "rollback"}}
+	in.Items[0].Payload, _ = json.Marshal(p)
+	return in
+}
+
 func TestAuditIsAppendOnly(t *testing.T) {
 	s, _ := testdb.Setup(t)
 	ctx := context.Background()
@@ -75,7 +86,7 @@ func TestAuditMetaAndLikeEscaping(t *testing.T) {
 func TestConfirmEnforcedServerSide(t *testing.T) {
 	s, owner := testdb.Setup(t)
 	ctx := context.Background()
-	r, err := s.Releases.Create(ctx, alice, input("svc-a", "qa"))
+	r, err := s.Releases.Create(ctx, alice, warned("svc-a", "qa"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +114,28 @@ func TestConfirmEnforcedServerSide(t *testing.T) {
 	owner.Exec(`UPDATE releases SET submitted_at = now() - interval '11 minutes', status = 'confirming' WHERE id = $1`, r.ID)
 	if _, err := s.Releases.Confirm(ctx, alice, r.ID, 10*time.Second, 10*time.Minute, nil); !errors.Is(err, release.ErrConfirmExpired) {
 		t.Fatalf("stale confirm: %v", err)
+	}
+}
+
+// Nothing on the sheet to read, nothing to wait for: the reading time holds
+// a click back only where there is a warning to see. The audit says which.
+func TestAReleaseWithNothingToReadConfirmsAtOnce(t *testing.T) {
+	s, _ := testdb.Setup(t)
+	ctx := context.Background()
+	r, err := s.Releases.Create(ctx, alice, input("svc-a", "qa"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Releases.Submit(ctx, alice, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Releases.Confirm(ctx, alice, r.ID, 10*time.Second, 10*time.Minute, nil)
+	if err != nil || got.Status != release.Executing {
+		t.Fatalf("confirm without warnings: %+v %v", got, err)
+	}
+	items, _, _ := s.Audit.List(ctx, audit.Filter{Action: "release.confirm"}, 1, 20)
+	if len(items) != 1 || !strings.Contains(string(items[0].Detail), `"readRequired": false`) && !strings.Contains(string(items[0].Detail), `"readRequired":false`) {
+		t.Errorf("the confirmation's audit does not say no reading was required: %+v", items)
 	}
 }
 

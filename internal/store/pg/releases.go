@@ -188,6 +188,14 @@ func (r *Releases) Confirm(ctx context.Context, actor audit.Actor, id string, re
 		if !release.CanTransition(cur.Status, next) {
 			return fmt.Errorf("%w: %s → %s", release.ErrInvalidTransition, cur.Status, next)
 		}
+		// Judged on the items as stored, not on what the caller holds: the
+		// wait is the server's to enforce.
+		if cur.Items, err = tx.Items(ctx, id); err != nil {
+			return err
+		}
+		if !cur.NeedsReading() {
+			readTime = 0
+		}
 		var secs float64
 		if err := tx.db.Raw(`SELECT EXTRACT(EPOCH FROM now() - submitted_at) FROM releases WHERE id = $1`, id).Scan(&secs).Error; err != nil {
 			return err
@@ -207,12 +215,12 @@ func (r *Releases) Confirm(ctx context.Context, actor audit.Actor, id string, re
 				approval_expires_at = now() + make_interval(mins => $4) WHERE id = $1`, id, actor.Sub, string(b), rule.TimeoutMinutes).Error; err != nil {
 				return err
 			}
-			return tx.audit.Write(ctx, actor, "release.confirm", id, cur.JiraTicket, tx.detail(ctx, cur, map[string]any{"readSeconds": secs, "approval": rule}))
+			return tx.audit.Write(ctx, actor, "release.confirm", id, cur.JiraTicket, tx.detail(ctx, cur, map[string]any{"readSeconds": secs, "readRequired": readTime > 0, "approval": rule}))
 		}
 		if err := tx.db.Exec(`UPDATE releases SET status = 'executing', confirmed_at = now(), confirmed_by = $2 WHERE id = $1`, id, actor.Sub).Error; err != nil {
 			return err
 		}
-		return tx.audit.Write(ctx, actor, "release.confirm", id, cur.JiraTicket, tx.detail(ctx, cur, map[string]any{"readSeconds": secs}))
+		return tx.audit.Write(ctx, actor, "release.confirm", id, cur.JiraTicket, tx.detail(ctx, cur, map[string]any{"readSeconds": secs, "readRequired": readTime > 0}))
 	})
 	if denied != nil && cur != nil {
 		_ = r.audit.Write(ctx, actor, "release.confirm.denied", id, cur.JiraTicket, r.detail(ctx, cur, map[string]any{"error": denied.Error()}))
