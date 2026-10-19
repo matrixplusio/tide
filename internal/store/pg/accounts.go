@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,18 +24,23 @@ type RoleRef struct {
 
 // User is a person known to Tide, local or SSO.
 type User struct {
-	ID          int64      `json:"id"`
-	Sub         string     `json:"sub"`
-	Method      string     `json:"method"`
-	Username    string     `json:"username,omitempty"`
-	Name        string     `json:"name"`
-	Email       string     `json:"email,omitempty"`
-	Groups      []string   `json:"groups"`      // IdP groups at last SSO sign-in
-	LocalGroups []string   `json:"localGroups"` // Tide group memberships
-	Roles       []RoleRef  `json:"roles"`       // roles bound directly to the user
-	Disabled    bool       `json:"disabled"`
-	LastLoginAt *time.Time `json:"lastLoginAt,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
+	ID          int64     `json:"id"`
+	Sub         string    `json:"sub"`
+	Method      string    `json:"method"`
+	Username    string    `json:"username,omitempty"`
+	Name        string    `json:"name"`
+	Email       string    `json:"email,omitempty"`
+	Groups      []string  `json:"groups"`      // IdP groups at last SSO sign-in
+	LocalGroups []string  `json:"localGroups"` // Tide group memberships
+	Roles       []RoleRef `json:"roles"`       // roles bound directly to the user
+	Disabled    bool      `json:"disabled"`
+	// LarkID is the Lark user_id or open_id a notification mentions this
+	// person by; LarkIDSource says whether the SSO token or an administrator
+	// set it.
+	LarkID       string     `json:"larkId,omitempty"`
+	LarkIDSource string     `json:"larkIdSource,omitempty"`
+	LastLoginAt  *time.Time `json:"lastLoginAt,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt"`
 }
 
 // userColumns selects a User; scanUsers reads rows produced with it.
@@ -42,7 +48,7 @@ const userColumns = `u.id, u.sub, u.method, COALESCE(u.username, ''), u.name, CO
 	COALESCE((SELECT jsonb_agg(gm.group_name ORDER BY gm.group_name) FROM group_members gm WHERE gm.user_id = u.id), '[]'),
 	COALESCE((SELECT jsonb_agg(jsonb_build_object('id', r.id, 'name', r.name) ORDER BY r.id)
 	          FROM role_bindings b JOIN roles r ON r.id = b.role_id WHERE b.subject = 'user:' || u.sub), '[]'),
-	u.disabled, u.last_login_at, u.created_at`
+	u.disabled, COALESCE(u.lark_id, ''), COALESCE(u.lark_id_source, ''), u.last_login_at, u.created_at`
 
 func (a *Accounts) queryUsers(ctx context.Context, query string, args ...any) ([]User, error) {
 	rows, err := a.db.WithContext(ctx).Raw(query, args...).Rows()
@@ -55,7 +61,7 @@ func (a *Accounts) queryUsers(ctx context.Context, query string, args ...any) ([
 		var u User
 		var groups, local, roles []byte
 		if err := rows.Scan(&u.ID, &u.Sub, &u.Method, &u.Username, &u.Name, &u.Email, &groups, &local, &roles,
-			&u.Disabled, &u.LastLoginAt, &u.CreatedAt); err != nil {
+			&u.Disabled, &u.LarkID, &u.LarkIDSource, &u.LastLoginAt, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		u.Groups, u.LocalGroups, u.Roles = []string{}, []string{}, []RoleRef{}
@@ -165,6 +171,62 @@ func (a *Accounts) UpsertSSOUser(ctx context.Context, sub, name, email string, g
 		ON CONFLICT (sub) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, idp_groups = EXCLUDED.idp_groups
 		RETURNING id, disabled`, sub, name, email, string(g)).Scan(&row).Error
 	return row.ID, row.Disabled, err
+}
+
+// LarkIDPattern is what a Lark user_id or open_id looks like. Nothing else
+// goes into a mention: the id is written into the message markup.
+var LarkIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// SetLarkIDFromSSO records the Lark id the SSO token carried. A token
+// without one leaves whatever is there, so an id an administrator entered
+// survives until the IdP starts sending its own.
+func (a *Accounts) SetLarkIDFromSSO(ctx context.Context, userID int64, id string) error {
+	if !LarkIDPattern.MatchString(id) {
+		return nil
+	}
+	return a.db.WithContext(ctx).Exec(`UPDATE users SET lark_id = $2, lark_id_source = 'sso'
+		WHERE id = $1 AND lark_id IS DISTINCT FROM $2`, userID, id).Error
+}
+
+// SetLarkID is an administrator setting or clearing a user's Lark id.
+func (a *Accounts) SetLarkID(ctx context.Context, userID int64, id string) (bool, error) {
+	if id != "" && !LarkIDPattern.MatchString(id) {
+		return false, fmt.Errorf("lark id %q is not a Lark user_id or open_id", id)
+	}
+	res := a.db.WithContext(ctx).Exec(`UPDATE users SET lark_id = NULLIF($2, ''),
+		lark_id_source = CASE WHEN $2 = '' THEN NULL ELSE 'manual' END WHERE id = $1`, userID, id)
+	return res.RowsAffected > 0, res.Error
+}
+
+// LarkMentions returns the Lark ids of the enabled users named by subs or in
+// any of groups — IdP groups at their last sign-in and Tide groups alike, as
+// approval rules name them — skipping those with no id.
+func (a *Accounts) LarkMentions(ctx context.Context, subs, groups []string) ([]Mention, error) {
+	if len(subs) == 0 && len(groups) == 0 {
+		return nil, nil
+	}
+	if subs == nil {
+		subs = []string{}
+	}
+	if groups == nil {
+		groups = []string{}
+	}
+	var out []Mention
+	err := a.db.WithContext(ctx).Raw(`SELECT DISTINCT u.lark_id AS id, u.name FROM users u
+		WHERE u.lark_id IS NOT NULL AND NOT u.disabled AND (
+			u.sub = ANY($1)
+			-- idp_groups can be JSON null for a user whose token had no groups.
+			OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(u.idp_groups) = 'array'
+				THEN u.idp_groups ELSE '[]' END) g WHERE g = ANY($2))
+			OR EXISTS (SELECT 1 FROM group_members gm WHERE gm.user_id = u.id AND gm.group_name = ANY($2)))
+		ORDER BY u.name LIMIT 50`, subs, groups).Scan(&out).Error
+	return out, err
+}
+
+// Mention is a person a notification names, by their Lark id.
+type Mention struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 func (a *Accounts) TouchLogin(ctx context.Context, userID int64) error {

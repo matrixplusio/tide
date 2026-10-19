@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"tide/internal/rbac"
 	"tide/internal/release"
 	"tide/internal/settings"
+	"tide/internal/store/pg"
 	"tide/internal/upstream"
 )
 
@@ -77,6 +79,62 @@ func t(k i18n.Key, args ...any) string { return i18n.T(i18n.Default, k, args...)
 type Notifier struct {
 	Settings *settings.Store
 	HTTP     *http.Client
+	// People finds whom a release event is for, by Lark id. Nil: nobody is
+	// mentioned.
+	People People
+}
+
+// People looks up the Lark ids of users by subject or group.
+type People interface {
+	LarkMentions(ctx context.Context, subs, groups []string) ([]pg.Mention, error)
+}
+
+// larkID is what a Lark user_id or open_id looks like. Checked again here,
+// not only where the id is stored: it is written into message markup, and
+// nothing else may be.
+var larkID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// whom names the people a release event asks something of: the approvers
+// when it waits for approval; the person who started it when it waits for
+// their switch or has failed. Every other event only reports, and mentions
+// nobody — a channel that pings on every success is a channel people mute.
+func whom(r *release.Release, event string) (subs, groups []string) {
+	switch event {
+	case EventApproval:
+		if r.ApprovalRule == nil {
+			return nil, nil
+		}
+		for _, a := range r.ApprovalRule.Approvers {
+			kind, v, _ := strings.Cut(a, ":")
+			switch kind {
+			case "user":
+				subs = append(subs, v)
+			case "group":
+				groups = append(groups, v)
+			}
+		}
+		return subs, groups
+	case EventSwitch, EventFailed:
+		return []string{r.CreatedBy}, nil
+	}
+	return nil, nil
+}
+
+func (n *Notifier) mentions(ctx context.Context, r *release.Release, event string) []pg.Mention {
+	if n.People == nil {
+		return nil
+	}
+	subs, groups := whom(r, event)
+	if len(subs) == 0 && len(groups) == 0 {
+		return nil
+	}
+	ms, err := n.People.LarkMentions(ctx, subs, groups)
+	if err != nil {
+		// A message without its mentions still says what happened.
+		zap.L().Warn("looking up whom to mention failed", zap.String("release", r.ID), zap.Error(err))
+		return nil
+	}
+	return slices.DeleteFunc(ms, func(m pg.Mention) bool { return !larkID.MatchString(m.ID) })
 }
 
 func (n *Notifier) client() *http.Client {
@@ -107,8 +165,9 @@ func (n *Notifier) ReleaseEvent(ctx context.Context, r *release.Release, event s
 		return
 	}
 	sys, _ := n.Settings.System(ctx)
+	mentions := n.mentions(ctx, r, event)
 	for _, ch := range targets {
-		if err := n.send(ctx, ch, Message{Release: r, Event: event, System: sys}); err != nil {
+		if err := n.send(ctx, ch, Message{Release: r, Event: event, System: sys, Mentions: mentions}); err != nil {
 			zap.L().Warn("notification failed", zap.String("channel", ch.Name), zap.String("release", r.ID), zap.Error(err))
 		}
 	}
@@ -218,9 +277,18 @@ func (n *Notifier) BuildEvent(ctx context.Context, b Build, event string) {
 // channel renders cards — because a test that arrives as plain text while
 // every real message arrives as a card has not tested what it claims to:
 // a card can be refused (keyword rules, signature) where text is accepted.
-func (n *Notifier) Test(ctx context.Context, ch settings.Channel) error {
+//
+// The person testing is mentioned when Tide knows their Lark id: that is how
+// whoever sets up mentions finds out whether the id works in this channel.
+func (n *Notifier) Test(ctx context.Context, ch settings.Channel, by string) error {
 	sys, _ := n.Settings.System(ctx)
-	return n.send(ctx, ch, Message{Test: true, System: sys, Text: t("n.test", sys.SiteName, ch.Name)})
+	var ms []pg.Mention
+	if n.People != nil && by != "" {
+		if found, err := n.People.LarkMentions(ctx, []string{by}, nil); err == nil {
+			ms = found
+		}
+	}
+	return n.send(ctx, ch, Message{Test: true, System: sys, Text: t("n.test", sys.SiteName, ch.Name), Mentions: ms})
 }
 
 // Message is one notification: either a release event (rendered per channel
@@ -234,6 +302,9 @@ type Message struct {
 	// Test marks the message the "test this channel" button sends. It has
 	// no release and no build behind it, and still renders as a card.
 	Test bool
+	// Mentions are the people the message asks something of. Only Lark
+	// renders them; elsewhere they are left out.
+	Mentions []pg.Mention
 }
 
 // Build is a pipeline outcome that produced no release: a failed build, or
@@ -336,6 +407,18 @@ func redactURL(u string) string {
 	return scheme + "://" + host + "/…"
 }
 
+// larkAts renders mentions the way a Lark card's markdown takes them. The
+// name between the tags is ignored by Lark, which shows the person's own.
+func larkAts(ms []pg.Mention) string {
+	var b strings.Builder
+	for _, m := range ms {
+		if larkID.MatchString(m.ID) {
+			fmt.Fprintf(&b, "<at id=%s></at> ", m.ID)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func payload(ch settings.Channel, msg Message, now time.Time) ([]byte, error) {
 	switch ch.Kind {
 	case "teams":
@@ -399,7 +482,11 @@ func LarkCard(msg Message) map[string]any {
 	if sum := outcome(r); sum != "" {
 		fields = append(fields, larkField(t("n.fieldOutcome")+sum))
 	}
-	elements := []any{map[string]any{"tag": "div", "fields": fields}}
+	elements := []any{}
+	if at := larkAts(msg.Mentions); at != "" {
+		elements = append(elements, map[string]any{"tag": "div", "text": larkText(at)})
+	}
+	elements = append(elements, map[string]any{"tag": "div", "fields": fields})
 	if lines := itemLines(r); lines != "" {
 		elements = append(elements, map[string]any{"tag": "div", "text": larkText(lines)})
 	}
@@ -441,6 +528,9 @@ func LarkCard(msg Message) map[string]any {
 // larkTestCard proves the channel works, in the shape the real ones use.
 func larkTestCard(msg Message) map[string]any {
 	elements := []any{map[string]any{"tag": "div", "text": larkText(msg.Text)}}
+	if at := larkAts(msg.Mentions); at != "" {
+		elements = append(elements, map[string]any{"tag": "div", "text": larkText(at)})
+	}
 	if msg.System.BaseURL != "" {
 		elements = append(elements, map[string]any{"tag": "action", "actions": []any{map[string]any{
 			"tag": "button", "type": "primary", "url": strings.TrimRight(msg.System.BaseURL, "/"),

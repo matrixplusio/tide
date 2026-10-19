@@ -127,6 +127,29 @@ func (a *API) renameUser(c *gin.Context) {
 	respond.OK(c, u)
 }
 
+type larkIDReq struct {
+	LarkID string `json:"larkId"`
+}
+
+func (a *API) setUserLarkID(c *gin.Context) {
+	id, err := userParam(c)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	var req larkIDReq
+	if err := bindJSON(c, &req); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	u, err := a.Auth.SetLarkID(c.Request.Context(), currentUser(c), id, req.LarkID)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	respond.OK(c, u)
+}
+
 type resetPasswordReq struct {
 	NewPassword     string `json:"newPassword" binding:"required" label:"newPassword"`
 	ConfirmPassword string `json:"confirmPassword" binding:"required" label:"confirmPassword"`

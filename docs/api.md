@@ -130,6 +130,10 @@ Prometheus 文本格式，不走信封。由 `server.metrics` 开关（默认开
 
 SSO 登录时，Tide 从 ID Token 的 `groupsClaim` 字段（默认 `groups`）读取角色或组，作为用户的组，角色绑定用 `group:<名字>` 授权。支持的形状：字符串列表、单个字符串（逗号或空格分隔）、对象列表（依次取 `code`、`value`、`key`、`id`、`name`、`role`）；字段名带点且没有同名字段时按嵌套路径取，如 `resource_access.tide.roles`。每人最多 100 个，每个最长 255 字符，其余形状一律忽略。每次登录刷新。登录审计 `auth.login` 的 `detail.claims` 记录令牌里的字段名（不含值），用来确认角色放在哪个字段。
 
+飞书艾特：SSO 设置的 `larkIdClaim`（如 `lark_user_id`）指定 ID Token 里放用户飞书 user_id 或 open_id 的字段，每次登录有值就更新用户的飞书 ID（来源记为 `sso`）；没有值则保留原值。管理员也可以用 `PUT /api/v1/users/:user/lark`（权限 users.manage）`{ larkId }` 手动设置，空字符串为清除，来源记为 `manual`，写审计 `user.lark`。飞书 ID 只接受 `[A-Za-z0-9_-]{1,64}`（数据库约束同样检查），因为它会写进消息卡片。`User` 多两个字段 `larkId?`、`larkIdSource?`（`sso` | `manual`）。
+
+发到飞书渠道的发布单卡片会艾特：等待审批时艾特审批规则里的审批人（`user:` 和 `group:`，组含 IdP 组和 Tide 组），等待切换和发布失败时艾特发起人；其余事件不艾特。没有飞书 ID 或已禁用的人跳过，最多 50 人。点渠道的「测试」时，测试卡片会艾特点测试的人（有飞书 ID 时），用来确认这个渠道能艾特到人。
+
 ### `GET /api/v1/setup/state`
 → `{ initialized: bool, tokenVerified: bool, passwordPolicy: PasswordPolicy }`
 已初始化后所有 setup 接口返回 1004。
@@ -606,7 +610,7 @@ POST `{ id, name, description, permissions }`；PUT `{ name, description, permis
 | `environments` | environments.manage | `{ items: Environment[] }`，顺序即显示顺序（制品来源由 Kargo Stage 决定） |
 | `catalog` | environments.manage | `{ serviceLabel, envLabel, domainLabel, projectLabel, dimensions: Dimension[], batchDimension }` |
 | `notify` | notifications.manage | `{ channels: Channel[], rules: NotifyRule[] }` |
-| `oidc` | settings.manage | OIDC：`{ issuer, clientId, clientSecret🔒, groupsClaim, scopes?: string[], redirectUrl }`。`scopes` 为空用 `openid profile email groups`，不含 `openid` 时自动补上；最多 20 个，每个不含空格、引号、反斜杠，最长 64 字符 |
+| `oidc` | settings.manage | OIDC：`{ issuer, clientId, clientSecret🔒, groupsClaim, larkIdClaim?, scopes?: string[], redirectUrl }`。`scopes` 为空用 `openid profile email groups`，不含 `openid` 时自动补上；最多 20 个，每个不含空格、引号、反斜杠，最长 64 字符 |
 | `security` | settings.manage | 登录与安全 |
 | `release` | settings.manage | 发布策略 |
 | `system` | settings.manage | 通用 |

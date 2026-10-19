@@ -33,12 +33,12 @@ import {
   useToast,
 } from '../../../components/ui'
 import { AdminToolbar } from '../AdminToolbar'
-import { useRenameUser, useResetUserPassword, useRevokeUserSessions, useSetUserDisabled, useUser } from '../queries'
-import { nameSchema, resetPasswordSchema, type NameValues, type ResetPasswordValues } from '../schemas'
+import { useRenameUser, useResetUserPassword, useRevokeUserSessions, useSetUserDisabled, useSetUserLarkId, useUser } from '../queries'
+import { larkIdSchema, nameSchema, resetPasswordSchema, type LarkIdValues, type NameValues, type ResetPasswordValues } from '../schemas'
 import type { UserRow } from '../types'
 import { methodLabel, userDisplay } from './format'
 
-type Dialog = 'rename' | 'password' | 'disable' | 'signout' | null
+type Dialog = 'rename' | 'lark' | 'password' | 'disable' | 'signout' | null
 
 export function UserDetailPage() {
   const { t } = useTranslation()
@@ -86,6 +86,15 @@ export function UserDetailPage() {
               )}
               <KV k={t('userDetail.method')}>{methodLabel(u.method)}</KV>
               <KV k={t('userDetail.email')}>{u.email || '—'}</KV>
+              <KV k={t('userDetail.larkId')} mono>
+                {u.larkId ? (
+                  <>
+                    {u.larkId} <span className="muted">{u.larkIdSource === 'sso' ? t('userDetail.larkIdFromSso') : t('userDetail.larkIdManual')}</span>
+                  </>
+                ) : (
+                  <span className="faint">{t('userDetail.larkIdNone')}</span>
+                )}
+              </KV>
               <KV k={t('userDetail.status')}>
                 <StatusDot state={u.disabled ? 'off' : 'ok'} /> {u.disabled ? t('users.disabled') : t('users.enabled')}
               </KV>
@@ -104,6 +113,9 @@ export function UserDetailPage() {
                   {t('userDetail.resetPassword')}
                 </Button>
               )}
+              <Button variant="quiet" size="small" onClick={() => setDialog('lark')}>
+                {t('userDetail.editLarkId')}
+              </Button>
               <Button variant="quiet" size="small" disabled={sessionCount === 0} onClick={() => setDialog('signout')}>
                 {t('userDetail.signOutAll')}
               </Button>
@@ -165,6 +177,7 @@ export function UserDetailPage() {
       </Page>
 
       {u && dialog === 'rename' && <RenameModal user={u} onClose={close} />}
+      {u && dialog === 'lark' && <LarkIdModal user={u} onClose={close} />}
       {u && dialog === 'password' && <ResetPasswordModal user={u} onClose={close} />}
       {u && dialog === 'disable' && (
         <ConfirmModal
@@ -298,6 +311,48 @@ function ResetPasswordModal({ user, onClose }: { user: UserRow; onClose: () => v
           </Button>
           <Button type="submit" loading={formState.isSubmitting} loadingText={t('admin.saving')}>
             {t('userDetail.resetPassword')}
+          </Button>
+        </ButtonRow>
+      </Form>
+    </Modal>
+  )
+}
+
+function LarkIdModal({ user, onClose }: { user: UserRow; onClose: () => void }) {
+  const { t } = useTranslation()
+  const toast = useToast()
+  const save = useSetUserLarkId()
+  const [formError, setFormError] = useState<unknown>(null)
+  const form = useForm<LarkIdValues>({ resolver: zodResolver(larkIdSchema), mode: 'onTouched', defaultValues: { larkId: user.larkId ?? '' } })
+  const { register, handleSubmit, formState } = form
+
+  const onSubmit = handleSubmit(async (v) => {
+    setFormError(null)
+    try {
+      await save.mutateAsync({ id: user.id, larkId: v.larkId.trim() })
+      toast.success(t('userDetail.larkIdSaved'))
+      onClose()
+    } catch (e) {
+      setFormError(applyServerError(form, e))
+    }
+  }, () => setFormError(null))
+
+  return (
+    <Modal title={t('userDetail.editLarkIdTitle', { who: userDisplay(user) })} onClose={onClose} closeOnEsc={!formState.isSubmitting} width={460}>
+      <Form onSubmit={onSubmit}>
+        <Group form>
+          <FormField label={t('userDetail.larkId')} error={formState.errors.larkId?.message} hint={t('userDetail.larkIdHint')}>
+            {(p) => <Input {...p} {...register('larkId')} mono autoComplete="off" spellCheck={false} data-autofocus />}
+          </FormField>
+        </Group>
+        <FormErrorBanner error={formError} />
+        <ButtonRow style={{ marginTop: 16 }}>
+          <span className="grow" />
+          <Button variant="quiet" onClick={onClose} disabled={formState.isSubmitting}>
+            {t('admin.cancel')}
+          </Button>
+          <Button type="submit" loading={formState.isSubmitting} loadingText={t('admin.saving')}>
+            {t('settings.save')}
           </Button>
         </ButtonRow>
       </Form>

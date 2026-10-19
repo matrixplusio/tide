@@ -67,3 +67,17 @@ func TestOnlyClaimNamesAreRecorded(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestTheLarkIDClaimIsReadLikeTheGroupsClaim(t *testing.T) {
+	for claim, want := range map[string]string{
+		"lark_user_id":     "a1b2c3",
+		"ext.lark.open_id": "ou_123",
+		"missing":          "",
+		"not_a_string":     "",
+	} {
+		got := larkIDClaim(claimsOf(t, `{"lark_user_id":" a1b2c3 ","ext":{"lark":{"open_id":"ou_123"}},"not_a_string":42}`), claim)
+		if got != want {
+			t.Errorf("larkIDClaim(%q) = %q, want %q", claim, got, want)
+		}
+	}
+}

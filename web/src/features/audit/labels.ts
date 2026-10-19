@@ -42,6 +42,7 @@ export const actionLabel: Record<string, string> = {
   'user.create': 'User created',
   'user.rename': 'User renamed',
   'user.password': 'Password reset',
+  'user.lark': 'Lark ID changed',
   'user.enable': 'User enabled',
   'user.disable': 'User disabled',
   'user.sessions.revoke': 'User sessions revoked',

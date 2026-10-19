@@ -13,6 +13,9 @@ export interface UserRow {
   localGroups: string[] | null
   roles: { id: string; name: string }[] | null
   disabled: boolean
+  /** Lark user_id or open_id notifications mention this user by. */
+  larkId?: string
+  larkIdSource?: 'sso' | 'manual'
   lastLoginAt?: string
   createdAt: string
 }
@@ -120,6 +123,8 @@ export interface OIDC {
   clientId: string
   clientSecret: string
   groupsClaim: string
+  /** Token claim with the user's Lark user_id or open_id; empty: not read. */
+  larkIdClaim?: string
   /** Empty means Tide's default: openid profile email groups. */
   scopes?: string[]
   redirectUrl: string

@@ -113,6 +113,7 @@ var zhCNLabels = map[Key]string{ //nolint:gosec // G101: message templates, not 
 	"label.secret":      "签名密钥",
 	"label.clientId":    "Client ID",
 	"label.groupsClaim": "Groups claim",
+	"label.larkIdClaim": "飞书 ID 字段",
 	"label.kargoToken":  "Kargo token",
 	"label.argocdToken": "Argo CD token",
 }
@@ -123,6 +124,7 @@ var zhCNSettings = map[Key]string{ //nolint:gosec // G101: message templates, no
 	"s.announceLevel":        "级别只能是 info 或 warning",
 	"s.announceTextRequired": "启用公告时请填写内容",
 	"s.approvalMode":         "审批方式只能是任一人、全部或至少 N 人",
+	"s.larkIdFormat":         "飞书 ID 只能是字母、数字、下划线、横线，最长 64 位（user_id 或 ou_ 开头的 open_id）",
 	"s.approverFormat":       "审批人格式应为 user:<账号> 或 group:<组名>",
 	"s.approversRequired":    "请至少指定一个审批人或组",
 	"s.badLabelKey":          "不是合法的 Kubernetes label 键",

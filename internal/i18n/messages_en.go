@@ -108,6 +108,7 @@ var enLabels = map[Key]string{ //nolint:gosec // G101: message templates, not cr
 	"label.secret":      "the signing secret",
 	"label.clientId":    "the Client ID",
 	"label.groupsClaim": "the groups claim",
+	"label.larkIdClaim": "the Lark ID claim",
 	"label.kargoToken":  "the Kargo token",
 	"label.argocdToken": "the Argo CD token",
 }
@@ -118,6 +119,7 @@ var enSettings = map[Key]string{ //nolint:gosec // G101: message templates, not 
 	"s.announceLevel":        "The level is either info or warning",
 	"s.announceTextRequired": "An enabled announcement needs some text",
 	"s.approvalMode":         "The mode is any one, everyone, or at least N",
+	"s.larkIdFormat":         "A Lark ID is letters, digits, _ and -, at most 64 (a user_id, or an open_id starting ou_)",
 	"s.approverFormat":       "An approver is written user:<account> or group:<group>",
 	"s.approversRequired":    "Name at least one approver or group",
 	"s.badLabelKey":          "Not a valid Kubernetes label key",

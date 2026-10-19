@@ -150,6 +150,14 @@ func (s *Service) SSOFinish(ctx context.Context, flowCookie string, q url.Values
 		if disabled {
 			return ErrAccountDisabled
 		}
+		// The Lark id a notification mentions this person by, when the IdP
+		// sends one. Anything not shaped like a Lark id is ignored, not
+		// stored: it ends up inside message markup.
+		if cfg.LarkIDClaim != "" {
+			if err := tx.Accounts.SetLarkIDFromSSO(ctx, id, larkIDClaim(claims, cfg.LarkIDClaim)); err != nil {
+				return err
+			}
+		}
 		actor := audit.Actor{Sub: sub, Name: name}
 		// The claim names, never their values: which field an IdP puts its
 		// roles in is what an administrator has to find out to configure
@@ -260,6 +268,17 @@ func nested(m map[string]any, path []string) (any, bool) {
 
 // claimNames lists the top-level claim names of a token, sorted, without
 // their values.
+// larkIDClaim reads the Lark id the way the groups claim is read: by name,
+// or by a dotted path when no field has that name. Only a string counts.
+func larkIDClaim(m map[string]any, claim string) string {
+	v, ok := m[claim]
+	if !ok && strings.Contains(claim, ".") {
+		v, _ = nested(m, strings.Split(claim, "."))
+	}
+	s, _ := v.(string)
+	return strings.TrimSpace(s)
+}
+
 func claimNames(m map[string]any) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

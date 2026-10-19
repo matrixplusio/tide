@@ -123,7 +123,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	notifier := &notify.Notifier{Settings: set}
+	notifier := &notify.Notifier{Settings: set, People: pgs.Accounts}
 	ciSvc := &ci.Service{PG: pgs, Settings: set, Hub: hub, Notifier: notifier}
 	// Engine takes no context: it assembles handlers, and each one works from
 	// its own request's context.

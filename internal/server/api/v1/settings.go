@@ -279,7 +279,7 @@ func (a *API) testNotify(c *gin.Context) {
 	}
 	tctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if err := a.Notifier.Test(tctx, *ch); err != nil {
+	if err := a.Notifier.Test(tctx, *ch, currentUser(c).Sub); err != nil {
 		msg := errcode.From(err).Text(i18n.From(c.Request.Context()))
 		if errcode.From(err).Code == errcode.Internal {
 			msg = err.Error()
@@ -344,11 +344,12 @@ func (a *API) validateSection(ctx context.Context, v any) error {
 	}
 	switch s := v.(type) {
 	case *settings.OIDC:
-		trim(&s.Issuer, &s.ClientID, &s.GroupsClaim, &s.RedirectURL)
+		trim(&s.Issuer, &s.ClientID, &s.GroupsClaim, &s.LarkIDClaim, &s.RedirectURL)
 		add(validate.HTTPURL("issuer", s.Issuer, true, validate.BaseURL))
 		add(validate.Required("clientId", s.ClientID, "label.clientId"))
 		add(validate.MaxLen("clientId", s.ClientID, 255, "label.clientId"))
 		add(validate.MaxLen("groupsClaim", s.GroupsClaim, 64, "label.groupsClaim"))
+		add(validate.MaxLen("larkIdClaim", s.LarkIDClaim, 64, "label.larkIdClaim"))
 		// Scopes go into the authorization URL verbatim.
 		if len(s.Scopes) > 20 {
 			add(validate.FieldKey("scopes", "s.scopesTooMany"))

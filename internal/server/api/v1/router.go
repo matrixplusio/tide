@@ -166,6 +166,7 @@ func Register(r *gin.Engine, d Deps) {
 	h("GET", "/users/:user", need(rbac.UsersManage, rbac.RolesManage), a.getUser)
 	h("PUT", "/users/:user", need(rbac.UsersManage), a.renameUser)
 	h("PUT", "/users/:user/password", need(rbac.UsersManage), a.resetPassword)
+	h("PUT", "/users/:user/lark", need(rbac.UsersManage), a.setUserLarkID)
 	h("PUT", "/users/:user/disabled", need(rbac.UsersManage), a.setUserDisabled)
 	h("DELETE", "/users/:user/sessions", need(rbac.UsersManage), a.revokeUserSessions)
 	h("GET", "/groups", need(rbac.UsersManage, rbac.RolesManage), a.listGroups)

@@ -1,7 +1,10 @@
 package notify
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +12,7 @@ import (
 	"tide/internal/i18n"
 	"tide/internal/release"
 	"tide/internal/settings"
+	"tide/internal/store/pg"
 )
 
 func names(cs []settings.Channel) []string {
@@ -453,5 +457,62 @@ func TestABuildNoticeCarriesItsTag(t *testing.T) {
 	b.Image = ""
 	if txt := BuildText(b, EventBuildReady, settings.System{SiteName: "Tide"}); strings.Contains(txt, "**") && strings.Contains(txt, "tag") {
 		t.Errorf("a build without an image shows a tag line:\n%s", txt)
+	}
+}
+
+type fakePeople struct {
+	subs, groups []string
+	out          []pg.Mention
+}
+
+func (f *fakePeople) LarkMentions(_ context.Context, subs, groups []string) ([]pg.Mention, error) {
+	f.subs, f.groups = subs, groups
+	return f.out, nil
+}
+
+// Only the events that ask somebody to act mention anyone: approvers when it
+// waits for approval, the starter when it waits for a switch or failed.
+func TestWhomAnEventIsFor(t *testing.T) {
+	r := &release.Release{CreatedBy: "oidc|alice", ApprovalRule: &release.ApprovalRule{Approvers: []string{"user:oidc|bob", "group:Ops", "bogus"}}}
+	for event, want := range map[string][2][]string{
+		EventApproval:  {{"oidc|bob"}, {"Ops"}},
+		EventSwitch:    {{"oidc|alice"}, nil},
+		EventFailed:    {{"oidc|alice"}, nil},
+		EventSucceeded: {nil, nil},
+		EventStarted:   {nil, nil},
+		EventPending:   {nil, nil},
+	} {
+		subs, groups := whom(r, event)
+		if !slices.Equal(subs, want[0]) || !slices.Equal(groups, want[1]) {
+			t.Errorf("%s: subs %v groups %v, want %v %v", event, subs, groups, want[0], want[1])
+		}
+	}
+}
+
+// An id goes into the card's markup, so anything not shaped like a Lark id
+// is dropped — whatever the store returned.
+func TestMentionsAreOnlyLarkIDs(t *testing.T) {
+	got := larkAts([]pg.Mention{{ID: "ou_0123abcd"}, {ID: "x></at><at id=all"}, {ID: ""}, {ID: "a1b2c3"}})
+	if got != "<at id=ou_0123abcd></at> <at id=a1b2c3></at>" {
+		t.Errorf("larkAts = %q", got)
+	}
+}
+
+func TestTheApprovalCardMentionsTheApprovers(t *testing.T) {
+	people := &fakePeople{out: []pg.Mention{{ID: "ou_bob", Name: "Bob"}, {ID: "bad id"}}}
+	n := &Notifier{People: people}
+	r := &release.Release{ID: "REL-1", Env: "uat", CreatedBy: "oidc|alice", Title: "order → uat",
+		ApprovalRule: &release.ApprovalRule{Name: "uat", Approvers: []string{"group:Ops"}}}
+	ms := n.mentions(context.Background(), r, EventApproval)
+	if len(ms) != 1 || ms[0].ID != "ou_bob" || !slices.Equal(people.groups, []string{"Ops"}) {
+		t.Fatalf("mentions %+v, asked for groups %v", ms, people.groups)
+	}
+	// Marshalled, < and > come out escaped as \u003c; Lark decodes them.
+	card := fmt.Sprint(LarkCard(Message{Release: r, Event: EventApproval, Mentions: ms}))
+	if !strings.Contains(card, "<at id=ou_bob></at>") {
+		t.Errorf("approval card does not mention the approver: %s", card)
+	}
+	if got := n.mentions(context.Background(), r, EventSucceeded); got != nil {
+		t.Errorf("a success mentions %+v", got)
 	}
 }

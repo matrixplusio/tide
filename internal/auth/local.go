@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -281,6 +282,30 @@ func (s *Service) Rename(ctx context.Context, actor *User, userID int64, name st
 			return err
 		}
 		return tx.Audit.Write(ctx, actor.Actor(), "user.rename", u.Sub, "", map[string]any{"before": u.Name, "after": name})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.PG.Accounts.UserByID(ctx, u.ID)
+}
+
+// SetLarkID sets or clears the Lark id notifications mention a user by. It
+// is for the users the SSO token does not carry one for; a token that does
+// replaces it at the user's next sign-in.
+func (s *Service) SetLarkID(ctx context.Context, actor *User, userID int64, larkID string) (*pg.User, error) {
+	u, err := s.target(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	larkID = strings.TrimSpace(larkID)
+	if larkID != "" && !pg.LarkIDPattern.MatchString(larkID) {
+		return nil, validate.Collect(validate.FieldKey("larkId", "s.larkIdFormat"))
+	}
+	err = s.PG.Tx(ctx, func(tx *pg.Store) error {
+		if _, err := tx.Accounts.SetLarkID(ctx, u.ID, larkID); err != nil {
+			return err
+		}
+		return tx.Audit.Write(ctx, actor.Actor(), "user.lark", u.Sub, "", map[string]any{"before": u.LarkID, "after": larkID})
 	})
 	if err != nil {
 		return nil, err
