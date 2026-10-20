@@ -26,8 +26,11 @@ type OIDC struct {
 	GroupsClaim  string `json:"groupsClaim"`
 	// LarkIDClaim names the token claim carrying the person's Lark user_id
 	// or open_id, so a notification can mention them. Empty: not read.
-	LarkIDClaim string   `json:"larkIdClaim,omitempty"`
-	Scopes      []string `json:"scopes,omitempty"`
+	LarkIDClaim string `json:"larkIdClaim,omitempty"`
+	// TeamsIDClaim names the token claim carrying the person's Microsoft
+	// Entra object id, so a Teams card can mention them. Empty: not read.
+	TeamsIDClaim string   `json:"teamsIdClaim,omitempty"`
+	Scopes       []string `json:"scopes,omitempty"`
 	// RedirectURL is the externally visible callback, e.g. https://tide.example.com/auth/callback.
 	RedirectURL string `json:"redirectUrl"`
 }

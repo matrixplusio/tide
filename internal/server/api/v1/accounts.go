@@ -150,6 +150,29 @@ func (a *API) setUserLarkID(c *gin.Context) {
 	respond.OK(c, u)
 }
 
+type teamsIDReq struct {
+	TeamsID string `json:"teamsId"`
+}
+
+func (a *API) setUserTeamsID(c *gin.Context) {
+	id, err := userParam(c)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	var req teamsIDReq
+	if err := bindJSON(c, &req); err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	u, err := a.Auth.SetTeamsID(c.Request.Context(), currentUser(c), id, req.TeamsID)
+	if err != nil {
+		respond.Fail(c, err)
+		return
+	}
+	respond.OK(c, u)
+}
+
 type resetPasswordReq struct {
 	NewPassword     string `json:"newPassword" binding:"required" label:"newPassword"`
 	ConfirmPassword string `json:"confirmPassword" binding:"required" label:"confirmPassword"`

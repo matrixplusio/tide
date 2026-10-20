@@ -134,7 +134,9 @@ func (n *Notifier) mentions(ctx context.Context, r *release.Release, event strin
 		zap.L().Warn("looking up whom to mention failed", zap.String("release", r.ID), zap.Error(err))
 		return nil
 	}
-	return slices.DeleteFunc(ms, func(m pg.Mention) bool { return !larkID.MatchString(m.ID) })
+	// Each channel renders only the id it uses; a person with neither
+	// usable id is nobody to mention.
+	return slices.DeleteFunc(ms, func(m pg.Mention) bool { return !larkID.MatchString(m.ID) && !pg.TeamsIDPattern.MatchString(m.TeamsID) })
 }
 
 func (n *Notifier) client() *http.Client {
@@ -446,7 +448,7 @@ func larkAts(ms []pg.Mention) string {
 func payload(ch settings.Channel, msg Message, now time.Time) ([]byte, error) {
 	switch ch.Kind {
 	case "teams":
-		return json.Marshal(map[string]string{"text": strings.ReplaceAll(msg.text(), "\n", "\n\n")})
+		return json.Marshal(TeamsMessage(msg))
 	case "lark":
 		body := map[string]any{"msg_type": "text", "content": map[string]string{"text": msg.text()}}
 		if card := LarkCard(msg); card != nil {

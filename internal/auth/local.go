@@ -313,6 +313,29 @@ func (s *Service) SetLarkID(ctx context.Context, actor *User, userID int64, lark
 	return s.PG.Accounts.UserByID(ctx, u.ID)
 }
 
+// SetTeamsID sets or clears the Microsoft Entra object id Teams cards
+// mention a user by; SetLarkID's rules apply.
+func (s *Service) SetTeamsID(ctx context.Context, actor *User, userID int64, teamsID string) (*pg.User, error) {
+	u, err := s.target(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	teamsID = strings.TrimSpace(teamsID)
+	if teamsID != "" && !pg.TeamsIDPattern.MatchString(teamsID) {
+		return nil, validate.Collect(validate.FieldKey("teamsId", "s.teamsIdFormat"))
+	}
+	err = s.PG.Tx(ctx, func(tx *pg.Store) error {
+		if _, err := tx.Accounts.SetTeamsID(ctx, u.ID, teamsID); err != nil {
+			return err
+		}
+		return tx.Audit.Write(ctx, actor.Actor(), "user.teams", u.Sub, "", map[string]any{"before": u.TeamsID, "after": teamsID})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.PG.Accounts.UserByID(ctx, u.ID)
+}
+
 func (s *Service) CreateUser(ctx context.Context, admin *User, username, name, password string) (*pg.User, error) {
 	var id int64
 	err := s.PG.Tx(ctx, func(tx *pg.Store) error {

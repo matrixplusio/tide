@@ -37,10 +37,14 @@ type User struct {
 	// LarkID is the Lark user_id or open_id a notification mentions this
 	// person by; LarkIDSource says whether the SSO token or an administrator
 	// set it.
-	LarkID       string     `json:"larkId,omitempty"`
-	LarkIDSource string     `json:"larkIdSource,omitempty"`
-	LastLoginAt  *time.Time `json:"lastLoginAt,omitempty"`
-	CreatedAt    time.Time  `json:"createdAt"`
+	LarkID       string `json:"larkId,omitempty"`
+	LarkIDSource string `json:"larkIdSource,omitempty"`
+	// TeamsID is the Microsoft Entra object id a Teams card mentions this
+	// person by, with where it came from.
+	TeamsID       string     `json:"teamsId,omitempty"`
+	TeamsIDSource string     `json:"teamsIdSource,omitempty"`
+	LastLoginAt   *time.Time `json:"lastLoginAt,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
 }
 
 // userColumns selects a User; scanUsers reads rows produced with it.
@@ -48,7 +52,8 @@ const userColumns = `u.id, u.sub, u.method, COALESCE(u.username, ''), u.name, CO
 	COALESCE((SELECT jsonb_agg(gm.group_name ORDER BY gm.group_name) FROM group_members gm WHERE gm.user_id = u.id), '[]'),
 	COALESCE((SELECT jsonb_agg(jsonb_build_object('id', r.id, 'name', r.name) ORDER BY r.id)
 	          FROM role_bindings b JOIN roles r ON r.id = b.role_id WHERE b.subject = 'user:' || u.sub), '[]'),
-	u.disabled, COALESCE(u.lark_id, ''), COALESCE(u.lark_id_source, ''), u.last_login_at, u.created_at`
+	u.disabled, COALESCE(u.lark_id, ''), COALESCE(u.lark_id_source, ''), COALESCE(u.teams_id, ''), COALESCE(u.teams_id_source, ''),
+	u.last_login_at, u.created_at`
 
 func (a *Accounts) queryUsers(ctx context.Context, query string, args ...any) ([]User, error) {
 	rows, err := a.db.WithContext(ctx).Raw(query, args...).Rows()
@@ -61,7 +66,7 @@ func (a *Accounts) queryUsers(ctx context.Context, query string, args ...any) ([
 		var u User
 		var groups, local, roles []byte
 		if err := rows.Scan(&u.ID, &u.Sub, &u.Method, &u.Username, &u.Name, &u.Email, &groups, &local, &roles,
-			&u.Disabled, &u.LarkID, &u.LarkIDSource, &u.LastLoginAt, &u.CreatedAt); err != nil {
+			&u.Disabled, &u.LarkID, &u.LarkIDSource, &u.TeamsID, &u.TeamsIDSource, &u.LastLoginAt, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		u.Groups, u.LocalGroups, u.Roles = []string{}, []string{}, []RoleRef{}
@@ -198,9 +203,32 @@ func (a *Accounts) SetLarkID(ctx context.Context, userID int64, id string) (bool
 	return res.RowsAffected > 0, res.Error
 }
 
-// LarkMentions returns the Lark ids of the enabled users named by subs or in
-// any of groups — IdP groups at their last sign-in and Tide groups alike, as
-// approval rules name them — skipping those with no id.
+// TeamsIDPattern is a Microsoft Entra object id: a GUID, nothing else, for
+// the same reason as LarkIDPattern.
+var TeamsIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// SetTeamsIDFromSSO is SetLarkIDFromSSO for the Teams id.
+func (a *Accounts) SetTeamsIDFromSSO(ctx context.Context, userID int64, id string) error {
+	if !TeamsIDPattern.MatchString(id) {
+		return nil
+	}
+	return a.db.WithContext(ctx).Exec(`UPDATE users SET teams_id = $2, teams_id_source = 'sso'
+		WHERE id = $1 AND teams_id IS DISTINCT FROM $2`, userID, id).Error
+}
+
+// SetTeamsID is an administrator setting or clearing a user's Teams id.
+func (a *Accounts) SetTeamsID(ctx context.Context, userID int64, id string) (bool, error) {
+	if id != "" && !TeamsIDPattern.MatchString(id) {
+		return false, fmt.Errorf("teams id %q is not a Microsoft Entra object id", id)
+	}
+	res := a.db.WithContext(ctx).Exec(`UPDATE users SET teams_id = NULLIF($2, ''),
+		teams_id_source = CASE WHEN $2 = '' THEN NULL ELSE 'manual' END WHERE id = $1`, userID, id)
+	return res.RowsAffected > 0, res.Error
+}
+
+// LarkMentions returns the enabled users named by subs or in any of groups —
+// IdP groups at their last sign-in and Tide groups alike, as approval rules
+// name them — with their Lark and Teams ids, skipping those with neither.
 func (a *Accounts) LarkMentions(ctx context.Context, subs, groups []string) ([]Mention, error) {
 	if len(subs) == 0 && len(groups) == 0 {
 		return nil, nil
@@ -212,8 +240,8 @@ func (a *Accounts) LarkMentions(ctx context.Context, subs, groups []string) ([]M
 		groups = []string{}
 	}
 	var out []Mention
-	err := a.db.WithContext(ctx).Raw(`SELECT DISTINCT u.lark_id AS id, u.name FROM users u
-		WHERE u.lark_id IS NOT NULL AND NOT u.disabled AND (
+	err := a.db.WithContext(ctx).Raw(`SELECT DISTINCT COALESCE(u.lark_id, '') AS id, COALESCE(u.teams_id, '') AS teams_id, u.name FROM users u
+		WHERE (u.lark_id IS NOT NULL OR u.teams_id IS NOT NULL) AND NOT u.disabled AND (
 			u.sub = ANY($1)
 			-- idp_groups can be JSON null for a user whose token had no groups.
 			OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(u.idp_groups) = 'array'
@@ -223,10 +251,12 @@ func (a *Accounts) LarkMentions(ctx context.Context, subs, groups []string) ([]M
 	return out, err
 }
 
-// Mention is a person a notification names, by their Lark id.
+// Mention is a person a notification names: by their Lark id in Lark, by
+// their Teams id in Teams. Either may be empty.
 type Mention struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID      string `json:"id"`
+	TeamsID string `json:"teamsId" gorm:"column:teams_id"`
+	Name    string `json:"name"`
 }
 
 func (a *Accounts) TouchLogin(ctx context.Context, userID int64) error {

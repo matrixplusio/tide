@@ -158,6 +158,14 @@ func (s *Service) SSOFinish(ctx context.Context, flowCookie string, q url.Values
 				return err
 			}
 		}
+		// Likewise the Teams id (a Microsoft Entra object id). A token
+		// without the claim — anyone not yet linked to Teams — changes
+		// nothing.
+		if cfg.TeamsIDClaim != "" {
+			if err := tx.Accounts.SetTeamsIDFromSSO(ctx, id, larkIDClaim(claims, cfg.TeamsIDClaim)); err != nil {
+				return err
+			}
+		}
 		actor := audit.Actor{Sub: sub, Name: name}
 		// The claim names, never their values: which field an IdP puts its
 		// roles in is what an administrator has to find out to configure
@@ -268,7 +276,7 @@ func nested(m map[string]any, path []string) (any, bool) {
 
 // claimNames lists the top-level claim names of a token, sorted, without
 // their values.
-// larkIDClaim reads the Lark id the way the groups claim is read: by name,
+// larkIDClaim reads an id claim (Lark, Teams) the way the groups claim is read: by name,
 // or by a dotted path when no field has that name. Only a string counts.
 func larkIDClaim(m map[string]any, claim string) string {
 	v, ok := m[claim]

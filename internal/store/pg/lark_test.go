@@ -108,3 +108,35 @@ func TestLarkIDSources(t *testing.T) {
 	}
 	_ = pg.LarkIDPattern
 }
+
+// The Teams id follows the Lark id's rules, and a person with only a Teams
+// id is still somebody to mention.
+func TestTeamsIDSourcesAndMentions(t *testing.T) {
+	s, owner := testdb.Setup(t)
+	ctx := context.Background()
+	const oid = "49c4641c-ab91-4248-aebb-6a7de286397b"
+	id, _, err := s.Accounts.UpsertSSOUser(ctx, "oidc|frank", "Frank", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Accounts.SetTeamsID(ctx, id, "29:not-an-oid"); err == nil {
+		t.Error("a Teams conversation id was accepted as an Entra object id")
+	}
+	if err := s.Accounts.SetTeamsIDFromSSO(ctx, id, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Accounts.SetTeamsIDFromSSO(ctx, id, oid); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := s.Accounts.UserByID(ctx, id)
+	if u.TeamsID != oid || u.TeamsIDSource != "sso" || u.LarkID != "" {
+		t.Errorf("after SSO: %q %q lark %q", u.TeamsID, u.TeamsIDSource, u.LarkID)
+	}
+	if res := owner.Exec(`UPDATE users SET teams_id = 'x' WHERE id = ?`, id); res.Error == nil {
+		t.Error("the column accepted a malformed Teams id")
+	}
+	got, err := s.Accounts.LarkMentions(ctx, []string{"oidc|frank"}, nil)
+	if err != nil || len(got) != 1 || got[0].TeamsID != oid || got[0].ID != "" {
+		t.Errorf("mentions %+v %v, want Frank by Teams id only", got, err)
+	}
+}

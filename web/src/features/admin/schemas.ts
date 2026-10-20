@@ -81,6 +81,9 @@ export const nameSchema = z.object({ name: requiredText(i18n.t('av.name'), 64) }
 // The same shape the server accepts: it goes into Lark message markup.
 export const larkIdSchema = z.object({ larkId: z.string().trim().refine((v) => v === '' || /^[A-Za-z0-9_-]{1,64}$/.test(v), { message: i18n.t('av.larkId') }) })
 export type LarkIdValues = z.infer<typeof larkIdSchema>
+export const teamsIdSchema = z.object({
+  larkId: z.string().trim().refine((v) => v === '' || /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v), { message: i18n.t('av.teamsId') }),
+})
 export type NameValues = z.infer<typeof nameSchema>
 
 export const groupNameMsg = () => i18n.t('av.groupName')
@@ -306,6 +309,7 @@ export const ssoSchema = z.object({
   clientSecret: secret('Client secret', true),
   groupsClaim: zOptionalText(64),
   larkIdClaim: zOptionalText(64),
+  teamsIdClaim: zOptionalText(64),
   // Space separated, as an IdP's documentation writes them.
   scopes: z.string().max(1000).superRefine((v, ctx) => {
     const list = v.split(/\s+/).filter(Boolean)

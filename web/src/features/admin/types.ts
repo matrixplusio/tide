@@ -16,6 +16,9 @@ export interface UserRow {
   /** Lark user_id or open_id notifications mention this user by. */
   larkId?: string
   larkIdSource?: 'sso' | 'manual'
+  /** Microsoft Entra object id Teams cards mention this user by. */
+  teamsId?: string
+  teamsIdSource?: 'sso' | 'manual'
   lastLoginAt?: string
   createdAt: string
 }
@@ -127,6 +130,8 @@ export interface OIDC {
   groupsClaim: string
   /** Token claim with the user's Lark user_id or open_id; empty: not read. */
   larkIdClaim?: string
+  /** Token claim with the user's Microsoft Entra object id; empty: not read. */
+  teamsIdClaim?: string
   /** Empty means Tide's default: openid profile email groups. */
   scopes?: string[]
   redirectUrl: string

@@ -33,12 +33,12 @@ import {
   useToast,
 } from '../../../components/ui'
 import { AdminToolbar } from '../AdminToolbar'
-import { useRenameUser, useResetUserPassword, useRevokeUserSessions, useSetUserDisabled, useSetUserLarkId, useUser } from '../queries'
-import { larkIdSchema, nameSchema, resetPasswordSchema, type LarkIdValues, type NameValues, type ResetPasswordValues } from '../schemas'
+import { useRenameUser, useResetUserPassword, useRevokeUserSessions, useSetUserDisabled, useSetUserLarkId, useSetUserTeamsId, useUser } from '../queries'
+import { larkIdSchema, teamsIdSchema, nameSchema, resetPasswordSchema, type LarkIdValues, type NameValues, type ResetPasswordValues } from '../schemas'
 import type { UserRow } from '../types'
 import { methodLabel, userDisplay } from './format'
 
-type Dialog = 'rename' | 'lark' | 'password' | 'disable' | 'signout' | null
+type Dialog = 'rename' | 'lark' | 'teams' | 'password' | 'disable' | 'signout' | null
 
 export function UserDetailPage() {
   const { t } = useTranslation()
@@ -95,6 +95,15 @@ export function UserDetailPage() {
                   <span className="faint">{t('userDetail.larkIdNone')}</span>
                 )}
               </KV>
+              <KV k={t('userDetail.teamsId')} mono>
+                {u.teamsId ? (
+                  <>
+                    {u.teamsId} <span className="muted">{u.teamsIdSource === 'sso' ? t('userDetail.larkIdFromSso') : t('userDetail.larkIdManual')}</span>
+                  </>
+                ) : (
+                  <span className="faint">{t('userDetail.teamsIdNone')}</span>
+                )}
+              </KV>
               <KV k={t('userDetail.status')}>
                 <StatusDot state={u.disabled ? 'off' : 'ok'} /> {u.disabled ? t('users.disabled') : t('users.enabled')}
               </KV>
@@ -115,6 +124,9 @@ export function UserDetailPage() {
               )}
               <Button variant="quiet" size="small" onClick={() => setDialog('lark')}>
                 {t('userDetail.editLarkId')}
+              </Button>
+              <Button variant="quiet" size="small" onClick={() => setDialog('teams')}>
+                {t('userDetail.editTeamsId')}
               </Button>
               <Button variant="quiet" size="small" disabled={sessionCount === 0} onClick={() => setDialog('signout')}>
                 {t('userDetail.signOutAll')}
@@ -178,6 +190,7 @@ export function UserDetailPage() {
 
       {u && dialog === 'rename' && <RenameModal user={u} onClose={close} />}
       {u && dialog === 'lark' && <LarkIdModal user={u} onClose={close} />}
+      {u && dialog === 'teams' && <LarkIdModal user={u} onClose={close} teams />}
       {u && dialog === 'password' && <ResetPasswordModal user={u} onClose={close} />}
       {u && dialog === 'disable' && (
         <ConfirmModal
@@ -318,30 +331,40 @@ function ResetPasswordModal({ user, onClose }: { user: UserRow; onClose: () => v
   )
 }
 
-function LarkIdModal({ user, onClose }: { user: UserRow; onClose: () => void }) {
+// One dialog for both ids a notification mentions a person by: the Lark
+// user_id, or (teams) the Microsoft Entra object id. The field is called
+// larkId in the form either way; only the label, the check and the endpoint
+// differ.
+function LarkIdModal({ user, onClose, teams = false }: { user: UserRow; onClose: () => void; teams?: boolean }) {
   const { t } = useTranslation()
   const toast = useToast()
-  const save = useSetUserLarkId()
+  const saveLark = useSetUserLarkId()
+  const saveTeams = useSetUserTeamsId()
   const [formError, setFormError] = useState<unknown>(null)
-  const form = useForm<LarkIdValues>({ resolver: zodResolver(larkIdSchema), mode: 'onTouched', defaultValues: { larkId: user.larkId ?? '' } })
+  const form = useForm<LarkIdValues>({
+    resolver: zodResolver(teams ? teamsIdSchema : larkIdSchema),
+    mode: 'onTouched',
+    defaultValues: { larkId: (teams ? user.teamsId : user.larkId) ?? '' },
+  })
   const { register, handleSubmit, formState } = form
 
   const onSubmit = handleSubmit(async (v) => {
     setFormError(null)
     try {
-      await save.mutateAsync({ id: user.id, larkId: v.larkId.trim() })
-      toast.success(t('userDetail.larkIdSaved'))
+      if (teams) await saveTeams.mutateAsync({ id: user.id, teamsId: v.larkId.trim() })
+      else await saveLark.mutateAsync({ id: user.id, larkId: v.larkId.trim() })
+      toast.success(t(teams ? 'userDetail.teamsIdSaved' : 'userDetail.larkIdSaved'))
       onClose()
     } catch (e) {
-      setFormError(applyServerError(form, e))
+      setFormError(applyServerError(form, e, { mapField: (f) => (f === 'teamsId' ? 'larkId' : f) }))
     }
   }, () => setFormError(null))
 
   return (
-    <Modal title={t('userDetail.editLarkIdTitle', { who: userDisplay(user) })} onClose={onClose} closeOnEsc={!formState.isSubmitting} width={460}>
+    <Modal title={t(teams ? 'userDetail.editTeamsIdTitle' : 'userDetail.editLarkIdTitle', { who: userDisplay(user) })} onClose={onClose} closeOnEsc={!formState.isSubmitting} width={460}>
       <Form onSubmit={onSubmit}>
         <Group form>
-          <FormField label={t('userDetail.larkId')} error={formState.errors.larkId?.message} hint={t('userDetail.larkIdHint')}>
+          <FormField label={t(teams ? 'userDetail.teamsId' : 'userDetail.larkId')} error={formState.errors.larkId?.message} hint={t(teams ? 'userDetail.teamsIdHint' : 'userDetail.larkIdHint')}>
             {(p) => <Input {...p} {...register('larkId')} mono autoComplete="off" spellCheck={false} data-autofocus />}
           </FormField>
         </Group>

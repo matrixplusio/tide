@@ -19,8 +19,8 @@ export function SsoForm({ initial }: { initial: OIDC | null | undefined }) {
     resolver: zodResolver(ssoSchema),
     mode: 'onTouched',
     defaultValues: initial
-      ? { ...initial, groupsClaim: initial.groupsClaim ?? '', larkIdClaim: initial.larkIdClaim ?? '', scopes: (initial.scopes ?? []).join(' ') }
-      : { issuer: '', clientId: '', clientSecret: '', groupsClaim: 'groups', larkIdClaim: '', scopes: '', redirectUrl: `${window.location.origin}${SSO_CALLBACK_PATH}` },
+      ? { ...initial, groupsClaim: initial.groupsClaim ?? '', larkIdClaim: initial.larkIdClaim ?? '', teamsIdClaim: initial.teamsIdClaim ?? '', scopes: (initial.scopes ?? []).join(' ') }
+      : { issuer: '', clientId: '', clientSecret: '', groupsClaim: 'groups', larkIdClaim: '', teamsIdClaim: '', scopes: '', redirectUrl: `${window.location.origin}${SSO_CALLBACK_PATH}` },
   })
   const { register, handleSubmit, formState } = form
   const errors = formState.errors
@@ -35,6 +35,7 @@ export function SsoForm({ initial }: { initial: OIDC | null | undefined }) {
         clientSecret: v.clientSecret === MASK ? MASK : v.clientSecret.trim(),
         groupsClaim: v.groupsClaim.trim(),
         larkIdClaim: v.larkIdClaim.trim(),
+        teamsIdClaim: v.teamsIdClaim.trim(),
         scopes: v.scopes.split(/\s+/).filter(Boolean),
         redirectUrl: v.redirectUrl.trim(),
       }
@@ -64,6 +65,9 @@ export function SsoForm({ initial }: { initial: OIDC | null | undefined }) {
         </FormField>
         <FormField label={t('settings.larkIdClaim')} error={errors.larkIdClaim?.message} hint={t('settings.larkIdClaimHint')}>
           {(p) => <Input {...p} {...register('larkIdClaim')} mono autoComplete="off" spellCheck={false} placeholder="lark_user_id" />}
+        </FormField>
+        <FormField label={t('settings.teamsIdClaim')} error={errors.teamsIdClaim?.message} hint={t('settings.teamsIdClaimHint')}>
+          {(p) => <Input {...p} {...register('teamsIdClaim')} mono autoComplete="off" spellCheck={false} placeholder="entra_oid" />}
         </FormField>
         <FormField label={t('settings.scopes')} error={errors.scopes?.message} hint={t('settings.scopesHint')}>
           {(p) => <Input {...p} {...register('scopes')} mono autoComplete="off" spellCheck={false} placeholder="openid profile email groups" />}

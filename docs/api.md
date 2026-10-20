@@ -132,7 +132,9 @@ SSO 登录时，Tide 从 ID Token 的 `groupsClaim` 字段（默认 `groups`）�
 
 飞书艾特：SSO 设置的 `larkIdClaim`（如 `lark_user_id`）指定 ID Token 里放用户飞书 user_id 或 open_id 的字段，每次登录有值就更新用户的飞书 ID（来源记为 `sso`）；没有值则保留原值。管理员也可以用 `PUT /api/v1/users/:user/lark`（权限 users.manage）`{ larkId }` 手动设置，空字符串为清除，来源记为 `manual`，写审计 `user.lark`。飞书 ID 只接受 `[A-Za-z0-9_-]{1,64}`（数据库约束同样检查），因为它会写进消息卡片。`User` 多两个字段 `larkId?`、`larkIdSource?`（`sso` | `manual`）。
 
-发到飞书渠道的发布单卡片会艾特：在 Tide 上发起这张单的人（该单的所有事件都艾特），等待审批时另加审批规则里的审批人（`user:` 和 `group:`，组含 IdP 组和 Tide 组）。CI 建的单不艾特，CI 构建通知也不艾特。没有飞书 ID 或已禁用的人跳过，最多 50 人。每条通知规则可用 `noMention: true` 关掉艾特（默认艾特）；同一渠道被多条规则命中时，任一条没关就艾特。点渠道的「测试」时，测试卡片会艾特点测试的人（有飞书 ID 时），用来确认这个渠道能艾特到人。
+发到飞书渠道的发布单卡片会艾特：在 Tide 上发起这张单的人（该单的所有事件都艾特），等待审批时另加审批规则里的审批人（`user:` 和 `group:`，组含 IdP 组和 Tide 组）。CI 建的单不艾特，CI 构建通知也不艾特。没有飞书 ID 或已禁用的人跳过，最多 50 人。每条通知规则可用 `noMention: true` 关掉艾特（默认艾特）；同一渠道被多条规则命中时，任一条没关就艾特。
+
+Teams 渠道发 Adaptive Card（`{"type":"message","attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":…}]}`），传入 Webhook 和 Power Automate 工作流都接收这个格式，内容与飞书卡片一致。Teams 艾特用 Microsoft Entra 用户 Object ID：卡片文字里写 `<at>名字</at>`，`msteams.entities` 里给出 `mentioned.id`；艾特对象和规则开关与飞书相同。用户的 Teams ID 来源同飞书 ID：SSO 设置 `teamsIdClaim`（如 `entra_oid`），或 `PUT /api/v1/users/:user/teams` `{ teamsId }` 手填（权限 users.manage，审计 `user.teams`），只接受 36 位 GUID。`User` 多 `teamsId?`、`teamsIdSource?`。卡片超过 26 KB 时从末尾截掉明细行并注明省略了几行（Teams 上限 28 KB）。点渠道的「测试」时，测试卡片会艾特点测试的人（有飞书 ID 时），用来确认这个渠道能艾特到人。
 
 ### `GET /api/v1/setup/state`
 → `{ initialized: bool, tokenVerified: bool, passwordPolicy: PasswordPolicy }`
@@ -610,7 +612,7 @@ POST `{ id, name, description, permissions }`；PUT `{ name, description, permis
 | `environments` | environments.manage | `{ items: Environment[] }`，顺序即显示顺序（制品来源由 Kargo Stage 决定） |
 | `catalog` | environments.manage | `{ serviceLabel, envLabel, domainLabel, projectLabel, dimensions: Dimension[], batchDimension }` |
 | `notify` | notifications.manage | `{ channels: Channel[], rules: NotifyRule[] }` |
-| `oidc` | settings.manage | OIDC：`{ issuer, clientId, clientSecret🔒, groupsClaim, larkIdClaim?, scopes?: string[], redirectUrl }`。`scopes` 为空用 `openid profile email groups`，不含 `openid` 时自动补上；最多 20 个，每个不含空格、引号、反斜杠，最长 64 字符 |
+| `oidc` | settings.manage | OIDC：`{ issuer, clientId, clientSecret🔒, groupsClaim, larkIdClaim?, teamsIdClaim?, scopes?: string[], redirectUrl }`。`scopes` 为空用 `openid profile email groups`，不含 `openid` 时自动补上；最多 20 个，每个不含空格、引号、反斜杠，最长 64 字符 |
 | `security` | settings.manage | 登录与安全 |
 | `release` | settings.manage | 发布策略 |
 | `system` | settings.manage | 通用 |

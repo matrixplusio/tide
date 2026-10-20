@@ -147,6 +147,9 @@ export const useRenameUser = () =>
 export const useSetUserLarkId = () =>
   useInvalidating(({ id, larkId }: { id: number; larkId: string }) => apiFetch<UserRow>(`/api/v1/users/${id}/lark`, { method: 'PUT', body: { larkId } }), USER_KEYS)
 
+export const useSetUserTeamsId = () =>
+  useInvalidating(({ id, teamsId }: { id: number; teamsId: string }) => apiFetch<UserRow>(`/api/v1/users/${id}/teams`, { method: 'PUT', body: { teamsId } }), USER_KEYS)
+
 export const useResetUserPassword = () =>
   useInvalidating(
     ({ id, ...body }: { id: number; newPassword: string; confirmPassword: string }) => apiFetch<null>(`/api/v1/users/${id}/password`, { method: 'PUT', body }),
