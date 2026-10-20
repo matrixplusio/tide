@@ -464,6 +464,7 @@ export const notifySchema = z
         events: z.array(z.string()).superRefine((v, ctx) => addIssue(ctx, [], v.length === 0 ? i18n.t('av.pickEvent') : null)),
         services: z.string().superRefine((v, ctx) => addIssue(ctx, [], servicesIssue(v))),
         channels: z.array(z.string()),
+        mention: z.boolean(),
       }),
     ),
   })

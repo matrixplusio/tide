@@ -55,7 +55,7 @@ describe('notify', () => {
   it('rules must point at existing channels and pick events', () => {
     const r = notifySchema.safeParse({
       channels: [{ name: 'ops', kind: 'lark', url: 'https://example.com/hook', secret: '', enabled: true }],
-      rules: [{ name: 'prod', enabled: true, envs: ['*'], events: [], services: '', channels: ['dev'] }],
+      rules: [{ name: 'prod', enabled: true, envs: ['*'], events: [], services: '', channels: ['dev'], mention: true }],
     })
     expect(issues(r)).toEqual({ 'rules.0.events': '请至少选择一个事件', 'rules.0.channels': '渠道 dev 不存在' })
   })

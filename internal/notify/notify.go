@@ -94,16 +94,19 @@ type People interface {
 // nothing else may be.
 var larkID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// whom names the people a release event asks something of: the approvers
-// when it waits for approval; the person who started it when it waits for
-// their switch or has failed. Every other event only reports, and mentions
-// nobody — a channel that pings on every success is a channel people mute.
+// whom names the people a release event is mentioned to: whoever started
+// the release from Tide, on every event of it, and the approvers as well
+// while it waits for approval. A release CI created mentions nobody: its
+// starter is a pipeline token, and the person behind the pipeline is a
+// GitLab account Tide does not know.
 func whom(r *release.Release, event string) (subs, groups []string) {
-	switch event {
-	case EventApproval:
-		if r.ApprovalRule == nil {
-			return nil, nil
-		}
+	if r.Source == release.SourceCI {
+		return nil, nil
+	}
+	if r.CreatedBy != "" {
+		subs = append(subs, r.CreatedBy)
+	}
+	if event == EventApproval && r.ApprovalRule != nil {
 		for _, a := range r.ApprovalRule.Approvers {
 			kind, v, _ := strings.Cut(a, ":")
 			switch kind {
@@ -113,11 +116,8 @@ func whom(r *release.Release, event string) (subs, groups []string) {
 				groups = append(groups, v)
 			}
 		}
-		return subs, groups
-	case EventSwitch, EventFailed:
-		return []string{r.CreatedBy}, nil
 	}
-	return nil, nil
+	return subs, groups
 }
 
 func (n *Notifier) mentions(ctx context.Context, r *release.Release, event string) []pg.Mention {
@@ -165,9 +165,17 @@ func (n *Notifier) ReleaseEvent(ctx context.Context, r *release.Release, event s
 		return
 	}
 	sys, _ := n.Settings.System(ctx)
-	mentions := n.mentions(ctx, r, event)
+	mentionOn := MentionChannels(cfg, r.Env, tier, event, serviceOf(r))
+	var mentions []pg.Mention
+	if len(mentionOn) > 0 {
+		mentions = n.mentions(ctx, r, event)
+	}
 	for _, ch := range targets {
-		if err := n.send(ctx, ch, Message{Release: r, Event: event, System: sys, Mentions: mentions}); err != nil {
+		msg := Message{Release: r, Event: event, System: sys}
+		if mentionOn[ch.Name] {
+			msg.Mentions = mentions
+		}
+		if err := n.send(ctx, ch, msg); err != nil {
 			zap.L().Warn("notification failed", zap.String("channel", ch.Name), zap.String("release", r.ID), zap.Error(err))
 		}
 	}
@@ -178,6 +186,22 @@ func (n *Notifier) ReleaseEvent(ctx context.Context, r *release.Release, event s
 // through approval already announced itself, so its start is not repeated.
 func Suppressed(r *release.Release, event string) bool {
 	return event == EventStarted && r.ApprovalRule != nil
+}
+
+// MentionChannels names the channels whose messages for this event mention
+// people: those reached through a matching rule that has not turned
+// mentions off. A channel two rules reach mentions if either of them does.
+func MentionChannels(cfg settings.Notify, env, tier, event, service string) map[string]bool {
+	on := map[string]bool{}
+	for _, rule := range cfg.Rules {
+		if rule.Enabled && !rule.NoMention && slices.Contains(rule.Events, event) && rbac.EnvMatches(rule.Envs, env, tier) &&
+			ServiceMatches(rule.Services, service) {
+			for _, c := range rule.Channels {
+				on[c] = true
+			}
+		}
+	}
+	return on
 }
 
 // Targets resolves the enabled channels for an event in env, each once.

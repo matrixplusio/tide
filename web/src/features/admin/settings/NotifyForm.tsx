@@ -53,6 +53,7 @@ function toValues(n: Notify | null | undefined): NotifyValues {
       events: r.events ?? [],
       services: (r.services ?? []).join(', '),
       channels: r.channels ?? [],
+      mention: !r.noMention,
     })),
   }
 }
@@ -87,6 +88,7 @@ export function NotifyForm({ initial }: { initial: Notify | null | undefined }) 
           events: r.events as NotifyEvent[],
           services: parseServices(r.services),
           channels: r.channels,
+          noMention: !r.mention,
         })),
       })
       form.reset(v)
@@ -204,6 +206,9 @@ export function NotifyForm({ initial }: { initial: Notify | null | undefined }) 
               <FormField label={t('notifyForm.status')} plainLabel>
                 {(p) => <Checkbox id={p.id} {...register(`rules.${i}.enabled`)} label={t('notifyForm.enabled')} />}
               </FormField>
+              <FormField label={t('notifyForm.mention')} plainLabel hint={t('notifyForm.mentionHint')}>
+                {(p) => <Checkbox id={p.id} {...register(`rules.${i}.mention`)} label={t('notifyForm.mentionLabel')} />}
+              </FormField>
               <FormField label={t('notifyForm.env')} error={e?.envs?.message} required plainLabel>
                 {(p) => <Controller control={control} name={`rules.${i}.envs`} render={({ field }) => <EnvSelector {...p} ref={field.ref} value={field.value} onChange={field.onChange} onBlur={field.onBlur} />} />}
               </FormField>
@@ -256,7 +261,7 @@ export function NotifyForm({ initial }: { initial: Notify | null | undefined }) 
 
       <FormErrorBanner error={formError} />
       <ButtonRow>
-        <Button variant="quiet" onClick={() => rules.append({ name: '', enabled: true, envs: ['*'], events: ['release.started', 'release.succeeded', 'release.failed'], services: '', channels: [] })}>
+        <Button variant="quiet" onClick={() => rules.append({ name: '', enabled: true, envs: ['*'], events: ['release.started', 'release.succeeded', 'release.failed'], services: '', channels: [], mention: true })}>
           {t('notifyForm.addRule')}
         </Button>
         <Button type="submit" loading={formState.isSubmitting} loadingText={t('admin.saving')}>

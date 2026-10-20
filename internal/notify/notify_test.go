@@ -470,22 +470,47 @@ func (f *fakePeople) LarkMentions(_ context.Context, subs, groups []string) ([]p
 	return f.out, nil
 }
 
-// Only the events that ask somebody to act mention anyone: approvers when it
-// waits for approval, the starter when it waits for a switch or failed.
+// Whoever started a release from Tide is mentioned on every event of it,
+// and the approvers too while it waits for approval. A release CI created
+// mentions nobody.
 func TestWhomAnEventIsFor(t *testing.T) {
-	r := &release.Release{CreatedBy: "oidc|alice", ApprovalRule: &release.ApprovalRule{Approvers: []string{"user:oidc|bob", "group:Ops", "bogus"}}}
+	r := &release.Release{Source: release.SourceUI, CreatedBy: "oidc|alice", ApprovalRule: &release.ApprovalRule{Approvers: []string{"user:oidc|bob", "group:Ops", "bogus"}}}
 	for event, want := range map[string][2][]string{
-		EventApproval:  {{"oidc|bob"}, {"Ops"}},
+		EventApproval:  {{"oidc|alice", "oidc|bob"}, {"Ops"}},
 		EventSwitch:    {{"oidc|alice"}, nil},
 		EventFailed:    {{"oidc|alice"}, nil},
-		EventSucceeded: {nil, nil},
-		EventStarted:   {nil, nil},
-		EventPending:   {nil, nil},
+		EventSucceeded: {{"oidc|alice"}, nil},
+		EventStarted:   {{"oidc|alice"}, nil},
+		EventPending:   {{"oidc|alice"}, nil},
+		EventCancelled: {{"oidc|alice"}, nil},
 	} {
 		subs, groups := whom(r, event)
 		if !slices.Equal(subs, want[0]) || !slices.Equal(groups, want[1]) {
 			t.Errorf("%s: subs %v groups %v, want %v %v", event, subs, groups, want[0], want[1])
 		}
+	}
+	ci := &release.Release{Source: release.SourceCI, CreatedBy: "ci:token", ApprovalRule: r.ApprovalRule}
+	for _, event := range []string{EventApproval, EventSucceeded, EventFailed} {
+		if subs, groups := whom(ci, event); subs != nil || groups != nil {
+			t.Errorf("a CI release mentions %v %v on %s", subs, groups, event)
+		}
+	}
+}
+
+// A rule can turn mentions off for its channels; a channel two rules reach
+// mentions if either of them does, and rules written before the switch
+// existed mention.
+func TestARuleCanTurnMentionsOff(t *testing.T) {
+	cfg := settings.Notify{Rules: []settings.NotifyRule{
+		{Enabled: true, Envs: []string{"*"}, Events: []string{EventSucceeded}, Channels: []string{"quiet"}, NoMention: true},
+		{Enabled: true, Envs: []string{"*"}, Events: []string{EventSucceeded}, Channels: []string{"loud"}},
+		{Enabled: true, Envs: []string{"*"}, Events: []string{EventSucceeded}, Channels: []string{"both"}, NoMention: true},
+		{Enabled: true, Envs: []string{"*"}, Events: []string{EventSucceeded}, Channels: []string{"both"}},
+		{Enabled: false, Envs: []string{"*"}, Events: []string{EventSucceeded}, Channels: []string{"off"}},
+	}}
+	got := MentionChannels(cfg, "uat", "", EventSucceeded, "order")
+	if !got["loud"] || !got["both"] || got["quiet"] || got["off"] {
+		t.Errorf("mention channels %v, want loud and both only", got)
 	}
 }
 
@@ -512,7 +537,9 @@ func TestTheApprovalCardMentionsTheApprovers(t *testing.T) {
 	if !strings.Contains(card, "<at id=ou_bob></at>") {
 		t.Errorf("approval card does not mention the approver: %s", card)
 	}
-	if got := n.mentions(context.Background(), r, EventSucceeded); got != nil {
-		t.Errorf("a success mentions %+v", got)
+	people.subs = nil
+	n.mentions(context.Background(), r, EventSucceeded)
+	if !slices.Equal(people.subs, []string{"oidc|alice"}) {
+		t.Errorf("a success asks for %v, want the starter", people.subs)
 	}
 }

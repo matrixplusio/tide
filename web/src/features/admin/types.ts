@@ -111,6 +111,8 @@ export interface NotifyRule {
   channels: string[]
   /** Exact names or globs ("cart-*"). Empty means every service. */
   services?: string[]
+  /** Turns off mentioning people in this rule's messages; absent means they are mentioned. */
+  noMention?: boolean
 }
 
 export interface Notify {

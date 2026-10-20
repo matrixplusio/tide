@@ -132,7 +132,7 @@ SSO 登录时，Tide 从 ID Token 的 `groupsClaim` 字段（默认 `groups`）�
 
 飞书艾特：SSO 设置的 `larkIdClaim`（如 `lark_user_id`）指定 ID Token 里放用户飞书 user_id 或 open_id 的字段，每次登录有值就更新用户的飞书 ID（来源记为 `sso`）；没有值则保留原值。管理员也可以用 `PUT /api/v1/users/:user/lark`（权限 users.manage）`{ larkId }` 手动设置，空字符串为清除，来源记为 `manual`，写审计 `user.lark`。飞书 ID 只接受 `[A-Za-z0-9_-]{1,64}`（数据库约束同样检查），因为它会写进消息卡片。`User` 多两个字段 `larkId?`、`larkIdSource?`（`sso` | `manual`）。
 
-发到飞书渠道的发布单卡片会艾特：等待审批时艾特审批规则里的审批人（`user:` 和 `group:`，组含 IdP 组和 Tide 组），等待切换和发布失败时艾特发起人；其余事件不艾特。没有飞书 ID 或已禁用的人跳过，最多 50 人。点渠道的「测试」时，测试卡片会艾特点测试的人（有飞书 ID 时），用来确认这个渠道能艾特到人。
+发到飞书渠道的发布单卡片会艾特：在 Tide 上发起这张单的人（该单的所有事件都艾特），等待审批时另加审批规则里的审批人（`user:` 和 `group:`，组含 IdP 组和 Tide 组）。CI 建的单不艾特，CI 构建通知也不艾特。没有飞书 ID 或已禁用的人跳过，最多 50 人。每条通知规则可用 `noMention: true` 关掉艾特（默认艾特）；同一渠道被多条规则命中时，任一条没关就艾特。点渠道的「测试」时，测试卡片会艾特点测试的人（有飞书 ID 时），用来确认这个渠道能艾特到人。
 
 ### `GET /api/v1/setup/state`
 → `{ initialized: bool, tokenVerified: bool, passwordPolicy: PasswordPolicy }`
@@ -619,7 +619,7 @@ POST `{ id, name, description, permissions }`；PUT `{ name, description, permis
 - `Environment = { name, displayName, tier: Tier, description, upstream, promotesFrom, ci }`：`name` 规则 `^[a-z][a-z0-9-]{0,31}$`；`displayName` ≤ 32；`description` ≤ 200；`upstream` 可为空（未接入），非空时必须存在；`promotesFrom` 可为空，非空时必须是排在它前面的环境（跨站点验证来源，见候选制品 `gate`）；`ci` ∈ `off`（默认，拒绝 CI 调用）/ `notify`（只让 Kargo 立即去发现新镜像，找到后上报记为 `ready`，不建单；发布策略的 Jira、原因、封版不适用）/ `approve`（建单等人确认）/ `auto`（直接发布，该环境若配了审批规则仍走审批）。
 - `Dimension = { key, name, label, values: { value, name }[] }`：`key` 规则 `^[a-z][a-z0-9-]{0,31}$`（不能是 `q`、`domain`），`name` ≤ 16，`label` 为合法 Kubernetes label 键且各维度不重复，最多 5 个维度、每个 50 个取值。
 - `Channel = { name, kind: "lark" | "teams" | "webhook", url🔒, secret🔒, enabled }`：`name` ≤ 32 唯一。
-- `NotifyRule = { name, enabled, envs: string[], events: ("release.pending" | "release.approval_requested" | "release.awaiting_switch" | "release.started" | "release.succeeded" | "release.failed" | "release.rejected" | "release.cancelled")[], channels: string[] }`（`release.pending`：CI 建了一张待确认的单；`release.awaiting_switch`：蓝绿或金丝雀在等发起人决定）。构建类事件另有 `build.failed`、`build.warning`、`build.stranded`、`build.ready`；`build.ready` 是 `ci=notify` 的环境里新版本已就绪，默认没有规则订阅
+- `NotifyRule = { name, enabled, noMention?, envs: string[], events: ("release.pending" | "release.approval_requested" | "release.awaiting_switch" | "release.started" | "release.succeeded" | "release.failed" | "release.rejected" | "release.cancelled")[], channels: string[] }`（`release.pending`：CI 建了一张待确认的单；`release.awaiting_switch`：蓝绿或金丝雀在等发起人决定）。构建类事件另有 `build.failed`、`build.warning`、`build.stranded`、`build.ready`；`build.ready` 是 `ci=notify` 的环境里新版本已就绪，默认没有规则订阅
 - `Security = { sessionTtlMinutes, loginWindowMinutes, captchaAfterUserFailures, captchaAfterIpFailures, lockAfterUserFailures, lockAfterIpFailures, localLoginAdminsOnly }`
 - `ApprovalPolicy = { name, envs: string[], projects: string[], types: string[], approvers: string[], mode: "any" | "all" | "count", minApprovals, timeoutMinutes }`（`all` 只能指定 `user:`；`timeoutMinutes` 10–1440；`projects`、`types` 规则同授权范围，空表示不限）
   匹配发布单时取**最具体**的一条：限定了项目的优先于只限定类型的，两者都限定的最优先；同样具体时取靠前的一条。批量单同项目同类型，按第一个条目判断。

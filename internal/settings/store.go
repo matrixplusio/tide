@@ -517,6 +517,10 @@ type NotifyRule struct {
 	// globs. Empty means every service, which is what every rule written
 	// before this field existed meant.
 	Services []string `json:"services,omitempty"`
+	// NoMention turns off mentioning people in the messages this rule
+	// sends. Off by default: a rule written before the switch existed
+	// mentions, as every rule does unless told not to.
+	NoMention bool `json:"noMention,omitempty"`
 }
 
 func DefaultNotify() Notify { return Notify{Channels: []Channel{}, Rules: []NotifyRule{}} }
