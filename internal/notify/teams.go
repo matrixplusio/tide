@@ -71,7 +71,7 @@ func teamsCard(msg Message) map[string]any {
 			body = append(body, text(t("n.fieldReason")+b.Reason, nil))
 		}
 		if b.Detail != "" {
-			body = append(body, text(clip(b.Detail, 800), map[string]any{"fontType": "Monospace"}))
+			body = append(body, codeBlock(clip(b.Detail, 800)))
 		}
 		link, button = b.Pipeline, t("n.viewPipeline")
 	case msg.Release != nil:
@@ -168,6 +168,20 @@ func teamsAts(ms []pg.Mention) (string, []any) {
 			"mentioned": map[string]any{"id": m.TeamsID, "name": name}})
 	}
 	return strings.TrimSpace(b.String()), entities
+}
+
+// codeBlock shows a log as it is. A TextBlock reads markdown: a BuildKit
+// rule of dashes turns the line above it into a heading, and #, * and |
+// rearrange the rest. Teams' CodeBlock shows the text verbatim in a
+// monospaced box; a client without it falls back to a RichTextBlock, whose
+// text runs are not markdown either.
+func codeBlock(log string) map[string]any {
+	return map[string]any{
+		"type": "CodeBlock", "codeSnippet": log, "language": "PlainText",
+		"fallback": map[string]any{"type": "RichTextBlock", "inlines": []any{
+			map[string]any{"type": "TextRun", "text": log, "fontType": "Monospace"},
+		}},
+	}
 }
 
 // plain strips the markdown a field label carries for Lark ("**Env**\n").

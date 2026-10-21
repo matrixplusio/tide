@@ -97,3 +97,26 @@ func TestTeamsTitleBandsFollowTheEvent(t *testing.T) {
 		}
 	}
 }
+
+// A build log goes into a code block, verbatim: a BuildKit rule of dashes
+// must not turn the line above it into a heading.
+func TestABuildLogIsShownVerbatim(t *testing.T) {
+	log := "Dockerfile.ci:18\n--------------------\n  17 | # comment\n  18 | >>> RUN *build*"
+	_, card := teamsJSON(t, Message{Build: &Build{Service: "order", Env: "dev", Detail: log}, Event: EventBuildFailed})
+	var block map[string]any
+	for _, b := range card["body"].([]any) {
+		if m := b.(map[string]any); m["type"] == "CodeBlock" {
+			block = m
+		}
+		if m := b.(map[string]any); m["type"] == "TextBlock" && strings.Contains(fmt.Sprint(m["text"]), "-----") {
+			t.Errorf("the log went into a markdown TextBlock: %v", m)
+		}
+	}
+	if block == nil || block["codeSnippet"] != log {
+		t.Fatalf("no verbatim code block: %v", card["body"])
+	}
+	fb := block["fallback"].(map[string]any)
+	if fb["type"] != "RichTextBlock" || fb["inlines"].([]any)[0].(map[string]any)["text"] != log {
+		t.Errorf("fallback %v", fb)
+	}
+}
