@@ -17,8 +17,11 @@ import (
 // with room for the envelope.
 const teamsLimit = 26 << 10
 
-// Adaptive Card colours for the Lark header templates the events use.
-var teamsColor = map[string]string{"orange": "warning", "red": "attention", "green": "good", "blue": "accent", "grey": "default"}
+// Container styles for the Lark header templates the events use. A card has
+// no coloured header of its own; a container with a style, bled to the
+// card's edges, is the nearest thing — and reads at a glance in a channel
+// the way the Lark header does.
+var teamsColor = map[string]string{"orange": "warning", "red": "attention", "green": "good", "blue": "accent", "grey": "emphasis"}
 
 // TeamsMessage renders msg as the body a Teams webhook takes.
 func TeamsMessage(msg Message) map[string]any {
@@ -110,7 +113,8 @@ func teamsCard(msg Message) map[string]any {
 	if color == "" {
 		color = "accent"
 	}
-	head := []any{text(title, map[string]any{"size": "Medium", "weight": "Bolder", "color": color})}
+	head := []any{map[string]any{"type": "Container", "style": color, "bleed": true,
+		"items": []any{text(title, map[string]any{"size": "Medium", "weight": "Bolder"})}}}
 	ats, entities := teamsAts(msg.Mentions)
 	if ats != "" {
 		head = append(head, text(ats, nil))

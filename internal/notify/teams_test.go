@@ -80,3 +80,20 @@ func TestTeamsBuildAndTestCards(t *testing.T) {
 		t.Errorf("the test card does not mention the tester: %v", ents)
 	}
 }
+
+// The title sits in a coloured band, coloured as the Lark header is: green
+// for success, red for failure, grey for a cancellation, orange while it
+// waits for somebody.
+func TestTeamsTitleBandsFollowTheEvent(t *testing.T) {
+	r := &release.Release{ID: "REL-3", Env: "qa", Title: "order → qa"}
+	for event, want := range map[string]string{
+		EventSucceeded: "good", EventFailed: "attention", EventRejected: "attention",
+		EventCancelled: "emphasis", EventApproval: "warning", EventSwitch: "warning", EventStarted: "accent",
+	} {
+		_, card := teamsJSON(t, Message{Release: r, Event: event})
+		band := card["body"].([]any)[0].(map[string]any)
+		if band["type"] != "Container" || band["style"] != want || band["bleed"] != true {
+			t.Errorf("%s: title band %v, want a bled %s container", event, band, want)
+		}
+	}
+}
