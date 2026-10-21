@@ -32,6 +32,10 @@ dev-up:
 	$(K) get ns $(NS) >/dev/null 2>&1 || $(K) create ns $(NS)
 	$(K) -n infra get secret infra-secrets -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d | \
 		$(K) -n $(NS) create secret generic pg-admin --from-file=POSTGRES_PASSWORD=/dev/stdin --dry-run=client -o yaml | $(K) apply -f -
+	@# A missing CA secret would otherwise copy an empty file and SSO to a
+	@# local IdP fails later with "certificate signed by unknown authority".
+	@test -n "$$($(K) -n cert-manager get secret $(CA_SECRET) -o jsonpath='{.data.ca\.crt}' 2>/dev/null)" || \
+		{ echo "no ca.crt in cert-manager/$(CA_SECRET); set CA_SECRET to the local CA secret"; exit 1; }
 	$(K) -n cert-manager get secret $(CA_SECRET) -o jsonpath='{.data.ca\.crt}' | base64 -d | \
 		$(K) -n $(NS) create secret generic local-ca --from-file=ca.crt=/dev/stdin --dry-run=client -o yaml | $(K) apply -f -
 	$(K) -n $(NS) delete job db-provision --ignore-not-found
