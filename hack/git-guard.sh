@@ -19,15 +19,19 @@ c=$(printf '%s' "$cmd" | tr -s '[:space:]' ' ')
 printf '%s' "$c" | grep -qE -- '--no-verify' && deny '--no-verify 会跳过提交和推送检查'
 printf '%s' "$c" | grep -qE 'git( -[cC] [^ ]+)* commit( [^|;&]*)? -[a-zA-Z]*n' && deny 'git commit -n 就是 --no-verify'
 # Pointing the hooks anywhere but .githooks, or unsetting them, switches the
-# gates off. Reading the setting, or setting it back, is fine.
+# gates off. Reading the setting, or setting it back, is fine. Only a value
+# given to `git -c` or `git config` counts, so `grep core.hooksPath Makefile`
+# is not mistaken for one.
 printf '%s' "$c" | python3 -c '
 import re, sys
 c = sys.stdin.read()
-for m in re.finditer(r"core\.hookspath\s*(=\s*|\s+)?(\S*)", c, re.I):
-    val = m.group(2).strip("\"\x27;")
-    if re.search(r"--unset[\w-]*\s+core\.hookspath", c[max(0, m.start()-30):m.end()], re.I) or (m.group(1) and val not in ("", ".githooks")):
+if re.search(r"--unset[\w-]*\s+core\.hookspath", c, re.I):
+    sys.exit(1)
+for m in re.finditer(r"-c\s+core\.hookspath\s*=\s*([^\s|;&]*)|\bconfig\b[^|;&]*?core\.hookspath(?:\s*=\s*|\s+)([^\s|;&]+)", c, re.I):
+    val = (m.group(1) if m.group(1) is not None else m.group(2)).strip("\"\x27")
+    if val != ".githooks":
         sys.exit(1)
-' || deny '把 core.hooksPath 改成别的或取消，会让门禁钩子失效'
+' || deny '把 core.hooksPath 改成别的或取消，会让钩子失效'
 printf '%s' "$c" | grep -qE 'ALLOW_PUSH=' && deny 'ALLOW_PUSH 会放行 main 和 tag 以外的推送，要由人亲自决定'
 printf '%s' "$c" | grep -qE 'git( -[cC] [^ ]+)* push( [^|;&]*)? (--mirror|--all)' && deny '--mirror / --all 会把所有本地引用推出去'
 printf '%s' "$c" | grep -qE 'git( -[cC] [^ ]+)* push( [^|;&]*)? (-f|--force|--force-with-lease)( |$)' && deny '强推会改写公开历史'
