@@ -9,7 +9,6 @@ name: CI
 on:
   push:
     branches: [main, dev]
-  pull_request:
   workflow_dispatch:
   # The release workflow runs these same gates before publishing anything.
   workflow_call:
@@ -22,10 +21,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The leak gate again, for what never passed through a local hook: a pull
-  # request, an edit made on GitHub, a push from a clone without the hooks.
-  # Only the generic rules run here — the list of real names and addresses
-  # lives on the maintainer's machine, since publishing it would be the leak.
+  # The pre-commit checks again, for changes that never ran the local hooks:
+  # an edit made on GitHub, a push from a clone without them.
   leaks:
     runs-on: ubuntu-latest
     steps:
@@ -35,15 +32,12 @@ jobs:
         run: |
           sh hack/check-no-internal-data.sh
           sh hack/check-no-internal-data.sh --messages
-      - name: Every commit this push or pull request adds
+      - name: Every commit this push adds
         env:
-          BASE_REF: ${{ github.base_ref }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
-          if [ -n "$BASE_REF" ]; then
-            sh hack/check-no-internal-data.sh --range "origin/$BASE_REF..HEAD"
-          elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE" 2>/dev/null; then
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE" 2>/dev/null; then
             sh hack/check-no-internal-data.sh --range "$BEFORE..$AFTER"
           fi
 
@@ -127,8 +121,7 @@ jobs:
   image:
     # Proves the Dockerfile still builds — frontend, Go, distroless. A push to
     # main also publishes it, so "the current main" is something you can pull;
-    # a pull request only builds, because a fork's PR must not be able to
-    # publish under this repository's name.
+    # anything else only builds, so only main publishes under this name.
     runs-on: ubuntu-latest
     # Declared here rather than at the top: a reusable workflow may not ask
     # for more than its caller granted, and the release workflow calls this

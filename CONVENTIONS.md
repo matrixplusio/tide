@@ -353,7 +353,8 @@ web/src/features/<name>     页面、查询、表单 schema
 - `main` 只接受来自 `dev` 的合并；`dev` 接受 `feat/*` `fix/*` `refactor/*` `chore/*` `docs/*`。
 - **只有 `main` 和 tag 推到线上**，`dev` 和各 `feat/*` `fix/*` 留在本机。在途的分支
   是真实服务名、集群地址和测试口令最容易先落地的地方，而它们上线与否是一次
-  `git push` 的手滑之差。`dependabot/*` 由 GitHub 自己建，不在此列。
+  `git push` 的手滑之差。
+- **不收 pull request**，也不配自动开 PR 的依赖升级；依赖升级按普通提交走 `dev`。
 - 两道门禁都在 `.githooks/`（`make hooks` 挂上）：`pre-commit` 扫暂存区里的真实
   数据，`pre-push` 只放行 `main` 和 tag。第二道是给第一道兜底的——它不依赖第一道
   的正则写全。确实要推别的分支就写明白：`ALLOW_PUSH=1 git push ...`。

@@ -20,7 +20,12 @@ turned down however good the rest of it is:
 logging, permissions, the frontend rules. It is short, and most review
 comments are already answered there.
 
-## Before you open a pull request
+## Pull requests are closed
+
+This repository does not take pull requests. To report a bug or suggest a
+change, open an issue.
+
+## Before you commit
 
 ```bash
 make check          # go vet, golangci-lint, tests, frontend typecheck/lint/test/build
@@ -28,7 +33,7 @@ make check          # go vet, golangci-lint, tests, frontend typecheck/lint/test
 
 `make check` includes `make test-db`, which needs a real PostgreSQL and Redis;
 see [docs/development.md](docs/development.md) for a local one. CI runs the
-same gates, so a pull request that has not run them will simply fail there.
+same gates on every push.
 
 - **A bug fix comes with a regression test.** Write it first and watch it fail
   — a test that passes before the fix is not testing the fix.
@@ -41,7 +46,7 @@ same gates, so a pull request that has not run them will simply fail there.
 ## Branches
 
 `main` only takes merges from `dev`. Work on `feat/*`, `fix/*`, `refactor/*`,
-`chore/*` or `docs/*` and open the pull request against `dev`.
+`chore/*` or `docs/*` and merge into `dev` locally.
 
 ## Reporting a security issue
 
