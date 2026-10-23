@@ -45,7 +45,6 @@ done < "$refs"
 # pre-push never ran here: commit-msg calls into them, this file did not. What
 # was missing is the author check — a commit signed with the wrong identity is
 # not in any message or file, so nothing below would notice it.
-# Machine-wide checks, wherever this machine keeps them (make hooks-check).
 g=$(git config --get hooks.global || true)
 [ -n "$g" ] || echo "提示：没设 hooks.global，跳过全局检查" >&2
 if [ -f "$g/leakcheck.py" ] && [ -f "$g/identity.py" ]; then

@@ -96,6 +96,8 @@ hooks:
 ## real name on its way out. The everyday targets switch them on when they are off.
 hooks-check:
 	@[ "$$(git config core.hooksPath)" = .githooks ] || { git config core.hooksPath .githooks; echo "已启用 .githooks（提交和推送前的检查）"; }
+	@# The hooks also run this machine's own checks; where they live is local.
+	@[ -n "$$(git config hooks.global)" ] || { echo "hooks.global 没设：git config hooks.global <本机全局钩子目录>"; exit 1; }
 
 web-check:
 	cd web && pnpm typecheck && pnpm lint && pnpm test && pnpm build
