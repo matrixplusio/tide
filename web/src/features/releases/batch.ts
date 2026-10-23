@@ -93,6 +93,8 @@ export function tidyPaste(text: string): string {
     .join('\n')
 }
 
+const FULL_WIDTH: Record<string, string> = { '：': ':', '，': ',', '；': ';', '＝': '=' }
+
 // The way Tide itself shows a version: a label before the tag.
 const VERSION_LABEL = /^v?\d+(\.\d+)+([-+][\w.]+)?$/
 
@@ -111,7 +113,8 @@ export function parsePaste(text: string): { entries: PasteEntry[]; problems: Pas
   const problems: PasteProblem[] = []
   text.split(/\r?\n/).forEach((raw, i) => {
     const line = i + 1
-    const t = raw.replace(/#.*$/, '').trim()
+    // A Chinese input method types full-width separators: "svc：tag" means "svc:tag".
+    const t = raw.replace(/#.*$/, '').replace(/[：，；＝]/g, (c) => FULL_WIDTH[c] ?? c).trim()
     if (!t) return
     let parts = t.split(/[\s,;=]+/).filter(Boolean)
     // image reference or svc:tag in the first field
@@ -120,7 +123,9 @@ export function parsePaste(text: string): { entries: PasteEntry[]; problems: Pas
     // A colon followed by a slash is a registry port, not a tag.
     if (at >= 0 && !/^https?:/.test(first) && !first.slice(at + 1).includes('/')) {
       const repo = first.slice(0, at)
-      parts = [repo.slice(repo.lastIndexOf('/') + 1), first.slice(at + 1), ...parts.slice(1)]
+      // "svc: tag" leaves the tag in the next field.
+      const tag = first.slice(at + 1)
+      parts = [repo.slice(repo.lastIndexOf('/') + 1), ...(tag ? [tag] : []), ...parts.slice(1)]
     } else if (parts.length === 1 && first.includes('/')) {
       parts = [first.slice(first.lastIndexOf('/') + 1)]
     }

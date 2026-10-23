@@ -105,6 +105,16 @@ gateway-backend,v2.0.0
       ['admin-web', 'v1.4.0'],
     ])
   })
+  it('reads full-width separators as their ASCII forms', () => {
+    const { entries, problems } = parsePaste('order-api：20260917150452-938efb5c-0006\nmedia-api： v1.4.0\ntask-worker，v1.2.0；2\nadmin-web＝v1')
+    expect(problems).toEqual([])
+    expect(entries.map((e) => [e.service, e.ref, e.sequence])).toEqual([
+      ['order-api', '20260917150452-938efb5c-0006', undefined],
+      ['media-api', 'v1.4.0', undefined],
+      ['task-worker', 'v1.2.0', '2'],
+      ['admin-web', 'v1', undefined],
+    ])
+  })
   it('requires one project and one type, deployed in the env', () => {
     const all = [svc('a', 'acme', 'backend'), svc('b', 'acme', 'backend'), svc('web', 'acme', 'frontend'), svc('gateway', 'globex', 'backend'), svc('c', 'acme', 'backend', ['prod'])]
     const e = (s: string, line: number) => ({ line, service: s, ref: 't' })
