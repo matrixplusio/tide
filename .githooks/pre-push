@@ -55,8 +55,12 @@ if [ -f "$g/leakcheck.py" ] && [ -f "$g/identity.py" ]; then
 		esac
 		case "$remote_sha" in
 			*[!0]*) range="$remote_sha..$local_sha" ;;
-			*) range="$local_sha" ;;
+			# A new ref (a tag, mostly): only what the remote has not seen.
+			# Without a merge base nothing is known to be out there, so all of it.
+			*) base=$(git merge-base "$local_sha" refs/remotes/origin/main 2>/dev/null) || base=""
+			   if [ -n "$base" ]; then range="$base..$local_sha"; else range="$local_sha"; fi ;;
 		esac
+		[ -n "$(git rev-list "$range" 2>/dev/null | head -1)" ] || continue
 		python3 "$g/leakcheck.py" --outgoing "$range" || exit 1
 		python3 "$g/identity.py" --range "$range" || exit 1
 	done < "$refs"
