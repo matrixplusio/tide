@@ -30,24 +30,21 @@ echo "可达的 ref：$(printf '%s\n' "$refs" | wc -l | tr -d ' ') 个"
 printf '%s\n' "$refs" | sed 's/^/  /'
 echo
 
-patterns="$here/internal-data-patterns.txt"
-local_patterns="$here/internal-data-patterns.local.txt"
-cat "$patterns" "$local_patterns" 2>/dev/null > "$tmp/patterns"
+# Same rules, real-value list and allow list as the commit and push hooks.
+. "$here/lib-internal-data.sh"
+leak_setup "$here" "$tmp"
 
 found=0
 for ref in $refs; do
-  while IFS= read -r line; do
-    case "$line" in ''|\#*) continue ;; esac
-    name=${line%%|*}
-    regex=${line#*|}
-    hits=$(git grep -nIE "$regex" "$ref" -- 2>/dev/null | head -5)
-    if [ -n "$hits" ]; then
-      found=1
-      printf '\033[31m✗ %s  在 %s\033[0m\n' "$name" "$ref"
-      printf '%s\n' "$hits" | sed 's/^/    /'
-    fi
-  done < "$tmp/patterns"
+  # git grep prints "<ref>:<path>:<line>:<match>"; drop the ref so the
+  # allow list sees "path:line:match" like everywhere else.
+  scan_ref() { git grep -nI "$@" "$ref" -- . ':(exclude)hack/internal-data-*' ':(exclude)hack/lib-internal-data.sh' ':(exclude)hack/check-no-internal-data.sh' ':(exclude)internal/web/dist' | sed "s#^$ref:##"; }
+  leak_scan "$tmp" "  在 $ref" scan_ref || found=1
 done
+# Messages are published with every ref; read them all once.
+git log --all --format='%h %s%n%b' > "$tmp/messages"
+scan_msgs() { grep -n "$@" "$tmp/messages"; }
+leak_scan "$tmp" "  在提交信息里" scan_msgs || found=1
 
 if [ "$found" -ne 0 ]; then
   cat >&2 <<'MSG'

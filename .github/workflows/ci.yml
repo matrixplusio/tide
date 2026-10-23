@@ -22,6 +22,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The leak gate again, for what never passed through a local hook: a pull
+  # request, an edit made on GitHub, a push from a clone without the hooks.
+  # Only the generic rules run here — the list of real names and addresses
+  # lives on the maintainer's machine, since publishing it would be the leak.
+  leaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - name: Files and recent messages
+        run: |
+          sh hack/check-no-internal-data.sh
+          sh hack/check-no-internal-data.sh --messages
+      - name: Every commit this push or pull request adds
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            sh hack/check-no-internal-data.sh --range "origin/$BASE_REF..HEAD"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE" 2>/dev/null; then
+            sh hack/check-no-internal-data.sh --range "$BEFORE..$AFTER"
+          fi
+
   backend:
     runs-on: ubuntu-latest
     services:

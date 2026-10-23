@@ -25,10 +25,10 @@ STAGE_REDIS_URL   ?=
 # Throwaway: 32 bytes, base64. Never reuse outside a laptop.
 STAGE_SECRETS_KEY ?= c3RhZ2Utb25seS1lbmNyeXB0aW9uLWtleS0zMmJ5dGU=
 
-.PHONY: dev-up dev-sso dev-sso-down dev-down dev-logs dev-web-logs test test-db lint web-check check build web hooks stage-up stage-down stage-logs
+.PHONY: hooks-check dev-up dev-sso dev-sso-down dev-down dev-logs dev-web-logs test test-db lint web-check check build web hooks stage-up stage-down stage-logs
 
 ## Bring up the dev environment (hostPath source, air + vite hot reload).
-dev-up:
+dev-up: hooks-check
 	$(K) get ns $(NS) >/dev/null 2>&1 || $(K) create ns $(NS)
 	$(K) -n infra get secret infra-secrets -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d | \
 		$(K) -n $(NS) create secret generic pg-admin --from-file=POSTGRES_PASSWORD=/dev/stdin --dry-run=client -o yaml | $(K) apply -f -
@@ -69,7 +69,7 @@ dev-web-logs:
 BACKEND = $$(docker ps -q --filter 'name=^k8s_backend_backend-.*_$(NS)_' | head -1)
 
 ## Unit tests with the race detector (database tests skip without TIDE_TEST_*).
-test:
+test: hooks-check
 	go test -race ./...
 
 ## Integration tests: real PostgreSQL and real Redis, inside the dev
@@ -81,7 +81,7 @@ test-db:
 		-e TIDE_TEST_REDIS_URL=$(TEST_REDIS_URL) \
 		$(BACKEND) sh -c 'go test -count=1 -p 1 ./...'
 
-lint:
+lint: hooks-check
 	go vet ./...
 	golangci-lint run
 
@@ -91,6 +91,11 @@ lint:
 hooks:
 	git config core.hooksPath .githooks
 	@echo "hooks: $$(git config core.hooksPath)"
+
+## A fresh clone does not use .githooks until told to, and then nothing stops a
+## real name on its way out. The everyday targets switch them on when they are off.
+hooks-check:
+	@[ "$$(git config core.hooksPath)" = .githooks ] || { git config core.hooksPath .githooks; echo "已启用 .githooks（提交和推送前的检查）"; }
 
 web-check:
 	cd web && pnpm typecheck && pnpm lint && pnpm test && pnpm build

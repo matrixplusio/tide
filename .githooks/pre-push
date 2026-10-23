@@ -70,4 +70,26 @@ fi
 hack/check-no-internal-data.sh || exit 1
 hack/check-no-internal-data.sh --messages || exit 1
 
+# The sweep above sees the tree as it is now. History is published too: a
+# name added in one commit and removed in a later one is not in the tree and
+# is still in what leaves. So every commit about to go out is read one by
+# one, and so is the message of every annotated tag.
+while read -r local_ref local_sha _remote_ref remote_sha; do
+	case "$local_sha" in *[!0]*) ;; *) continue ;; esac
+	if [ "$(git cat-file -t "$local_sha" 2>/dev/null)" = tag ]; then
+		git cat-file -p "$local_sha" | sed '1,/^$/d' > "$refs.tag"
+		hack/check-no-internal-data.sh --message "$refs.tag" || { rm -f "$refs.tag"; exit 1; }
+		rm -f "$refs.tag"
+	fi
+	case "$remote_sha" in
+		*[!0]*) range="$remote_sha..$local_sha" ;;
+		# A new ref: what the remote has not seen yet.
+		*) base=$(git merge-base "$local_sha" refs/remotes/origin/main 2>/dev/null) || base=""
+		   [ -n "$base" ] || continue
+		   range="$base..$local_sha" ;;
+	esac
+	[ -n "$(git rev-list "$range" 2>/dev/null | head -1)" ] || continue
+	hack/check-no-internal-data.sh --range "$range" || exit 1
+done < "$refs"
+
 exit 0
