@@ -202,23 +202,23 @@ jobs:
       contents: write # create the release
     steps:
       - uses: actions/checkout@v7
-        with: { fetch-depth: 0 } # the changelog needs the history
 
       - uses: actions/download-artifact@v8
         with: { name: binaries, path: dist }
 
       - id: notes
-        name: Collect the commits since the previous tag
+        name: Release notes from the tag message
         run: |
-          prev=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          # The notes say what the tag says, written for the release, not a
+          # list of every commit subject since the last one.
+          # Fetched again: checkout can leave a lightweight copy of the tag,
+          # which has no message.
+          git fetch --quiet --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          msg=$(git tag -l --format='%(contents:subject)' "${GITHUB_REF_NAME}")
           {
             echo "## 变更"
             echo
-            if [ -n "$prev" ]; then
-              git log --no-merges --pretty='- %s' "${prev}..${GITHUB_REF_NAME}"
-            else
-              echo "- 第一个发布"
-            fi
+            echo "- ${msg:-${GITHUB_REF_NAME}}"
             echo
             echo "## 镜像"
             echo
