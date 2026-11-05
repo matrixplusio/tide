@@ -12,6 +12,7 @@ import { PromoteForm } from './PromoteForm'
 import { RestartForm } from './RestartForm'
 import { SyncForm } from './SyncForm'
 import { ScaleForm } from './ScaleForm'
+import { BlueGreenPanel } from './BlueGreenPanel'
 
 const CHANGES = [
   ['upgrade', 'services.changeUpgrade'],
@@ -140,6 +141,7 @@ export function EnvDetailPage() {
             <div>
               <GroupHeader>{t('services.deployState')}</GroupHeader>
               <RolloutView live={q.data.live} />
+              <BlueGreenPanel service={service} env={env} bg={q.data.blueGreen} error={q.data.blueGreenError} canAct={!!can?.create} />
               <GroupHeader>Pod</GroupHeader>
               <PodsList live={q.data.live} base={can?.pods ? base : undefined} />
               {!can?.pods && <Note>{t('services.noPodPermission')}</Note>}

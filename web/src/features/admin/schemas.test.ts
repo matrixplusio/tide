@@ -93,7 +93,7 @@ describe('bindings', () => {
 })
 
 describe('environmentsSchema', () => {
-  const env = (name: string, promotesFrom = '') => ({ name, displayName: '', tier: 'staging' as const, description: '', upstream: '', promotesFrom, ci: 'off' as const })
+  const env = (name: string, promotesFrom = '') => ({ name, displayName: '', tier: 'staging' as const, description: '', upstream: '', promotesFrom, ci: 'off' as const, blueGreenWindowMinutes: '30' })
   it('allows a verification source only from an earlier environment', () => {
     expect(environmentsSchema.safeParse({ items: [env('qa'), env('uat', 'qa')] }).success).toBe(true)
     const later = environmentsSchema.safeParse({ items: [env('uat', 'qa'), env('qa')] })

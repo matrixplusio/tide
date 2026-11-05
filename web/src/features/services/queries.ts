@@ -1,9 +1,9 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from '../../lib/api'
 import { ErrCode } from '../../lib/errcode'
 import { useMe } from '../../app/session'
 import { can } from '../../lib/permissions'
-import type { Candidates, ConfigDiff, Deployment, Live, LogLine, PodEvent, PromotionView, Release, Service, UpstreamStatus } from '../../lib/types'
+import type { BlueGreenState, Candidates, ConfigDiff, Deployment, Live, LogLine, PodEvent, PromotionView, Release, Service, UpstreamStatus } from '../../lib/types'
 
 export interface ServicesData {
   services: Service[]
@@ -61,6 +61,29 @@ export interface EnvData {
   promotions: PromotionView[] | null
   promotionsError?: string
   conflicts?: string[] | null
+  /** Present for a service with a blue-green Rollout. */
+  blueGreen?: BlueGreenState
+  blueGreenError?: string
+}
+
+const envPath = (service: string, env: string) => `/api/v1/services/${svc(service)}/envs/${encodeURIComponent(env)}`
+
+/** End this service's blue-green window now: the previous version is scaled down. */
+export function useEndObservation(service: string, env: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiFetch<{ ended: number }>(`${envPath(service, env)}/bluegreen/end`, { method: 'POST', body: {} }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['env', service, env] }),
+  })
+}
+
+/** Switch back to the version the window keeps. digest is the one the person was shown. */
+export function useRollback(service: string, env: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (digest: string) => apiFetch<Release>(`${envPath(service, env)}/rollback`, { method: 'POST', body: { digest } }),
+    onSuccess: () => void qc.invalidateQueries(),
+  })
 }
 
 export function useEnvDetail(service: string, env: string) {

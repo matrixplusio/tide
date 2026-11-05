@@ -73,7 +73,7 @@ export interface ReleaseDetail {
   changes?: Record<string, ItemChanges | null> | null
   release: Release
   /** What the viewer may do, with project / type scopes applied. */
-  can: { confirm: boolean; cancel: boolean; pods: boolean; rollout?: boolean }
+  can: { confirm: boolean; cancel: boolean; pods: boolean; rollout?: boolean; endObservation?: boolean }
   live?: ItemLive[] | null
 }
 
@@ -147,6 +147,16 @@ export function useRolloutAll() {
   return useMutation({
     mutationFn: ({ id, items, action }: { id: string; items: number[]; action: RolloutAction }) =>
       apiFetch<{ release: Release; results: RolloutResult[] }>(`/api/v1/releases/${encodeURIComponent(id)}/rollout`, { method: 'POST', body: { action, items } }),
+    onSuccess: (_d, v) => void qc.invalidateQueries({ queryKey: ['release', v.id] }),
+  })
+}
+
+/** End the blue-green window of every listed item now. */
+export function useEndObservationAll() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, items }: { id: string; items: number[] }) =>
+      apiFetch<{ results: RolloutResult[] }>(`/api/v1/releases/${encodeURIComponent(id)}/bluegreen/end`, { method: 'POST', body: { items } }),
     onSuccess: (_d, v) => void qc.invalidateQueries({ queryKey: ['release', v.id] }),
   })
 }

@@ -151,6 +151,12 @@ func Register(r *gin.Engine, d Deps) {
 	h("POST", "/releases/:id/confirm", needEnv(rbac.ReleasesCreate, rbac.ReleasesRestart, rbac.ReleasesSync), a.confirmRelease)
 	h("POST", "/releases/:id/items/:item/rollout", needEnv(rbac.ReleasesCreate, rbac.ReleasesRestart, rbac.ReleasesSync), a.rolloutRelease)
 	h("POST", "/releases/:id/rollout", needEnv(rbac.ReleasesCreate, rbac.ReleasesRestart, rbac.ReleasesSync), a.rolloutReleaseAll)
+	// The blue-green window outlives the release that opened it, so ending it
+	// and rolling back within it act on the service. Anyone who may release
+	// the service here may do either; each handler checks the service itself.
+	h("POST", "/services/:service/envs/:env/bluegreen/end", needEnv(rbac.ReleasesCreate), a.endObservation)
+	h("POST", "/services/:service/envs/:env/rollback", needEnv(rbac.ReleasesCreate), a.rollback)
+	h("POST", "/releases/:id/bluegreen/end", needEnv(rbac.ReleasesCreate), a.endObservationAll)
 	// Who may approve is decided by the release's approval rule, not a permission.
 	h("POST", "/releases/:id/approve", needScoped(rbac.ReleasesView), a.approveRelease)
 	h("POST", "/releases/:id/reject", needScoped(rbac.ReleasesView), a.rejectRelease)

@@ -18,6 +18,7 @@ import (
 	"tide/internal/server/api/errcode"
 	"tide/internal/server/api/respond"
 	"tide/internal/settings"
+	"tide/internal/upstream/argocd"
 	"tide/internal/upstream/gitea"
 	"tide/internal/upstream/gitlab"
 	pusher "tide/internal/upstream/repo"
@@ -135,7 +136,7 @@ func (a *API) kargoPlan(c *gin.Context, upstream, domain, project string) (kargo
 	// image in the catalog, which would drop it from the pipeline without
 	// anyone noticing. Generating is a deliberate action, not a page load, so
 	// it can afford to go and ask what git says those services should run.
-	a.desiredImages(ctx, snap)
+	rollouts := a.desiredImages(ctx, snap)
 	// The labels Tide reads the catalog by are the labels the generated
 	// stages should carry: a promotion policy selecting on them then means the
 	// same thing as a filter on the services page.
@@ -151,6 +152,7 @@ func (a *API) kargoPlan(c *gin.Context, upstream, domain, project string) (kargo
 		TagPattern:    pattern,
 		ServiceLabel:  labelOrDefault(cat.ServiceLabel, "tide.io/service"),
 		EnvLabel:      labelOrDefault(cat.EnvLabel, "tide.io/env"),
+		Rollouts:      rollouts,
 	}), snap, planTarget{upstream: upstream, repo: repoCfg}, nil
 }
 
@@ -405,7 +407,8 @@ func (a *API) kargoRepoIdentity(c *gin.Context) {
 // Cost is one call per deployment instead of a handful. That is affordable
 // here and nowhere else: this runs when an administrator presses generate,
 // not on the path that builds the catalog every minute.
-func (a *API) desiredImages(ctx context.Context, snap *catalog.Snapshot) {
+func (a *API) desiredImages(ctx context.Context, snap *catalog.Snapshot) map[string]string {
+	rollouts := map[string]string{}
 	type todo struct {
 		d   *catalog.Deployment
 		env string
@@ -419,7 +422,7 @@ func (a *API) desiredImages(ctx context.Context, snap *catalog.Snapshot) {
 		}
 	}
 	if len(work) == 0 {
-		return
+		return rollouts
 	}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -434,7 +437,13 @@ func (a *API) desiredImages(ctx context.Context, snap *catalog.Snapshot) {
 			if err != nil {
 				return
 			}
-			images, err := c.ArgoCD.ImagesFromManifests(ctx, w.d.App)
+			desired, err := c.ArgoCD.DesiredManifests(ctx, w.d.App)
+			if err == nil && desired.Rollouts > 0 {
+				mu.Lock()
+				rollouts[w.d.App] = rolloutStrategy(desired)
+				mu.Unlock()
+			}
+			images := desired.Images
 			if err != nil || len(images) == 0 {
 				// Keep whatever the catalog had: an Application whose
 				// manifests cannot be read is better described by the image
@@ -450,6 +459,21 @@ func (a *API) desiredImages(ctx context.Context, snap *catalog.Snapshot) {
 		}(w)
 	}
 	wg.Wait()
+	return rollouts
+}
+
+// rolloutStrategy sums up an Application's Rollouts for the generator. Only a
+// single blue-green Rollout gets its window written: the step edits one file,
+// and with two Rollouts there is no telling which of them that file holds.
+func rolloutStrategy(d argocd.Desired) string {
+	switch {
+	case d.Rollouts > 1:
+		return kargogen.RolloutSeveral
+	case d.BlueGreen == 1:
+		return kargogen.RolloutBlueGreen
+	default:
+		return kargogen.RolloutOther
+	}
 }
 
 // splitImageRef separates "repo:tag" without mistaking a registry port for a

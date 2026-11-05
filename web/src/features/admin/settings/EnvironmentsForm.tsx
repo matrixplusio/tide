@@ -28,7 +28,9 @@ const ciHint = (mode: CIMode): string =>
         ? i18n.t('envForm.ciNotifyHint')
         : i18n.t('envForm.ciOffHint')
 
-const emptyEnv = (): EnvironmentsValues['items'][number] => ({ name: '', displayName: '', tier: 'development', description: '', upstream: '', promotesFrom: '', ci: 'off' })
+const numberInput = { type: 'text', inputMode: 'numeric', autoComplete: 'off', className: 'num' } as const
+
+const emptyEnv = (): EnvironmentsValues['items'][number] => ({ name: '', displayName: '', tier: 'development', description: '', upstream: '', promotesFrom: '', ci: 'off', blueGreenWindowMinutes: '30' })
 
 export function EnvironmentsForm({ initial, upstreams }: { initial: { items: Environment[] | null } | null | undefined; upstreams: string[] }) {
   const { t } = useTranslation()
@@ -38,7 +40,7 @@ export function EnvironmentsForm({ initial, upstreams }: { initial: { items: Env
   const form = useForm<EnvironmentsValues>({
     resolver: zodResolver(environmentsSchema),
     mode: 'onTouched',
-    defaultValues: { items: (initial?.items ?? []).map((e) => ({ ...e, displayName: e.displayName ?? '', description: e.description ?? '', upstream: e.upstream ?? '', promotesFrom: e.promotesFrom ?? '', ci: e.ci ?? 'off' })) },
+    defaultValues: { items: (initial?.items ?? []).map((e) => ({ ...e, displayName: e.displayName ?? '', description: e.description ?? '', upstream: e.upstream ?? '', promotesFrom: e.promotesFrom ?? '', ci: e.ci ?? 'off', blueGreenWindowMinutes: String(e.blueGreenWindowMinutes || 30) })) },
   })
   const { register, handleSubmit, formState, control, watch } = form
   const { fields, append, remove, move } = useFieldArray({ control, name: 'items' })
@@ -49,7 +51,7 @@ export function EnvironmentsForm({ initial, upstreams }: { initial: { items: Env
     setFormError(null)
     try {
       await save.mutateAsync({
-        items: v.items.map((e) => ({ name: e.name.trim(), displayName: e.displayName.trim(), tier: e.tier, description: e.description.trim(), upstream: e.upstream, promotesFrom: e.promotesFrom, ci: e.ci })),
+        items: v.items.map((e) => ({ name: e.name.trim(), displayName: e.displayName.trim(), tier: e.tier, description: e.description.trim(), upstream: e.upstream, promotesFrom: e.promotesFrom, ci: e.ci, blueGreenWindowMinutes: Number(e.blueGreenWindowMinutes.trim()) })),
       })
       form.reset(v)
       toast.success(t('envForm.saved'))
@@ -119,6 +121,9 @@ export function EnvironmentsForm({ initial, upstreams }: { initial: { items: Env
               </FormField>
               <FormField label={t('envForm.ci')} error={e?.ci?.message} hint={ciHint(cur?.ci ?? 'off')}>
                 {(p) => <Select {...p} {...register(`items.${i}.ci`)} options={ciOptions()} />}
+              </FormField>
+              <FormField label={t('envForm.blueGreenWindow')} error={e?.blueGreenWindowMinutes?.message} hint={t('envForm.blueGreenWindowHint')}>
+                {(p) => <Input {...p} {...register(`items.${i}.blueGreenWindowMinutes`)} {...numberInput} />}
               </FormField>
               <FormField label={t('envForm.description')} error={e?.description?.message}>
                 {(p) => <Textarea {...p} {...register(`items.${i}.description`)} rows={2} placeholder={t('admin.optional')} />}

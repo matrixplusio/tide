@@ -110,3 +110,28 @@ func TestResourceChange(t *testing.T) {
 		}
 	}
 }
+
+// The blue-green task writes two fields besides the image. Only the exact
+// values it writes pass; anything else in the same manifest still stops the
+// sync.
+func TestTheBlueGreenWindowPassesOnlyAtTheValueWritten(t *testing.T) {
+	also := []string{"autoPromotionEnabled: true", "scaleDownDelaySeconds: 1800"}
+	d := "-      image: r/x:v1\n+      image: r/x:v2\n-      autoPromotionEnabled: false\n+      autoPromotionEnabled: true\n-      scaleDownDelaySeconds: 60\n+      scaleDownDelaySeconds: 1800\n"
+	if !OnlyPromotionChanged(d, also) {
+		t.Error("image plus the written window should pass")
+	}
+	if OnlyImageChanged(d) {
+		t.Error("without the allowance the window is a change nobody showed")
+	}
+	if OnlyPromotionChanged(strings.Replace(d, "+      scaleDownDelaySeconds: 1800", "+      scaleDownDelaySeconds: 999", 1), also) {
+		t.Error("a window other than the one written must stop the sync")
+	}
+	if OnlyPromotionChanged(d+"+      replicas: 9\n", also) {
+		t.Error("an unrelated change must still stop the sync")
+	}
+	// A Rollout adopting a Deployment: the image changes on the Deployment,
+	// and the Rollout's own diff is the window and nothing else.
+	if !OnlyPromotionChanged("-      scaleDownDelaySeconds: 60\n+      scaleDownDelaySeconds: 1800\n", also) {
+		t.Error("the window alone, at the value written, is the adopting Rollout's share of the promotion")
+	}
+}

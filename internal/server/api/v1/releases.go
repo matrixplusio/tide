@@ -496,6 +496,9 @@ type ItemLive struct {
 	// Deadline is when an unattended wait gets aborted.
 	Rollouts []executor.RolloutView `json:"rollouts,omitempty"`
 	Deadline *time.Time             `json:"deadline,omitempty"`
+	// Retained is the previous version a blue-green item left running after
+	// its switch, while the window lasts.
+	Retained []executor.Retained `json:"retained,omitempty"`
 }
 
 func (a *API) getRelease(c *gin.Context) {
@@ -534,7 +537,15 @@ func (a *API) getRelease(c *gin.Context) {
 	// each build carried with it. No credential and no call to any host.
 	out["changes"] = changesFor(rel, raw)
 	// Live view only while it matters; history renders from stored state.
-	recent := rel.FinishedAt != nil && time.Since(*rel.FinishedAt) < 2*time.Hour
+	// A blue-green window can outlast that, and the page is where it is
+	// ended from.
+	keep := 2 * time.Hour
+	if envs, err := a.Settings.Environments(c.Request.Context()); err == nil {
+		if e, ok := envs.Named(rel.Env); ok {
+			keep = max(keep, e.BlueGreenWindow())
+		}
+	}
+	recent := rel.FinishedAt != nil && time.Since(*rel.FinishedAt) < keep
 	if withLive && (rel.Status == release.Executing || recent) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), upstreamTimeout)
 		defer cancel()
@@ -580,6 +591,15 @@ func (a *API) getRelease(c *gin.Context) {
 				if snap != nil {
 					if d := deploymentIn(snap, tg.Service, tg.Env); d != nil {
 						il.Live = a.live(ctx, d, tg.Digest, tag)
+					}
+				}
+				if it.Status == release.ItemSucceeded && it.Kind == release.KindImage && il.SupersededBy == "" {
+					if up, app, ok := executor.AppOf(rel, it); ok {
+						if cl, err := a.Hub.Named(ctx, up); err == nil {
+							if kept, err := executor.RetainedOf(ctx, cl, app); err == nil && len(kept) > 0 {
+								il.Retained = kept
+							}
+						}
 					}
 				}
 				if it.Status == release.ItemExecuting {
@@ -951,9 +971,12 @@ func (a *API) releaseAbilities(c *gin.Context, rel *release.Release) (gin.H, err
 		// The same people who could confirm decide on the switch: it is the
 		// second half of the same decision.
 		"rollout": mine && rel.Status == release.Executing && all(kindPermission),
-		"confirm": mine && all(kindPermission),
-		"cancel":  (mine && all(kindPermission)) || all(func(string) rbac.Permission { return rbac.ReleasesCancelAny }),
-		"pods":    all(func(string) rbac.Permission { return rbac.PodsView }),
+		// Ending a window is not the creator's alone: whoever may release
+		// these services here may, since the creator may not be around.
+		"endObservation": all(func(string) rbac.Permission { return rbac.ReleasesCreate }),
+		"confirm":        mine && all(kindPermission),
+		"cancel":         (mine && all(kindPermission)) || all(func(string) rbac.Permission { return rbac.ReleasesCancelAny }),
+		"pods":           all(func(string) rbac.Permission { return rbac.PodsView }),
 	}, nil
 }
 

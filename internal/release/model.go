@@ -209,6 +209,11 @@ type ImagePayload struct {
 	// Verified is the cross-site verification the environment requires
 	// (Environment.PromotesFrom); re-checked before execution.
 	Verified *SourceVerification `json:"verified,omitempty"`
+	// RollbackOf names the release whose blue-green switch this one undoes,
+	// set only on a rollback made inside the window, while the previous
+	// version still runs. It is the record of why the release went out
+	// without approval: that exemption exists for this case and no other.
+	RollbackOf string `json:"rollbackOf,omitempty"`
 }
 
 // SourceVerification: Digest was verified in Stage of Project on Upstream,

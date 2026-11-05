@@ -62,7 +62,11 @@ var imageKinds = []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob", "
 // to send the configuration along. And a Namespace is never deleted this way,
 // listed or not — it takes everything in it, and one release is the wrong
 // place to decide that.
-func approveSync(recorded, pending []release.ResourceChange, withConfig bool) (prune bool, refused string) {
+//
+// rolloutAlso are the lines a blue-green promotion writes into a Rollout
+// besides its image (see blueGreenLines); they are part of this release's own
+// change, not something somebody left behind.
+func approveSync(recorded, pending []release.ResourceChange, withConfig bool, rolloutAlso []string) (prune bool, refused string) {
 	key := func(c release.ResourceChange) string { return c.Kind + "/" + c.Namespace + "/" + c.Name }
 	seen := map[string]release.ResourceChange{}
 	for _, c := range recorded {
@@ -86,7 +90,11 @@ func approveSync(recorded, pending []release.ResourceChange, withConfig bool) (p
 			if was {
 				continue // reviewed along with whatever else it carried
 			}
-			if c.Action != release.ChangeUpdate || c.Truncated || !plan.OnlyImageChanged(c.Diff) {
+			var also []string
+			if c.Kind == "Rollout" {
+				also = rolloutAlso
+			}
+			if c.Action != release.ChangeUpdate || c.Truncated || !plan.OnlyPromotionChanged(c.Diff, also) {
 				return false, fmt.Sprintf("%s changes more than its image, which this release did not show", key(c))
 			}
 		case !was || r.Action != c.Action:
@@ -143,7 +151,7 @@ func (x Image) syncThenRollout(ctx context.Context, c *catalog.Clients, p *relea
 	if !runs && !seesTarget(diff.Changes, p.To) {
 		return ItemStatus{Waiting: "waiting for Argo CD to read the promotion's commit"}, nil
 	}
-	prune, refused := approveSync(p.ConfigChanges, diff.Changes, p.WithConfig)
+	prune, refused := approveSync(p.ConfigChanges, diff.Changes, p.WithConfig, x.blueGreenLines(ctx, p.Env))
 	if refused != "" {
 		// The tag is already in git and stays there; saying so is what lets
 		// whoever reads this know the cluster and git now disagree.
@@ -155,4 +163,25 @@ func (x Image) syncThenRollout(ctx context.Context, c *catalog.Clients, p *relea
 		return ItemStatus{}, err
 	}
 	return ItemStatus{Waiting: "Argo CD sync requested"}, nil
+}
+
+// blueGreenLines are what the blue-green promotion task writes into a Rollout
+// with every image, as they read in a diff: switching by itself, and keeping
+// the previous version for the environment's window. With the setting
+// unknown, nothing extra is allowed; a sync that would carry a different
+// window is then refused, which is right — the pipeline was generated against
+// another setting and should be generated again.
+func (x Image) blueGreenLines(ctx context.Context, env string) []string {
+	if x.Settings == nil {
+		return nil
+	}
+	envs, err := x.Settings.Environments(ctx)
+	if err != nil {
+		return nil
+	}
+	e, ok := envs.Named(env)
+	if !ok {
+		return nil
+	}
+	return []string{"autoPromotionEnabled: true", fmt.Sprintf("scaleDownDelaySeconds: %d", int(e.BlueGreenWindow().Seconds()))}
 }

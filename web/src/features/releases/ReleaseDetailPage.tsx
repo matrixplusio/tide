@@ -11,7 +11,8 @@ import { changeSummary } from '../../lib/release'
 import { redoLink } from '../../lib/redo'
 import { isNoiseCommit } from '../../lib/changes'
 import { anomalyText, isNotice } from '../../lib/anomaly'
-import { useCancelRelease, useDecideRelease, useRelease, useRolloutAction, useRolloutAll, type RolloutAction } from './queries'
+import { useCancelRelease, useDecideRelease, useEndObservationAll, useRelease, useRolloutAction, useRolloutAll, type RolloutAction } from './queries'
+import { imageVersion } from '../../lib/format'
 import { subjectLabel } from '../../lib/permissions'
 import {
   Banner,
@@ -20,6 +21,7 @@ import {
   ButtonRow,
   FormErrorBanner,
   Modal,
+  Chev,
   ConfirmModal,
   useToast,
   ErrorState,
@@ -56,6 +58,9 @@ export function ReleaseDetailPage() {
   const canRollout = !!can?.rollout
   const [cancelOpen, setCancelOpen] = useState(false)
   const [batchAction, setBatchAction] = useState<RolloutAction | null>(null)
+  const [endingAll, setEndingAll] = useState(false)
+  // Items whose previous version is still kept: what "end all" acts on.
+  const keeping = (q.data?.live ?? []).filter((l) => (l.retained?.length ?? 0) > 0)
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null)
   // Fifty items is a page you scroll past, not one you read: the failures
   // are what somebody opened it for.
@@ -107,6 +112,7 @@ export function ReleaseDetailPage() {
           </Button>
         )}
         {r?.status === 'failed' && redo && <LinkButton to={redo}>{t('detail.restart')}</LinkButton>}
+        {can?.endObservation && keeping.length > 0 && <Button onClick={() => setEndingAll(true)}>{t('bluegreen.endAll', { count: keeping.length })}</Button>}
         {r?.status === 'executing' && canRollout && r.items && r.items.length > 1 && r.items.some(isAwaiting) && (
           <>
             <Button variant="primary" onClick={() => setBatchAction('next')}>
@@ -176,6 +182,7 @@ export function ReleaseDetailPage() {
       </Page>
       {cancelOpen && r && <CancelReleaseModal release={r} onClose={() => setCancelOpen(false)} />}
       {batchAction && r && <BatchRolloutModal release={r} action={batchAction} onClose={() => setBatchAction(null)} />}
+      {endingAll && r && <EndAllModal release={r} itemIds={keeping.map((l) => l.itemId)} onClose={() => setEndingAll(false)} />}
       {deciding && r && <DecideModal release={r} approve={deciding === 'approve'} onClose={() => setDeciding(null)} />}
       {sheet && r && (
         <ConfirmSheet
@@ -452,6 +459,31 @@ function ItemSection({ it, live, release, canPods, canRollout, onCollapse, build
               <ConfigChanges changes={it.payload.configChanges ?? []} />
             </>
           )}
+          {it.kind === 'image' && it.payload.rollbackOf && (
+            <Note>
+              {t('bluegreen.isRollback')} <Link to={`/releases/${encodeURIComponent(it.payload.rollbackOf)}`}>{it.payload.rollbackOf}</Link>
+            </Note>
+          )}
+          {(live?.retained?.length ?? 0) > 0 && (
+            <>
+              <GroupHeader>{t('bluegreen.title')}</GroupHeader>
+              <Group>
+                {live?.retained?.map((k) => (
+                  <Row key={k.replicaSet} to={base}>
+                    <div className="grow">
+                      <div className="t">
+                        {t('bluegreen.previous')} <span className="mono">{k.images.map(imageVersion).join(', ')}</span>
+                      </div>
+                      <div className="d">
+                        {t('bluegreen.keptUntil', { at: fmtTime(k.until) })} · {t('bluegreen.ready', { ready: k.ready, desired: k.replicas })} · {t('bluegreen.actOnService')}
+                      </div>
+                    </div>
+                    <Chev />
+                  </Row>
+                ))}
+              </Group>
+            </>
+          )}
           {it.error && (
             <>
               <GroupHeader>{t('detail.errorText')}</GroupHeader>
@@ -722,6 +754,57 @@ function BatchRolloutModal({ release, action, onClose }: { release: Release; act
 const AWAITING = 'awaiting'
 
 /** An item stopped at a blue-green or canary rollout, waiting for a person. */
+/** End the window of every listed item now. Each is acted on and reported on its own. */
+function EndAllModal({ release, itemIds, onClose }: { release: Release; itemIds: number[]; onClose: () => void }) {
+  const { t } = useTranslation()
+  const toast = useToast()
+  const act = useEndObservationAll()
+  // Fixed when opened: the list the person reads is the list that is sent.
+  const [ids] = useState(itemIds)
+  const [failed, setFailed] = useState<{ service?: string; error?: string }[]>([])
+  const names = ids.map((id) => (release.items ?? []).find((it) => it.id === id)?.payload.service ?? String(id))
+  const title = t('bluegreen.endAll', { count: ids.length })
+  return (
+    <ConfirmModal
+      title={title}
+      confirmLabel={title}
+      pending={act.isPending}
+      error={act.error}
+      onClose={onClose}
+      onConfirm={() =>
+        act.mutate(
+          { id: release.id, items: ids },
+          {
+            onSuccess: (d) => {
+              const bad = d.results.filter((x) => !x.ok)
+              const ok = d.results.length - bad.length
+              if (ok > 0) toast.success(t('bluegreen.endedAll', { count: ok }))
+              if (bad.length > 0) setFailed(bad)
+              else onClose()
+            },
+          },
+        )
+      }
+    >
+      <div>{t('bluegreen.endAllHint')}</div>
+      <ul className="mono" style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+        {names.map((n, i) => (
+          <li key={i}>{n}</li>
+        ))}
+      </ul>
+      {failed.length > 0 && (
+        <div className="red" role="alert" style={{ marginTop: 8 }}>
+          {failed.map((f, i) => (
+            <div key={i}>
+              {f.service}: {f.error}
+            </div>
+          ))}
+        </div>
+      )}
+    </ConfirmModal>
+  )
+}
+
 function isAwaiting(it: Item): boolean {
   return it.status === 'executing' && !!it.pausedSince
 }

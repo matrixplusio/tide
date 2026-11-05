@@ -122,3 +122,11 @@ export function dayBound(day: string, end: boolean): string | undefined {
   const d = end ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59, 999) : new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
   return isNaN(d.getTime()) ? undefined : d.toISOString()
 }
+
+/** The tag (or short digest) an image reference runs. */
+export function imageVersion(ref: string): string {
+  const at = ref.indexOf('@')
+  if (at >= 0) return ref.slice(at + 1, at + 20)
+  const colon = ref.lastIndexOf(':')
+  return colon > ref.lastIndexOf('/') ? ref.slice(colon + 1) : ref
+}

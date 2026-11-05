@@ -137,7 +137,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		PG:       pgs,
 		Settings: set,
 		Executors: map[string]executor.ItemExecutor{
-			release.KindImage:   executor.Image{Hub: hub},
+			release.KindImage:   executor.Image{Hub: hub, Settings: set},
 			release.KindRestart: executor.Restart{Hub: hub},
 			release.KindSync:    executor.Sync{Hub: hub},
 			release.KindScale:   executor.Scale{Hub: hub, Settings: set},

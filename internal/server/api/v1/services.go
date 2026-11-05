@@ -275,6 +275,13 @@ func (a *API) getEnv(c *gin.Context) {
 		}
 	}
 	out["promotions"] = promos
+	// Not fatal: the page is about the service, and a Rollout that cannot be
+	// read is said so next to it rather than taking the page down.
+	if bg, err := a.blueGreenView(ctx, d); err != nil {
+		out["blueGreenError"] = errcode.From(err).Text(i18n.From(ctx))
+	} else if bg != nil {
+		out["blueGreen"] = bg
+	}
 	respond.OK(c, out)
 }
 

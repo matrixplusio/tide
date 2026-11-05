@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dayBound, describeUserAgent, shortTag } from './format'
+import { dayBound, describeUserAgent, imageVersion, shortTag } from './format'
 
 describe('describeUserAgent', () => {
   it('names common browsers and systems', () => {
@@ -47,5 +47,13 @@ describe('shortTag', () => {
     expect(shortTag(long)).toBe('release-candidate-fo…')
     expect(shortTag('')).toBe('')
     expect(shortTag(undefined)).toBe('')
+  })
+})
+
+describe('imageVersion', () => {
+  it('reads the tag, a digest, and a registry with a port', () => {
+    expect(imageVersion('registry.example.com/shop/order:v1')).toBe('v1')
+    expect(imageVersion('registry.example.com:5000/shop/order')).toBe('registry.example.com:5000/shop/order')
+    expect(imageVersion('registry.example.com/shop/order@sha256:abcdef0123456789abcdef')).toBe('sha256:abcdef012345')
   })
 })

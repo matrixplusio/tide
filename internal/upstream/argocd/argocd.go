@@ -400,26 +400,33 @@ func (a *Application) RunsWorkloads() bool {
 	return false
 }
 
-// ImagesFromManifests reads the container images out of what git says this
-// Application should be running.
+// DesiredManifests reads the container images, and which Rollouts are
+// blue-green, out of what git says this Application should be running.
 //
 // status.summary.images, which is cheaper and used everywhere else, reports
 // the images of containers that are actually running. A service scaled to
 // zero replicas has none, so it looks like an Application with no images at
 // all — and a pipeline generated from that would silently leave the service
 // out. The desired state has the image whether or not anything is running it.
-func (c *Client) ImagesFromManifests(ctx context.Context, app string) ([]string, error) {
+func (c *Client) DesiredManifests(ctx context.Context, app string) (Desired, error) {
 	res, err := c.ManagedResources(ctx, app)
 	if err != nil {
-		return nil, err
+		return Desired{}, err
 	}
-	var out []string
+	var d Desired
+	out := d.Images
 	for _, r := range res {
 		if !workloadKinds[r.Kind] || r.TargetState == "" {
 			continue
 		}
 		var m struct {
 			Spec struct {
+				// Only presence matters: it tells a blue-green Rollout from a
+				// canary, and only the first may have blue-green fields
+				// written into it.
+				Strategy struct {
+					BlueGreen json.RawMessage `json:"blueGreen"`
+				} `json:"strategy"`
 				Template struct {
 					Spec struct {
 						Containers []struct {
@@ -454,6 +461,21 @@ func (c *Client) ImagesFromManifests(ctx context.Context, app string) ([]string,
 				out = append(out, cn.Image)
 			}
 		}
+		if r.Kind == "Rollout" && r.Group == "argoproj.io" {
+			d.Rollouts++
+			if len(m.Spec.Strategy.BlueGreen) > 0 && string(m.Spec.Strategy.BlueGreen) != "null" {
+				d.BlueGreen++
+			}
+		}
 	}
-	return out, nil
+	d.Images = out
+	return d, nil
+}
+
+// Desired is what git says an Application should run.
+type Desired struct {
+	Images []string
+	// Rollouts counts the Argo Rollouts in the manifests, BlueGreen those of
+	// them using the blue-green strategy.
+	Rollouts, BlueGreen int
 }

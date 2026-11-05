@@ -325,6 +325,11 @@ type RolloutView struct {
 	Current string `json:"current,omitempty"`
 	// Weight is the share of traffic on the new version, -1 when unknown.
 	Weight int `json:"weight"`
+	// For a blue-green Rollout, what its manifest says now: how long the
+	// previous version is kept, and whether it switches by itself. Compared
+	// with the environment's setting to show a Rollout set by hand.
+	ScaleDownDelaySeconds *int64 `json:"scaleDownDelaySeconds,omitempty"`
+	AutoPromotion         *bool  `json:"autoPromotion,omitempty"`
 }
 
 // ViewRollouts reads the Rollouts of an Application; none for an ordinary
@@ -352,6 +357,16 @@ func ViewRollouts(ctx context.Context, hub *catalog.Hub, upstream, app string) (
 			Stable: str(obj, "status", "stableRS"), Current: str(obj, "status", "currentPodHash"), Weight: -1}
 		if _, bg := lookup(obj, "spec", "strategy", "blueGreen"); bg {
 			v.Strategy = "blueGreen"
+			// Rollouts' own defaults when the field is absent: 30 seconds,
+			// and switching by itself.
+			delay, auto := int64(30), true
+			if x, ok := lookup(obj, "spec", "strategy", "blueGreen", "scaleDownDelaySeconds"); ok {
+				delay = toInt(x)
+			}
+			if x, ok := lookup(obj, "spec", "strategy", "blueGreen", "autoPromotionEnabled"); ok {
+				auto, _ = x.(bool)
+			}
+			v.ScaleDownDelaySeconds, v.AutoPromotion = &delay, &auto
 		}
 		v.Paused = pauseOf(obj)
 		switch {

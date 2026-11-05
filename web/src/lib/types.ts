@@ -281,6 +281,8 @@ export interface ImagePayload {
   configChanges?: ResourceChange[] | null
   /** The creator chose to send configChanges along explicitly. */
   withConfig?: boolean
+  /** Set on a rollback inside a blue-green window: the release it undoes (why no approval was asked). */
+  rollbackOf?: string
 }
 
 export type ChangeAction = 'create' | 'update' | 'delete'
@@ -577,6 +579,32 @@ export interface ItemLive {
   rollouts?: RolloutState[]
   /** When an unattended wait for a decision gets aborted. */
   deadline?: string
+  /** The previous version a blue-green item left running, while its window lasts. */
+  retained?: Retained[]
+}
+
+/** The previous version a blue-green Rollout keeps after switching. */
+export interface Retained {
+  rollout: string
+  replicaSet: string
+  images: string[]
+  /** When the controller scales it down. */
+  until: string
+  replicas: number
+  ready: number
+}
+
+/** A service's blue-green state in one environment. */
+export interface BlueGreenState {
+  /** The environment's window, what Kargo writes. */
+  windowSeconds: number
+  rollouts: RolloutState[]
+  /** A Rollout's manifest disagrees with the setting. */
+  drift: boolean
+  retained: Retained[]
+  /** What a rollback would put back, when it can be done now. */
+  rollback?: { to: Artifact; releaseId: string; until: string }
+  rollbackError?: string
 }
 
 export interface RolloutPause {
@@ -602,6 +630,9 @@ export interface RolloutState {
   stable?: string
   current?: string
   weight: number
+  /** Blue-green only: what the manifest says now. */
+  scaleDownDelaySeconds?: number
+  autoPromotion?: boolean
 }
 
 export interface AuditEntry {

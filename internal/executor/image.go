@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"tide/internal/catalog"
 	"tide/internal/plan"
 	"tide/internal/release"
+	"tide/internal/settings"
 	"tide/internal/upstream/argocd"
 	"tide/internal/upstream/kargo"
 )
@@ -18,6 +20,9 @@ import (
 // Image promotes Kargo Freight to a Stage.
 type Image struct {
 	Hub *catalog.Hub
+	// Settings gives the blue-green window a promotion writes; nil in tests
+	// that do not need it.
+	Settings *settings.Store
 }
 
 func (Image) Kind() string { return release.KindImage }
@@ -77,7 +82,33 @@ func (x Image) Validate(ctx context.Context, it *release.Item) error {
 			return fmt.Errorf("digest %s is no longer verified in %s (%s/%s)", v.Digest, v.Env, v.Upstream, v.Stage)
 		}
 	}
+	// A rollback went out without approval because the previous version was
+	// still running to switch back to. Checked again here, just before the
+	// promotion, because the window can close in between; past it this would
+	// be an approval-free release that starts new pods, which is not what the
+	// exemption is for.
+	if p.RollbackOf != "" {
+		if p.App == "" {
+			return errors.New("rollback names no Application, so the kept previous version cannot be checked")
+		}
+		kept, err := RetainedOf(ctx, c, p.App)
+		if err != nil {
+			return fmt.Errorf("check the kept previous version: %w", err)
+		}
+		if err := stillKept(kept, p.To, time.Now()); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// stillKept says whether a rollback to a can still be a switch back: some
+// Rollout keeps a running, ready, in-time ReplicaSet of it.
+func stillKept(kept []Retained, a release.Artifact, now time.Time) error {
+	if slices.ContainsFunc(kept, func(r Retained) bool { return r.Usable(now) && r.Runs(a) }) {
+		return nil
+	}
+	return fmt.Errorf("the previous version %s is no longer kept running, so this is not a rollback within the window; release it as an ordinary release", labelOf(a))
 }
 
 func orNone(s string) string {
