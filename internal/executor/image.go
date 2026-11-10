@@ -52,14 +52,7 @@ func (x Image) Validate(ctx context.Context, it *release.Item) error {
 		return fmt.Errorf("stage %s already has promotion %s running", p.Stage, stage.Status.CurrentPromotion.Name)
 	}
 	cur := stage.Current()
-	curDigest := ""
-	if cur != nil {
-		for _, img := range cur.Images {
-			if img.RepoURL == p.Image || len(cur.Images) == 1 {
-				curDigest = img.Digest
-			}
-		}
-	}
+	curDigest := currentDigest(stage, p.Image)
 	switch {
 	case p.From == nil && cur != nil:
 		return fmt.Errorf("release was built for a first deploy, but %s is now running %s (%s); create a new release", p.Env, cur.Name, curDigest)
@@ -100,6 +93,34 @@ func (x Image) Validate(ctx context.Context, it *release.Item) error {
 		}
 	}
 	return nil
+}
+
+// currentDigest is the digest of image in the Freight stage holds now, ""
+// when it holds none.
+func currentDigest(stage *kargo.Stage, image string) string {
+	cur := stage.Current()
+	if cur == nil {
+		return ""
+	}
+	d := ""
+	for _, img := range cur.Images {
+		if img.RepoURL == image || len(cur.Images) == 1 {
+			d = img.Digest
+		}
+	}
+	return d
+}
+
+// RunningDigest reads, from Kargo now, the digest of image that project's
+// stage holds. A rollback is judged on this rather than on the catalog, which
+// is a snapshot taken every so often and is still the old version for a while
+// after a switch.
+func RunningDigest(ctx context.Context, c *catalog.Clients, project, stage, image string) (string, error) {
+	s, err := c.Kargo.GetStage(ctx, project, stage)
+	if err != nil {
+		return "", err
+	}
+	return currentDigest(s, image), nil
 }
 
 // stillKept says whether a rollback to a can still be a switch back: some

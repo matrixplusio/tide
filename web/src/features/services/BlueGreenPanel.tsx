@@ -22,6 +22,9 @@ export function BlueGreenPanel({ service, env, bg, error, canAct }: { service: s
   const live = bg?.rollouts.find((r) => r.scaleDownDelaySeconds !== undefined)
   const kept = bg?.retained ?? []
   const offer = bg?.rollback
+  // The kept version can be part-way up while an autoscaler grows it; the
+  // controller then switches back only once every pod of it is ready.
+  const starting = offer ? kept.find((r) => r.until === offer.until && r.ready < r.replicas) : undefined
 
   return (
     <>
@@ -118,6 +121,7 @@ export function BlueGreenPanel({ service, env, bg, error, canAct }: { service: s
           </div>
           <div className="mono d">{offer.to.digest}</div>
           <div style={{ marginTop: 8 }}>{t('bluegreen.rollbackHint', { at: fmtTime(offer.until), id: offer.releaseId })}</div>
+          {starting && <div style={{ marginTop: 8 }}>{t('bluegreen.rollbackWaits', { ready: starting.ready, desired: starting.replicas })}</div>}
         </ConfirmModal>
       )}
     </>

@@ -48,10 +48,14 @@ type Retained struct {
 	Ready    int64     `json:"ready"`
 }
 
-// Usable says the previous version can still take traffic back at once:
-// before its deadline, with every replica it wants ready.
+// Usable says the previous version can still take traffic back: before its
+// deadline, with at least one pod ready. Not all of them: an autoscaler
+// growing the Rollout grows the kept ReplicaSet too, and for those seconds
+// "every replica ready" is false though nothing is wrong. Waiting for the
+// rest is the controller's job — it switches the Service back only once the
+// ReplicaSet is fully available, and traffic stays where it is until then.
 func (r Retained) Usable(now time.Time) bool {
-	return now.Before(r.Until) && r.Replicas > 0 && r.Ready >= r.Replicas
+	return now.Before(r.Until) && r.Replicas > 0 && r.Ready > 0
 }
 
 // RetainedOf finds the previous versions app's blue-green Rollouts are

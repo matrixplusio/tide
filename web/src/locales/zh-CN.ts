@@ -867,6 +867,7 @@ const zhCN = {
     ended: '已结束观察，上一版正在缩容',
     rollbackTitle: '回滚 {{service}}',
     rolledBack: '已发起回滚',
+    rollbackWaits: '上一版 {{ready}}/{{desired}} 就绪，回滚会等它全部就绪后再切流量，期间流量留在当前版本。',
     rollbackTo: '流量切回：',
     rollbackHint: '上一版的 Pod 还在运行（保留到 {{at}}），切回不用等新 Pod。这次回滚撤销发布单 {{id}}，观察期内免审批，会记审计并按规则通知。',
     endAll: '全部结束观察（{{count}}）',

@@ -68,7 +68,7 @@ func TestRollbackIsRefusedOutsideTheWindow(t *testing.T) {
 	}{
 		{"nothing kept", nil, rel, bgNew, "r.noWindow"},
 		{"past the deadline", []executor.Retained{bgKept(now.Add(-time.Second), 2, img)}, rel, bgNew, "r.windowNotUsable"},
-		{"a pod not ready", []executor.Retained{bgKept(now.Add(time.Minute), 1, img)}, rel, bgNew, "r.windowNotUsable"},
+		{"no pod ready", []executor.Retained{bgKept(now.Add(time.Minute), 0, img)}, rel, bgNew, "r.windowNotUsable"},
 		{"two Rollouts", []executor.Retained{bgKept(now.Add(time.Minute), 2, img),
 			{Rollout: "other", Until: now.Add(time.Minute), Replicas: 1, Ready: 1}}, rel, bgNew, "r.rollbackSeveral"},
 		{"no release on record", []executor.Retained{bgKept(now.Add(time.Minute), 2, img)}, nil, bgNew, "r.rollbackNoRelease"},
@@ -101,6 +101,18 @@ func TestRollbackFindsTheRightOneAmongSeveralKept(t *testing.T) {
 	kept := []executor.Retained{older, bgKept(now.Add(4*time.Minute), 2, "registry.example.com/shop/order@"+bgOld)}
 	offer, _, err := decideRollback(now, kept, bgRelease(from, bgNew, release.ItemSucceeded), "order", bgNew)
 	if err != nil || offer.To.Digest != bgOld || !offer.Until.Equal(kept[1].Until) {
+		t.Errorf("offer %+v, err %v", offer, err)
+	}
+}
+
+// An autoscaler growing the Rollout during the window grows the kept version
+// too; a pod of it still starting does not take the rollback away.
+func TestRollbackIsOfferedWhileAKeptPodIsStarting(t *testing.T) {
+	now := time.Now()
+	from := &release.Artifact{Digest: bgOld, Tag: "v1"}
+	kept := []executor.Retained{bgKept(now.Add(5*time.Minute), 1, "registry.example.com/shop/order@"+bgOld)}
+	offer, _, err := decideRollback(now, kept, bgRelease(from, bgNew, release.ItemSucceeded), "order", bgNew)
+	if err != nil || offer.To.Digest != bgOld {
 		t.Errorf("offer %+v, err %v", offer, err)
 	}
 }

@@ -865,6 +865,7 @@ const en: Messages = {
     ended: 'Window ended; the previous version is scaling down',
     rollbackTitle: 'Roll back {{service}}',
     rolledBack: 'Rollback started',
+    rollbackWaits: 'The previous version has {{ready}}/{{desired}} ready. The rollback switches back once all of it is ready; until then traffic stays on the current version.',
     rollbackTo: 'Traffic goes back to:',
     rollbackHint: "The previous version's pods are still running (kept until {{at}}), so switching back waits for no new pods. This rollback undoes release {{id}}; inside the window it needs no approval, and it is audited and notified as usual.",
     endAll: 'End all windows ({{count}})',

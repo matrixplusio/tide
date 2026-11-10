@@ -128,7 +128,13 @@ func (a *API) planRollback(ctx context.Context, c *catalog.Clients, d *catalog.D
 			return nil, err
 		}
 	}
-	offer, last, err := decideRollback(time.Now(), kept, rel, d.Service, d.Digest)
+	running := d.Digest
+	if p := lastImage(rel, d.Service); p != nil {
+		if running, err = executor.RunningDigest(ctx, c, p.Project, p.Stage, p.Image); err != nil {
+			return nil, err
+		}
+	}
+	offer, last, err := decideRollback(time.Now(), kept, rel, d.Service, running)
 	if err != nil {
 		return nil, err
 	}
@@ -164,14 +170,7 @@ func decideRollback(now time.Time, kept []executor.Retained, rel *release.Releas
 	case len(usable) == 0:
 		return RollbackOffer{}, nil, errcode.NewKey(errcode.Conflict, "r.windowNotUsable")
 	}
-	var last *release.ImagePayload
-	if rel != nil {
-		for _, it := range rel.Items {
-			if p, err := rel.ImagePayload(it); err == nil && p.Service == service && it.Status == release.ItemSucceeded {
-				last = p
-			}
-		}
-	}
+	last := lastImage(rel, service)
 	switch {
 	case last == nil:
 		return RollbackOffer{}, nil, errcode.NewKey(errcode.Conflict, "r.rollbackNoRelease")
@@ -192,6 +191,20 @@ func decideRollback(now time.Time, kept []executor.Retained, rel *release.Releas
 		return RollbackOffer{}, nil, errcode.NewKey(errcode.Conflict, "r.rollbackNotRetained", labelArtifact(*last.From))
 	}
 	return RollbackOffer{To: *last.From, ReleaseID: rel.ID, Until: usable[i].Until}, last, nil
+}
+
+// lastImage is service's succeeded image item in rel, nil when it has none.
+func lastImage(rel *release.Release, service string) *release.ImagePayload {
+	if rel == nil {
+		return nil
+	}
+	var last *release.ImagePayload
+	for _, it := range rel.Items {
+		if p, err := rel.ImagePayload(it); err == nil && p.Service == service && it.Status == release.ItemSucceeded {
+			last = p
+		}
+	}
+	return last
 }
 
 func labelArtifact(a release.Artifact) string {

@@ -99,9 +99,8 @@ func TestOnlyTheMarkedPreviousVersionIsRetained(t *testing.T) {
 	}
 }
 
-// Past its deadline, or with pods not all ready, the previous version is
-// still there but cannot take the traffic back at once: a rollback then is
-// not the switch the window promises.
+// Past its deadline, or with no pod ready, the previous version cannot take
+// the traffic back: a rollback then is not the switch the window promises.
 func TestARetainedVersionIsUsableOnlyReadyAndInTime(t *testing.T) {
 	now := time.Now()
 	r := Retained{Until: now.Add(time.Minute), Replicas: 3, Ready: 3}
@@ -111,9 +110,15 @@ func TestARetainedVersionIsUsableOnlyReadyAndInTime(t *testing.T) {
 	if r.Usable(now.Add(2 * time.Minute)) {
 		t.Error("past the deadline")
 	}
+	// An autoscaler growing the Rollout grows the kept ReplicaSet too; one
+	// pod still starting is no reason to refuse, the controller waits for it.
 	r.Ready = 2
+	if !r.Usable(now) {
+		t.Error("one pod still starting")
+	}
+	r.Ready = 0
 	if r.Usable(now) {
-		t.Error("one pod not ready")
+		t.Error("no pod ready")
 	}
 }
 
@@ -152,11 +157,16 @@ func TestARollbackIsRefusedOnceTheWindowHasClosed(t *testing.T) {
 	}
 	closed := ok
 	closed.Until = now.Add(-time.Second)
+	starting := ok
+	starting.Ready = 1
+	if err := stillKept([]Retained{starting}, to, now); err != nil {
+		t.Errorf("one of two pods still starting: %v", err)
+	}
 	notReady := ok
-	notReady.Ready = 1
+	notReady.Ready = 0
 	other := ok
 	other.Images = []string{"registry.example.com/shop/order:other"}
-	for name, kept := range map[string][]Retained{"nothing kept": nil, "past the deadline": {closed}, "a pod not ready": {notReady}, "another version": {other}} {
+	for name, kept := range map[string][]Retained{"nothing kept": nil, "past the deadline": {closed}, "no pod ready": {notReady}, "another version": {other}} {
 		if err := stillKept(kept, to, now); err == nil {
 			t.Errorf("%s: want refused", name)
 		}
