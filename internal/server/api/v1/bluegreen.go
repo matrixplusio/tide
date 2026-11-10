@@ -174,6 +174,11 @@ func decideRollback(now time.Time, kept []executor.Retained, rel *release.Releas
 	switch {
 	case last == nil:
 		return RollbackOffer{}, nil, errcode.NewKey(errcode.Conflict, "r.rollbackNoRelease")
+	case last.RollbackOf != "":
+		// What is kept now is the version just rolled back away from, because
+		// something was wrong with it. Putting it back is not the quick way
+		// out the exemption is for; it goes through an ordinary release.
+		return RollbackOffer{}, nil, errcode.NewKey(errcode.Conflict, "r.rollbackAfterRollback")
 	case last.From == nil:
 		return RollbackOffer{}, nil, errcode.NewKey(errcode.Conflict, "r.rollbackFirstDeploy")
 	case last.To.Digest == "" || last.To.Digest != running:

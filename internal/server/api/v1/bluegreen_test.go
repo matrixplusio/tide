@@ -28,6 +28,14 @@ func bgRelease(from *release.Artifact, to string, status release.ItemStatus) *re
 	return &release.Release{ID: "R-1", Items: []release.Item{{ID: 1, Kind: release.KindImage, Status: status, Payload: p}}}
 }
 
+// bgRollbackRelease is a rollback that succeeded: what it switched away from
+// is now the version kept.
+func bgRollbackRelease(from *release.Artifact, to string) *release.Release {
+	p, _ := json.Marshal(release.ImagePayload{Service: "order", Env: "uat", Project: "shop", Stage: "order-uat",
+		Image: "registry.example.com/shop/order", From: from, To: release.Artifact{Digest: to, Tag: "v2"}, RollbackOf: "R-0"})
+	return &release.Release{ID: "R-1", Items: []release.Item{{ID: 1, Kind: release.KindImage, Status: release.ItemSucceeded, Payload: p}}}
+}
+
 func bgKept(until time.Time, ready int64, images ...string) executor.Retained {
 	return executor.Retained{Rollout: "order", ReplicaSet: "order-old", Until: until, Replicas: 2, Ready: ready, Images: images}
 }
@@ -82,6 +90,8 @@ func TestRollbackIsRefusedOutsideTheWindow(t *testing.T) {
 			"registry.example.com/shop/order@sha256:4444444444444444444444444444444444444444444444444444444444444444")}, rel, bgNew, "r.rollbackNotRetained"},
 		{"previous version known by tag only", []executor.Retained{bgKept(now.Add(time.Minute), 2, "registry.example.com/shop/order:v1")},
 			bgRelease(&release.Artifact{Tag: "v1"}, bgNew, release.ItemSucceeded), bgNew, "r.rollbackNotRetained"},
+		{"the last release was itself a rollback", []executor.Retained{bgKept(now.Add(time.Minute), 2, img)},
+			bgRollbackRelease(from, bgNew), bgNew, "r.rollbackAfterRollback"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
