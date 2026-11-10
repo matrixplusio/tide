@@ -87,8 +87,6 @@ export interface Environment {
   promotesFrom: string
   /** What a build pipeline's webhook may do here. */
   ci: CIMode
-  /** How long a blue-green service keeps the previous version after switching; 0/absent = 30. */
-  blueGreenWindowMinutes?: number
 }
 
 /** off: refuse CI releases. notify: only have the new image found, release
@@ -346,8 +344,6 @@ export interface KargoDomain {
 export interface KargoResult {
   domains: KargoDomain[]
   skipped: KargoSkipped[]
-  /** Services that got a pipeline with something left out. */
-  warnings?: KargoSkipped[]
   services: number
   warehouses: number
   stages: number

@@ -191,23 +191,6 @@ export function KargoGenPage() {
               </>
             )}
 
-            {(result.warnings ?? []).length > 0 && (
-              <>
-                <GroupHeader right={String((result.warnings ?? []).length)}>{t('kargogen.warnings')}</GroupHeader>
-                <Group>
-                  {(result.warnings ?? []).map((s, i) => (
-                    <div className="row warn" key={`${s.service}-${s.env ?? ''}-${i}`}>
-                      <span className="fname mono">
-                        {s.service}
-                        {s.env ? ` · ${s.env}` : ''}
-                      </span>
-                      <span className="d">{s.reason}</span>
-                    </div>
-                  ))}
-                </Group>
-              </>
-            )}
-
             {!generated ? (
               <EmptyState>{t('kargogen.nothing')}</EmptyState>
             ) : (

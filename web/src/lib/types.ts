@@ -596,10 +596,10 @@ export interface Retained {
 
 /** A service's blue-green state in one environment. */
 export interface BlueGreenState {
-  /** The environment's window, what Kargo writes. */
+  /** The live Rollout's scaleDownDelaySeconds; 0 when it names none. */
   windowSeconds: number
   rollouts: RolloutState[]
-  /** A Rollout's manifest disagrees with the setting. */
+  /** A Rollout waits for a person to switch it. */
   drift: boolean
   retained: Retained[]
   /** What a rollback would put back, when it can be done now. */

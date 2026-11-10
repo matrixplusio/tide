@@ -671,9 +671,6 @@ func validateEnvironments(s *settings.Environments, ups settings.Upstreams, add 
 		if !slices.Contains(settings.CIModes, e.CI) {
 			add(validate.FieldKey(f("ci"), "s.ciModeEnum"))
 		}
-		if e.BlueGreenWindowMinutes < 0 || e.BlueGreenWindowMinutes > settings.MaxBlueGreenWindowMinutes {
-			add(validate.FieldKey(f("blueGreenWindowMinutes"), "s.blueGreenWindowRange", settings.MaxBlueGreenWindowMinutes))
-		}
 	}
 }
 

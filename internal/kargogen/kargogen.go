@@ -10,7 +10,6 @@ package kargogen
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
 	"tide/internal/catalog"
@@ -48,9 +47,6 @@ type Domain struct {
 type Result struct {
 	Domains []Domain  `json:"domains"`
 	Skipped []Skipped `json:"skipped"`
-	// Warnings are services that got a pipeline with something left out,
-	// and what. Same shape as Skipped, which is for services that got none.
-	Warnings []Skipped `json:"warnings"`
 	// Totals, so the page does not recompute what the generator already knows.
 	Services   int `json:"services"`
 	Warehouses int `json:"warehouses"`
@@ -119,25 +115,7 @@ type Options struct {
 	// elsewhere.
 	ServiceLabel string
 	EnvLabel     string
-	// Rollouts maps an Application to what its Argo Rollouts are, as git
-	// describes them (Rollout* constants); Applications without one are
-	// absent. A blue-green one is promoted by the blue-green task, which also
-	// writes the environment's window into the Rollout.
-	Rollouts map[string]string
 }
-
-// What an Application's Rollouts are, for Options.Rollouts.
-const (
-	RolloutBlueGreen = "blueGreen"
-	RolloutOther     = "other"
-	RolloutSeveral   = "several"
-)
-
-// RolloutFile is the file in a service's directory that holds a blue-green
-// Rollout. Fixed for the same reason as the replica count's file: the step
-// edits one named file, and a repository that keeps it elsewhere should say
-// so rather than have Tide guess.
-const RolloutFile = "rollout.yaml"
 
 // projectName is what the Kargo project is called: the domain, optionally
 // behind the business line it belongs to.
@@ -187,14 +165,10 @@ func (o Options) withDefaults() Options {
 func Generate(snap *catalog.Snapshot, envs settings.Environments, opts Options) Result {
 	opts = opts.withDefaults()
 	order := envs.Order()
-	windows := map[string]int{}
-	for _, e := range envs.Items {
-		windows[e.Name] = int(e.BlueGreenWindow().Seconds())
-	}
 	// Empty, not nil: a nil slice marshals to `null`, and a caller that was
 	// promised a list and handed null has to defend against it everywhere or
 	// crash somewhere. The zero case is "no domains", not "no answer".
-	res := Result{Domains: []Domain{}, Skipped: []Skipped{}, Warnings: []Skipped{}}
+	res := Result{Domains: []Domain{}, Skipped: []Skipped{}}
 
 	// Group by domain first: a domain becomes a Kargo project, and a project
 	// is the unit everything else is written into.
@@ -222,9 +196,8 @@ func Generate(snap *catalog.Snapshot, envs settings.Environments, opts Options) 
 	}
 
 	for _, name := range sortedKeys(byDomain) {
-		files, skipped, warnings, counts := generateDomain(name, byDomain[name], order, windows, opts)
+		files, skipped, counts := generateDomain(name, byDomain[name], order, opts)
 		res.Skipped = append(res.Skipped, skipped...)
-		res.Warnings = append(res.Warnings, warnings...)
 		if counts.services == 0 {
 			continue
 		}
@@ -242,10 +215,9 @@ func Generate(snap *catalog.Snapshot, envs settings.Environments, opts Options) 
 
 type counts struct{ services, warehouses, stages int }
 
-func generateDomain(domain string, services []catalog.Service, order []string, windows map[string]int, opts Options) ([]File, []Skipped, []Skipped, counts) {
-	var skipped, warnings []Skipped
+func generateDomain(domain string, services []catalog.Service, order []string, opts Options) ([]File, []Skipped, counts) {
+	var skipped []Skipped
 	var c counts
-	blueGreen := false
 	var warehouses, stages []string
 
 	sort.Slice(services, func(i, j int) bool { return services[i].Name < services[j].Name })
@@ -300,44 +272,23 @@ func generateDomain(domain string, services []catalog.Service, order []string, w
 				if i > 0 {
 					from = stageName(svc.Name, ln.envs[i-1].Env)
 				}
-				// Zero: the plain task. Seconds: the blue-green one, with
-				// the window to write.
-				window := 0
-				switch opts.Rollouts[d.App] {
-				case RolloutBlueGreen:
-					window = windows[d.Env]
-					blueGreen = true
-				case RolloutSeveral:
-					warnings = append(warnings, Skipped{Service: svc.Name, Env: d.Env,
-						Reason: "several Rollouts, so the blue-green window is not written; set it in each by hand"})
-				}
-				stages = append(stages, stageYAML(svc.Name, name, domain, d, from, window, opts))
+				stages = append(stages, stageYAML(svc.Name, name, domain, d, from, opts))
 				c.stages++
 			}
 		}
 	}
 	if c.services == 0 {
-		return nil, skipped, warnings, c
+		return nil, skipped, c
 	}
 
 	files := []File{
 		{Path: domain + "/project.yaml", YAML: projectYAML(domain)},
 		{Path: domain + "/promotion-task.yaml", YAML: taskYAML(domain, opts.TaskName, opts.ImageName)},
+		{Path: domain + "/warehouses.yaml", YAML: strings.Join(warehouses, "---\n")},
+		{Path: domain + "/stages.yaml", YAML: strings.Join(stages, "---\n")},
 	}
-	// Its own file, written only where a stage uses it: a project with no
-	// blue-green service comes out exactly as before.
-	if blueGreen {
-		files = append(files, File{Path: domain + "/promotion-task-bluegreen.yaml",
-			YAML: blueGreenTaskYAML(domain, blueGreenTask(opts.TaskName), opts.ImageName)})
-	}
-	files = append(files,
-		File{Path: domain + "/warehouses.yaml", YAML: strings.Join(warehouses, "---\n")},
-		File{Path: domain + "/stages.yaml", YAML: strings.Join(stages, "---\n")},
-	)
-	return files, skipped, warnings, c
+	return files, skipped, c
 }
-
-func blueGreenTask(task string) string { return task + "-bluegreen" }
 
 func stageName(service, env string) string { return service + "-" + env }
 
@@ -397,38 +348,6 @@ func projectYAML(domain string) string {
 // own schedule, up to its reconciliation interval. A webhook from the git
 // host removes that delay and is worth having for its own sake.
 func taskYAML(domain, name, imageName string) string {
-	return promotionTask(domain, name, imageName, "", "")
-}
-
-// blueGreenTaskYAML is the promotion task for a blue-green service: the same
-// as taskYAML, and in the same commit as the new tag it writes the
-// environment's window into the Rollout and turns automatic promotion on.
-//
-// In the same commit because the two must arrive together. A window written
-// on its own would reach the cluster as a sync with nothing to promote, and
-// a tag written without it would be switched under whatever the file said
-// before — the hand-set value this exists to replace.
-//
-// Neither field is in the pod template, so writing them starts no pods.
-func blueGreenTaskYAML(domain, name, imageName string) string {
-	vars := "\n    - name: scaleDownDelaySeconds"
-	// int(): a stage variable is a string, and the expression has to be the
-	// whole value for its type to survive, or the Rollout gets "1800" where
-	// it wants 1800 and the controller rejects it.
-	step := fmt.Sprintf(`    - uses: yaml-update
-      as: update-window
-      config:
-        path: ./repo/${{ vars.appPath }}/%s
-        updates:
-          - key: spec.strategy.blueGreen.autoPromotionEnabled
-            value: true
-          - key: spec.strategy.blueGreen.scaleDownDelaySeconds
-            value: ${{ int(vars.scaleDownDelaySeconds) }}
-`, RolloutFile)
-	return promotionTask(domain, name, imageName, vars, step)
-}
-
-func promotionTask(domain, name, imageName, extraVars, extraStep string) string {
 	// Naming the entry also means renaming it: the entry carries the registry
 	// path for every manifest under it, so setting the tag without newName
 	// would leave whatever the entry was renamed to last, and the image would
@@ -448,7 +367,7 @@ spec:
     - name: branch
     - name: imageRepo
     - name: appPath
-    - name: appName%s
+    - name: appName
   steps:
     - uses: git-clone
       config:
@@ -463,7 +382,7 @@ spec:
         images:
           - image: ${{ vars.imageRepo }}%s
             tag: ${{ imageFrom(vars.imageRepo).Tag }}
-%s    - uses: git-commit
+    - uses: git-commit
       as: commit
       config:
         path: ./repo
@@ -471,7 +390,7 @@ spec:
     - uses: git-push
       config:
         path: ./repo
-`, name, domain, extraVars, rename, extraStep)
+`, name, domain, rename)
 }
 
 func warehouseYAML(service, domain, image string, opts Options) string {
@@ -512,10 +431,7 @@ spec:
 // empty means it takes freight straight from the warehouse, which is what the
 // environment a pipeline pushes to must do — a stage fed by another stage can
 // never receive a freshly built image.
-//
-// window is the blue-green window in seconds, zero for a service promoted by
-// the plain task.
-func stageYAML(service, warehouse, domain string, d *catalog.Deployment, from string, window int, opts Options) string {
+func stageYAML(service, warehouse, domain string, d *catalog.Deployment, from string, opts Options) string {
 	sources := "        direct: true"
 	if from != "" {
 		sources = "        stages:\n          - " + from
@@ -523,11 +439,6 @@ func stageYAML(service, warehouse, domain string, d *catalog.Deployment, from st
 	branch := d.Revision
 	if branch == "" {
 		branch = "main"
-	}
-	task, extra := opts.TaskName, ""
-	if window > 0 {
-		task = blueGreenTask(opts.TaskName)
-		extra = fmt.Sprintf("\n            - name: scaleDownDelaySeconds\n              value: %q", strconv.Itoa(window))
 	}
 	return fmt.Sprintf(`apiVersion: kargo.akuity.io/v1alpha1
 kind: Stage
@@ -559,11 +470,11 @@ spec:
             - name: appPath
               value: %s
             - name: appName
-              value: %s%s
+              value: %s
 `, stageName(service, d.Env), domain,
 		opts.ServiceLabel, service, opts.EnvLabel, d.Env,
-		warehouse, sources, task,
-		d.Repo, branch, d.Image, d.RepoPath, d.App, extra)
+		warehouse, sources, opts.TaskName,
+		d.Repo, branch, d.Image, d.RepoPath, d.App)
 }
 
 func sortedKeys[V any](m map[string]V) []string {

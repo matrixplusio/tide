@@ -12,7 +12,6 @@ import (
 	"tide/internal/catalog"
 	"tide/internal/plan"
 	"tide/internal/release"
-	"tide/internal/settings"
 	"tide/internal/upstream/argocd"
 	"tide/internal/upstream/kargo"
 )
@@ -20,9 +19,6 @@ import (
 // Image promotes Kargo Freight to a Stage.
 type Image struct {
 	Hub *catalog.Hub
-	// Settings gives the blue-green window a promotion writes; nil in tests
-	// that do not need it.
-	Settings *settings.Store
 }
 
 func (Image) Kind() string { return release.KindImage }

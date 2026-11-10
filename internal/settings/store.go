@@ -382,29 +382,6 @@ type Environment struct {
 	// for a person to confirm, CIAuto starts it without one. An approval rule
 	// still applies under CIAuto.
 	CI string `json:"ci"`
-	// BlueGreenWindowMinutes is how long a blue-green service keeps the
-	// previous version running after traffic moves to the new one: the
-	// window in which rolling back is a switch rather than a fresh start.
-	// Zero means the default. Kargo writes it into the Rollout with every
-	// promotion, so it is set here once instead of by hand in each manifest,
-	// where it drifted.
-	BlueGreenWindowMinutes int `json:"blueGreenWindowMinutes,omitempty"`
-}
-
-// Bounds for Environment.BlueGreenWindowMinutes. A day is the ceiling because
-// the window costs a second full set of replicas for as long as it lasts.
-const (
-	DefaultBlueGreenWindowMinutes = 30
-	MaxBlueGreenWindowMinutes     = 24 * 60
-)
-
-// BlueGreenWindow is the window with the default filled in.
-func (e Environment) BlueGreenWindow() time.Duration {
-	m := e.BlueGreenWindowMinutes
-	if m <= 0 {
-		m = DefaultBlueGreenWindowMinutes
-	}
-	return time.Duration(m) * time.Minute
 }
 
 // CI modes for Environment.CI. Empty means CIOff: an environment takes CI

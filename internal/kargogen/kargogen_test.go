@@ -516,86 +516,21 @@ func TestGenerateForOneUpstream(t *testing.T) {
 	}
 }
 
-// A blue-green service is promoted by its own task, which writes the window in
-// the same commit as the tag; every other service in the project keeps the
-// plain task, and a project with no blue-green service gets no second file.
-func TestBlueGreenServiceGetsTheWindowTask(t *testing.T) {
-	e := envs("dev", "qa", "uat")
-	e.Items[2].BlueGreenWindowMinutes = 10
-	snap := &catalog.Snapshot{Services: []catalog.Service{
-		svc("order-api", "trade", dep("dev"), dep("uat")),
-		svc("pay", "trade", &catalog.Deployment{Env: "uat", App: "pay-uat", Workload: true,
-			Image: "registry.example.com/acme/pay", Repo: "https://git.example.com/acme/k8s-apps.git",
-			RepoPath: "acme/trade/pay/uat", Revision: "main"}),
-	}}
-	r := Generate(snap, e, Options{Rollouts: map[string]string{
-		"order-api-uat": RolloutBlueGreen,
-		"pay-uat":       RolloutOther, // a canary: no blue-green fields may be written
-	}})
-
-	task := find(t, r, "trade/promotion-task-bluegreen.yaml")
-	for _, want := range []string{
-		"name: promote-image-bluegreen",
-		"- name: scaleDownDelaySeconds",
-		"uses: yaml-update",
-		"path: ./repo/${{ vars.appPath }}/rollout.yaml",
-		"key: spec.strategy.blueGreen.autoPromotionEnabled\n            value: true",
-		"key: spec.strategy.blueGreen.scaleDownDelaySeconds\n            value: ${{ int(vars.scaleDownDelaySeconds) }}",
-	} {
-		if !strings.Contains(task, want) {
-			t.Errorf("blue-green task lacks %q:\n%s", want, task)
+// A blue-green service is promoted like any other: the promotion moves the
+// tag and nothing else. How long the previous version is kept, and whether the
+// switch is automatic, belong to the manifests, which those who run the
+// cluster keep; a pipeline that wrote them too would be a second owner.
+func TestABlueGreenServiceGetsThePlainTask(t *testing.T) {
+	snap := &catalog.Snapshot{Services: []catalog.Service{svc("order-api", "trade", dep("dev"), dep("uat"))}}
+	r := Generate(snap, envs("dev", "uat"), Options{})
+	for _, f := range r.Files() {
+		if f.Path == "trade/promotion-task-bluegreen.yaml" {
+			t.Errorf("a blue-green task is still generated")
 		}
-	}
-	// One commit: the window step sits between the tag and the commit.
-	if i, j, k := strings.Index(task, "kustomize-set-image"), strings.Index(task, "yaml-update"), strings.Index(task, "git-commit"); i >= j || j >= k {
-		t.Errorf("steps out of order: set-image %d, yaml-update %d, commit %d", i, j, k)
-	}
-	if plain := find(t, r, "trade/promotion-task.yaml"); strings.Contains(plain, "yaml-update") {
-		t.Errorf("plain task changed:\n%s", plain)
-	}
-
-	stages := strings.Split(find(t, r, "trade/stages.yaml"), "---\n")
-	byName := map[string]string{}
-	for _, s := range stages {
-		for _, n := range []string{"order-api-dev", "order-api-uat", "pay-uat"} {
-			if strings.Contains(s, "name: "+n+"\n") {
-				byName[n] = s
+		for _, banned := range []string{"yaml-update", "scaleDownDelaySeconds", "autoPromotionEnabled"} {
+			if strings.Contains(f.YAML, banned) {
+				t.Errorf("%s writes %s:\n%s", f.Path, banned, f.YAML)
 			}
 		}
-	}
-	if s := byName["order-api-uat"]; !strings.Contains(s, "name: promote-image-bluegreen") ||
-		!strings.Contains(s, "- name: scaleDownDelaySeconds\n              value: \"600\"") {
-		t.Errorf("blue-green stage should use the window task with 600s:\n%s", s)
-	}
-	for _, n := range []string{"order-api-dev", "pay-uat"} {
-		if s := byName[n]; strings.Contains(s, "bluegreen") || strings.Contains(s, "scaleDownDelaySeconds") {
-			t.Errorf("%s is not blue-green and must keep the plain task:\n%s", n, s)
-		}
-	}
-}
-
-// An environment that never set a window gets the default, not zero: zero
-// would mean the plain task, and the service would silently fall back to
-// whatever its manifest says.
-func TestBlueGreenWindowDefaultsToThirtyMinutes(t *testing.T) {
-	snap := &catalog.Snapshot{Services: []catalog.Service{svc("order-api", "trade", dep("uat"))}}
-	r := Generate(snap, envs("uat"), Options{Rollouts: map[string]string{"order-api-uat": RolloutBlueGreen}})
-	if s := find(t, r, "trade/stages.yaml"); !strings.Contains(s, "value: \"1800\"") {
-		t.Errorf("want the 30-minute default:\n%s", s)
-	}
-}
-
-// Two Rollouts in one Application: the step edits one file and there is no
-// telling which Rollout it holds, so nothing is written — and the page says so.
-func TestSeveralRolloutsAreWarnedNotGuessed(t *testing.T) {
-	snap := &catalog.Snapshot{Services: []catalog.Service{svc("order-api", "trade", dep("uat"))}}
-	r := Generate(snap, envs("uat"), Options{Rollouts: map[string]string{"order-api-uat": RolloutSeveral}})
-	for _, f := range r.Files() {
-		if strings.Contains(f.YAML, "bluegreen") {
-			t.Errorf("%s uses the blue-green task", f.Path)
-		}
-	}
-	if len(r.Warnings) != 1 || r.Warnings[0].Service != "order-api" || r.Warnings[0].Env != "uat" {
-		t.Errorf("want one warning for order-api/uat, got %+v", r.Warnings)
 	}
 }

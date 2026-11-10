@@ -143,7 +143,6 @@ var enSettings = map[Key]string{ //nolint:gosec // G101: message templates, not 
 	"s.envNameRequired":      "Enter the environment's name",
 	"s.envNotFound":          "No environment named %s",
 	"s.ciModeEnum":           "The CI trigger mode must be off, approve or auto",
-	"s.blueGreenWindowRange": "The blue-green window must be between 0 (the 30-minute default) and %d minutes",
 	"s.envsRequired":         "Pick the environments this applies to",
 	"s.eventUnknown":         "Unknown event %s",
 	"s.eventsRequired":       "Pick at least one event",

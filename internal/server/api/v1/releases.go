@@ -501,6 +501,11 @@ type ItemLive struct {
 	Retained []executor.Retained `json:"retained,omitempty"`
 }
 
+// liveViewFor is how long after it finished a release page still shows the
+// cluster. A day: past any blue-green window worth keeping, since the window
+// costs a second set of replicas for as long as it lasts.
+const liveViewFor = 24 * time.Hour
+
 func (a *API) getRelease(c *gin.Context) {
 	p := newParams(c)
 	id := p.releaseID()
@@ -537,15 +542,11 @@ func (a *API) getRelease(c *gin.Context) {
 	// each build carried with it. No credential and no call to any host.
 	out["changes"] = changesFor(rel, raw)
 	// Live view only while it matters; history renders from stored state.
-	// A blue-green window can outlast that, and the page is where it is
-	// ended from.
-	keep := 2 * time.Hour
-	if envs, err := a.Settings.Environments(c.Request.Context()); err == nil {
-		if e, ok := envs.Named(rel.Env); ok {
-			keep = max(keep, e.BlueGreenWindow())
-		}
-	}
-	recent := rel.FinishedAt != nil && time.Since(*rel.FinishedAt) < keep
+	// A blue-green window can outlast a release by hours, and the page is
+	// where it is ended from. Its length is set in the manifests, not known
+	// here, so this allows for a long one; reading costs nothing until
+	// somebody opens the page.
+	recent := rel.FinishedAt != nil && time.Since(*rel.FinishedAt) < liveViewFor
 	if withLive && (rel.Status == release.Executing || recent) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), upstreamTimeout)
 		defer cancel()

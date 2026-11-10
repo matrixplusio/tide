@@ -14,17 +14,7 @@ import (
 // unifiedDiff is an image line, and at least one is — what a promotion does
 // to a workload and nothing else. A release that syncs for itself uses it to
 // tell the change it made from one somebody else left in the same manifest.
-func OnlyImageChanged(diff string) bool { return OnlyPromotionChanged(diff, nil) }
-
-// OnlyPromotionChanged is OnlyImageChanged that also lets through the lines
-// in also: whole "key: value" lines a promotion is known to write besides the
-// image — the blue-green task's window, say. Only that exact value may be
-// added; the line it replaces may say anything, since it is what goes away.
-//
-// The image need not change in the same object: a Rollout that adopts a
-// Deployment carries no pod template, so the promotion changes the image on
-// the Deployment and only these lines on the Rollout.
-func OnlyPromotionChanged(diff string, also []string) bool {
+func OnlyImageChanged(diff string) bool {
 	n := 0
 	for _, line := range strings.Split(diff, "\n") {
 		if line == "" || (line[0] != '+' && line[0] != '-') {
@@ -32,26 +22,12 @@ func OnlyPromotionChanged(diff string, also []string) bool {
 		}
 		// "- " is the list marker when image is a container's first key.
 		text := strings.TrimPrefix(strings.TrimSpace(line[1:]), "- ")
-		if strings.HasPrefix(text, "image:") {
-			n++
-			continue
-		}
-		if !allowedLine(line[0], text, also) {
+		if !strings.HasPrefix(text, "image:") {
 			return false
 		}
 		n++
 	}
 	return n > 0
-}
-
-func allowedLine(sign byte, text string, also []string) bool {
-	for _, want := range also {
-		key, _, _ := strings.Cut(want, ":")
-		if sign == '+' && text == want || sign == '-' && strings.HasPrefix(text, key+":") {
-			return true
-		}
-	}
-	return false
 }
 
 // Diff limits keep a release row small; the full diff is always in Argo CD.

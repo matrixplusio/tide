@@ -148,7 +148,6 @@ var zhCNSettings = map[Key]string{ //nolint:gosec // G101: message templates, no
 	"s.envNameRequired":      "请填写环境名",
 	"s.envNotFound":          "环境 %s 不存在",
 	"s.ciModeEnum":           "CI 触发方式只能是 off / approve / auto",
-	"s.blueGreenWindowRange": "蓝绿观察期要在 0（用默认 30 分钟）到 %d 分钟之间",
 	"s.envsRequired":         "请选择适用的环境",
 	"s.eventUnknown":         "未知的事件 %s",
 	"s.eventsRequired":       "至少选择一个事件",

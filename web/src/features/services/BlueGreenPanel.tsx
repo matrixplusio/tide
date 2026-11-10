@@ -19,7 +19,6 @@ export function BlueGreenPanel({ service, env, bg, error, canAct }: { service: s
   const [asking, setAsking] = useState<'end' | 'rollback' | null>(null)
   if (!bg && !error) return null
   const minutes = bg ? Math.round(bg.windowSeconds / 60) : 0
-  const live = bg?.rollouts.find((r) => r.scaleDownDelaySeconds !== undefined)
   const kept = bg?.retained ?? []
   const offer = bg?.rollback
   // The kept version can be part-way up while an autoscaler grows it; the
@@ -40,13 +39,11 @@ export function BlueGreenPanel({ service, env, bg, error, canAct }: { service: s
         {bg && (
           <>
             <KV k={t('bluegreen.window')}>
-              {t('bluegreen.minutes', { count: minutes })}
-              {bg.drift && live && (
+              {bg.windowSeconds > 0 ? t('bluegreen.minutes', { count: minutes }) : t('bluegreen.unknown')}
+              {bg.drift && (
                 <>
                   {' '}
-                  <Pill tone="orange">
-                    {live.autoPromotion === false ? t('bluegreen.driftManual') : t('bluegreen.driftDelay', { count: Math.round((live.scaleDownDelaySeconds ?? 0) / 60) })}
-                  </Pill>
+                  <Pill tone="orange">{t('bluegreen.driftManual')}</Pill>
                 </>
               )}
             </KV>

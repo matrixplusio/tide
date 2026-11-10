@@ -46,7 +46,7 @@ func TestOnlyAnOperationAfterThePromotionIsThisReleasesSync(t *testing.T) {
 }
 
 func TestAnImageOnlyChangeIsSyncedWithoutDeleting(t *testing.T) {
-	prune, err := approveSync(nil, []release.ResourceChange{change(release.ChangeUpdate, "Deployment", "order", imageDiff)}, false, nil)
+	prune, err := approveSync(nil, []release.ResourceChange{change(release.ChangeUpdate, "Deployment", "order", imageDiff)}, false)
 	if err != "" || prune {
 		t.Fatalf("got prune=%v err=%v, want a plain sync", prune, err)
 	}
@@ -63,7 +63,7 @@ func TestAChangeTheReleaseNeverShowedStopsTheSync(t *testing.T) {
 		"a workload nobody listed":    {image, change(release.ChangeCreate, "Deployment", "extra", "+kind: Deployment\n")},
 	}
 	for name, pending := range cases {
-		if _, err := approveSync(nil, pending, true, nil); err == "" {
+		if _, err := approveSync(nil, pending, true); err == "" {
 			t.Errorf("%s: the sync was approved", name)
 		}
 	}
@@ -72,10 +72,10 @@ func TestAChangeTheReleaseNeverShowedStopsTheSync(t *testing.T) {
 func TestAReviewedChangeThatMovedSinceStopsTheSync(t *testing.T) {
 	recorded := []release.ResourceChange{change(release.ChangeUpdate, "ConfigMap", "order", "+a: b\n")}
 	pending := []release.ResourceChange{change(release.ChangeUpdate, "ConfigMap", "order", "+a: c\n")}
-	if _, err := approveSync(recorded, pending, true, nil); err == "" {
+	if _, err := approveSync(recorded, pending, true); err == "" {
 		t.Fatal("a ConfigMap that changed after review was approved")
 	}
-	if _, err := approveSync(recorded, recorded, true, nil); err != "" {
+	if _, err := approveSync(recorded, recorded, true); err != "" {
 		t.Fatalf("the reviewed change itself was refused: %s", err)
 	}
 }
@@ -87,17 +87,17 @@ func TestDeletingNeedsToBeListedAndChosen(t *testing.T) {
 	image := change(release.ChangeUpdate, "Deployment", "order", imageDiff)
 	recorded, pending := []release.ResourceChange{del}, []release.ResourceChange{image, del}
 
-	if prune, err := approveSync(recorded, pending, true, nil); err != "" || !prune {
+	if prune, err := approveSync(recorded, pending, true); err != "" || !prune {
 		t.Errorf("listed and chosen: got prune=%v err=%v, want it deleted", prune, err)
 	}
-	if prune, err := approveSync(recorded, pending, false, nil); err != "" || prune {
+	if prune, err := approveSync(recorded, pending, false); err != "" || prune {
 		t.Errorf("listed but not chosen: got prune=%v err=%v, want it left alone", prune, err)
 	}
 }
 
 func TestANamespaceIsNeverDeleted(t *testing.T) {
 	ns := release.ResourceChange{Action: release.ChangeDelete, Kind: "Namespace", Name: "shop"}
-	if _, err := approveSync([]release.ResourceChange{ns}, []release.ResourceChange{ns}, true, nil); err == "" {
+	if _, err := approveSync([]release.ResourceChange{ns}, []release.ResourceChange{ns}, true); err == "" {
 		t.Fatal("deleting a namespace was approved")
 	}
 }
@@ -113,18 +113,5 @@ func TestTheSyncWaitsUntilArgoHasReadTheCommit(t *testing.T) {
 	}
 	if !seesTarget([]release.ResourceChange{change(release.ChangeUpdate, "Deployment", "order", imageDiff)}, target) {
 		t.Error("the workload changing to the target was not seen")
-	}
-}
-
-// The window lines are allowed on a Rollout only: on a Deployment the same
-// text is something somebody else wrote.
-func TestTheWindowIsAllowedOnARolloutOnly(t *testing.T) {
-	d := "-        image: r/x:v1\n+        image: r/x:v2\n-      scaleDownDelaySeconds: 60\n+      scaleDownDelaySeconds: 180\n"
-	also := []string{"autoPromotionEnabled: true", "scaleDownDelaySeconds: 180"}
-	if _, err := approveSync(nil, []release.ResourceChange{change(release.ChangeUpdate, "Rollout", "order", d)}, false, also); err != "" {
-		t.Errorf("rollout: %s", err)
-	}
-	if _, err := approveSync(nil, []release.ResourceChange{change(release.ChangeUpdate, "Deployment", "order", d)}, false, also); err == "" {
-		t.Error("deployment: the window lines must not pass")
 	}
 }

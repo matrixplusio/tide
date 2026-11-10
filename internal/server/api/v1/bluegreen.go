@@ -28,11 +28,13 @@ import (
 
 // BlueGreenView is a service's blue-green state in one environment.
 type BlueGreenView struct {
-	// WindowSeconds is the environment's setting, what Kargo writes.
+	// WindowSeconds is how long the Rollout keeps the previous version, as
+	// its live spec says; zero when it does not say. The manifests set it,
+	// not Tide.
 	WindowSeconds int                    `json:"windowSeconds"`
 	Rollouts      []executor.RolloutView `json:"rollouts"`
-	// Drift: a blue-green Rollout's manifest says something other than the
-	// setting — set by hand, or not promoted since the setting changed.
+	// Drift: a blue-green Rollout waits for a person to switch it, which
+	// Tide's flow does not expect.
 	Drift    bool                `json:"drift"`
 	Retained []executor.Retained `json:"retained"`
 	// Rollback is what rolling back would put back, when it can be done now;
@@ -47,6 +49,20 @@ type RollbackOffer struct {
 	// ReleaseID is the release whose switch it undoes.
 	ReleaseID string    `json:"releaseId"`
 	Until     time.Time `json:"until"`
+}
+
+// windowOf reads the window off the live blue-green Rollouts, zero when none
+// names one, and whether any of them is left for a person to switch.
+func windowOf(rs []executor.RolloutView) (seconds int, manual bool) {
+	for _, r := range rs {
+		if r.ScaleDownDelaySeconds != nil && seconds == 0 {
+			seconds = int(*r.ScaleDownDelaySeconds)
+		}
+		if r.AutoPromotion != nil && !*r.AutoPromotion {
+			manual = true
+		}
+	}
+	return seconds, manual
 }
 
 // blueGreenView reads it; nil for a service with no blue-green Rollout.
@@ -64,19 +80,7 @@ func (a *API) blueGreenView(ctx context.Context, d *catalog.Deployment) (*BlueGr
 	if len(v.Rollouts) == 0 {
 		return nil, nil
 	}
-	envs, err := a.Settings.Environments(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if e, ok := envs.Named(d.Env); ok {
-		v.WindowSeconds = int(e.BlueGreenWindow().Seconds())
-	}
-	for _, r := range v.Rollouts {
-		if r.ScaleDownDelaySeconds != nil && *r.ScaleDownDelaySeconds != int64(v.WindowSeconds) ||
-			r.AutoPromotion != nil && !*r.AutoPromotion {
-			v.Drift = true
-		}
-	}
+	v.WindowSeconds, v.Drift = windowOf(v.Rollouts)
 	c, err := a.Hub.Named(ctx, d.Upstream)
 	if err != nil {
 		return nil, err

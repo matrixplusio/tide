@@ -155,7 +155,6 @@ export const environmentsSchema = z
         upstream: z.string(),
         promotesFrom: z.string(),
         ci: z.enum(CI_MODES),
-        blueGreenWindowMinutes: intField(1, 1440),
       }),
     ),
   })

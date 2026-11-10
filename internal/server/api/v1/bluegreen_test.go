@@ -126,3 +126,19 @@ func TestRollbackIsOfferedWhileAKeptPodIsStarting(t *testing.T) {
 		t.Errorf("offer %+v, err %v", offer, err)
 	}
 }
+
+// The window shown is the one the live Rollout carries, since the manifests
+// set it; and the only thing flagged is a Rollout left to switch by hand.
+func TestTheWindowIsReadFromTheLiveRollout(t *testing.T) {
+	secs, yes, no := int64(600), true, false
+	w, drift := windowOf([]executor.RolloutView{{Strategy: "blueGreen", ScaleDownDelaySeconds: &secs, AutoPromotion: &yes}})
+	if w != 600 || drift {
+		t.Errorf("window %d drift %v, want 600 and no drift", w, drift)
+	}
+	if w, _ := windowOf([]executor.RolloutView{{Strategy: "blueGreen"}}); w != 0 {
+		t.Errorf("a Rollout that names no delay: window %d, want 0 (unknown)", w)
+	}
+	if _, drift := windowOf([]executor.RolloutView{{Strategy: "blueGreen", ScaleDownDelaySeconds: &secs, AutoPromotion: &no}}); !drift {
+		t.Error("switching by hand should be flagged")
+	}
+}
